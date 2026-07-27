@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Search, Link, User, LogOut, ShieldCheck, Sparkles, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePlayer } from '../context/PlayerContext';
 
@@ -14,6 +13,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenAddModal }
   const [query, setQuery] = useState<string>('');
   const [isProcessingLink, setIsProcessingLink] = useState<boolean>(false);
   const [showProfileMenu, setShowProfileMenu] = useState<boolean>(false);
+  const [isListening, setIsListening] = useState<boolean>(false);
 
   const isYouTubeUrl = (text: string) => {
     return text.includes('youtube.com') || text.includes('youtu.be');
@@ -42,101 +42,142 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenAddModal }
     }
   };
 
+  const handleVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setQuery(transcript);
+        onSearchSubmit(transcript);
+      };
+      recognition.start();
+    } else {
+      const voiceInput = prompt('Voice Search (Simulated): Enter your search query');
+      if (voiceInput) {
+        setQuery(voiceInput);
+        onSearchSubmit(voiceInput);
+      }
+    }
+  };
+
   return (
-    <header className="h-16 border-b border-white/10 bg-[#0f0f0f]/90 backdrop-blur-md px-6 flex items-center justify-between gap-6 shrink-0 z-20 sticky top-0">
-      {/* Search & URL Input Bar */}
-      <div className="flex-1 max-w-2xl relative flex items-center">
-        <div className="relative w-full">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-neutral-400">
-            {isProcessingLink ? (
-              <Loader2 className="w-4 h-4 animate-spin text-red-500" />
-            ) : isYouTubeUrl(query) ? (
-              <Link className="w-4 h-4 text-red-400" />
-            ) : (
-              <Search className="w-4 h-4" />
-            )}
-          </div>
+    <header className="sticky top-0 right-0 w-full z-40 bg-[#131313]/80 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6 h-16 shrink-0">
+      <div className="flex items-center gap-4 flex-1 max-w-xl">
+        {/* Navigation History Buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => window.history.back()}
+            title="Go Back"
+            className="w-8 h-8 rounded-full bg-[#201f1f] border border-white/5 flex items-center justify-center text-[#ebbbb4] hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+          </button>
+          <button
+            onClick={() => window.history.forward()}
+            title="Go Forward"
+            className="w-8 h-8 rounded-full bg-[#201f1f] border border-white/5 flex items-center justify-center text-[#ebbbb4] hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+          </button>
+        </div>
+
+        {/* Search & URL Input Bar */}
+        <div className="relative flex-1 group">
+          <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-[#ebbbb4]/50 group-focus-within:text-[#ff5540] transition-colors text-[20px]">
+            {isProcessingLink ? 'sync' : isYouTubeUrl(query) ? 'link' : 'search'}
+          </span>
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search songs, artists, or paste any YouTube URL..."
-            className="w-full h-10 bg-[#212121] hover:bg-[#2a2a2a] focus:bg-[#282828] border border-white/10 rounded-full pl-10 pr-24 text-sm text-white placeholder-neutral-400 focus:outline-none focus:border-red-500/80 transition-all"
+            placeholder="Search music, artists, albums, or paste YouTube link..."
+            className="w-full bg-[#252525] border border-white/5 rounded-full py-2 pl-11 pr-20 text-sm focus:ring-2 focus:ring-[#ff5540] transition-all outline-none text-[#e5e2e1] placeholder:text-[#ebbbb4]/40"
           />
-          {isYouTubeUrl(query) && (
+          {query && (
             <button
-              onClick={async () => {
-                setIsProcessingLink(true);
-                try {
-                  await addTrackByUrlOrSearch(query.trim());
-                  setQuery('');
-                  alert('Track extracted via yt-dlp and saved to library!');
-                } catch (e: any) {
-                  alert(e.message || 'Error processing YouTube URL');
-                } finally {
-                  setIsProcessingLink(false);
-                }
-              }}
-              disabled={isProcessingLink}
-              className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-red-600 hover:bg-red-500 text-white rounded-full text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+              onClick={() => setQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors cursor-pointer"
             >
-              <Sparkles className="w-3 h-3" />
-              <span>Import</span>
+              <span className="material-symbols-outlined text-[18px]">close</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Header Right Actions */}
+      {/* Header Actions */}
       <div className="flex items-center gap-3">
+        {/* Voice Search Button */}
         <button
-          onClick={onOpenAddModal}
-          className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 bg-[#212121] hover:bg-[#2a2a2a] border border-white/10 rounded-full text-xs font-medium text-neutral-200 transition-colors cursor-pointer"
+          onClick={handleVoiceSearch}
+          title="Voice Search"
+          className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
+            isListening ? 'bg-[#ff5540] text-white animate-pulse' : 'text-[#ebbbb4] hover:bg-[#353534]/50'
+          }`}
         >
-          <Link className="w-3.5 h-3.5 text-red-400" />
-          <span>Paste URL</span>
+          <span className="material-symbols-outlined text-[22px]">mic</span>
         </button>
 
-        {/* User Profile Pill */}
+        {/* Add Track Quick Modal Button */}
+        <button
+          onClick={onOpenAddModal}
+          title="Add Song Link"
+          className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 bg-[#252525] hover:bg-[#353534] border border-white/10 rounded-full text-xs font-semibold text-[#ffb4a8] transition-colors cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-[18px] text-[#ff5540]">add</span>
+          <span>Add Song</span>
+        </button>
+
+        {/* User Account Menu Button */}
         <div className="relative">
           <button
             onClick={() => setShowProfileMenu(!showProfileMenu)}
-            className="flex items-center gap-2.5 p-1.5 pl-3 bg-[#212121] hover:bg-[#2a2a2a] border border-white/10 rounded-full cursor-pointer transition-colors"
+            title="User Account"
+            className="w-10 h-10 flex items-center justify-center rounded-full text-[#ebbbb4] hover:bg-[#353534]/50 transition-colors cursor-pointer border border-white/5 overflow-hidden"
           >
-            <div className="flex flex-col text-right hidden md:block">
-              <span className="text-xs font-semibold text-white leading-tight">{user?.name || 'Owner'}</span>
-              <span className="text-[10px] text-emerald-400 font-mono leading-tight">Authorized</span>
-            </div>
-            <img
-              src={user?.image || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'}
-              alt={user?.name || 'User'}
-              className="w-7 h-7 rounded-full object-cover border border-white/20"
-            />
+            {user?.image ? (
+              <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="material-symbols-outlined text-[24px]">account_circle</span>
+            )}
           </button>
 
-          {/* Profile Dropdown */}
+          {/* Profile Dropdown Menu */}
           {showProfileMenu && (
-            <div className="absolute right-0 mt-2 w-64 bg-[#1f1f1f] border border-white/10 rounded-2xl shadow-2xl p-4 text-xs z-50">
-              <div className="pb-3 border-b border-white/10">
-                <div className="font-semibold text-white text-sm">{user?.name || 'Owner'}</div>
-                <div className="text-neutral-400 font-mono text-[11px] truncate mt-0.5">{authorizedEmail}</div>
-                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 mt-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-[10px] font-semibold">
-                  <ShieldCheck className="w-3 h-3" />
-                  <span>Single-User Granted</span>
+            <div className="absolute right-0 mt-3 w-64 bg-[#201f1f] border border-white/10 rounded-2xl shadow-2xl p-4 text-xs z-50 animate-in fade-in zoom-in-95">
+              <div className="pb-3 border-b border-white/10 flex items-center gap-3">
+                <img
+                  src={
+                    user?.image ||
+                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'
+                  }
+                  alt={user?.name}
+                  className="w-10 h-10 rounded-full object-cover border border-white/10"
+                />
+                <div className="min-w-0">
+                  <div className="font-bold text-[#e5e2e1] text-sm truncate">{user?.name || 'Alex Rivera'}</div>
+                  <div className="text-white/40 font-mono text-[11px] truncate mt-0.5">{authorizedEmail}</div>
                 </div>
               </div>
 
-              <div className="pt-3">
+              <div className="pt-3 space-y-1">
+                <div className="flex items-center justify-between px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-[11px] font-semibold">
+                  <span>Status: Authorized</span>
+                  <span className="material-symbols-outlined text-[16px]">verified</span>
+                </div>
+
                 <button
                   onClick={() => {
                     setShowProfileMenu(false);
                     logout();
                   }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-red-400 hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
+                  className="w-full flex items-center justify-between px-3 py-2 text-[#ffb4ab] hover:bg-[#93000a]/20 rounded-xl transition-colors cursor-pointer mt-2"
                 >
-                  <span className="font-medium">Sign Out Session</span>
-                  <LogOut className="w-4 h-4" />
+                  <span className="font-semibold">Sign Out</span>
+                  <span className="material-symbols-outlined text-[18px]">logout</span>
                 </button>
               </div>
             </div>
@@ -146,3 +187,4 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenAddModal }
     </header>
   );
 };
+

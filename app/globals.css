@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  background: #000000;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #f0f0f0;
+}
+
+::selection {
+  background: rgba(0, 242, 254, 0.24);
+  color: #ffffff;
+}
+
+/* Global Custom Scrollbars for EVERY panel and scrollable container */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.15);
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 242, 254, 0.42);
+  border-radius: 99px;
+  transition: background 0.2s ease;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 242, 254, 0.5);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(0, 242, 254, 0.58) transparent;
+}
+
+/* Waveform animation for download progress */
+@keyframes wave {
+  from {
+    height: 4px;
+  }
+  to {
+    height: 36px;
+  }
+}
+
+/* Now-playing bars */
+@keyframes music-bar {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 14px;
+  }
+}
+
+.animate-music-bar {
+  animation: music-bar 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.4s ease-out both;
+}
+
+/* Custom range sliders (Volume & Seek bar) */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']:focus {
+  outline: none;
+}
+
+/* Webkit slider thumb - sleek small circle on hover */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:active::-webkit-slider-thumb {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+/* Firefox slider thumb */
+input[type='range']::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: none;
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+input[type='range']:hover::-moz-range-thumb,
+input[type='range']:active::-moz-range-thumb {
+  opacity: 1;
+  transform: scale(1.2);
+}

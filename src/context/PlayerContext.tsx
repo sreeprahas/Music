@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { LibraryData, Playlist, RepeatMode, Track } from '../types';
+import { LibraryData, Playlist, RepeatMode, Track, SleepTimer, SLEEP_TIMER_PRESETS } from '../types';
 
 interface PlayerContextType {
   // Library Data
@@ -20,6 +20,13 @@ interface PlayerContextType {
   repeatMode: RepeatMode;
   isLoadingStream: boolean;
   streamError: string | null;
+
+  // Sleep Timer
+  sleepTimer: SleepTimer;
+  sleepTimerPresets: typeof SLEEP_TIMER_PRESETS;
+  setSleepTimer: (duration: number) => void;
+  clearSleepTimer: () => void;
+  setCustomSleepTimer: (hours: number, minutes: number) => void;
 
   // Audio Controls
   playTrack: (track: Track, customQueue?: Track[], index?: number) => Promise<void>;
@@ -65,6 +72,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [isLoadingStream, setIsLoadingStream] = useState<boolean>(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+
+  // Sleep Timer State
+  const [sleepTimer, setSleepTimerState] = useState<SleepTimer>({
+    isActive: false,
+    endTime: null,
+    remainingTime: 0,
+  });
+  const sleepTimerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -118,6 +133,70 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
+
+  // Sleep Timer Logic
+  useEffect(() => {
+    if (sleepTimer.isActive && sleepTimer.endTime) {
+      const updateTimer = () => {
+        const now = Date.now();
+        const remaining = Math.max(0, sleepTimer.endTime! - now);
+        setSleepTimerState((prev) => ({ ...prev, remainingTime: remaining }));
+
+        if (remaining <= 0) {
+          // Timer expired - pause playback
+          if (audioRef.current && isPlaying) {
+            audioRef.current.pause();
+            setIsPlaying(false);
+          }
+          clearSleepTimer();
+        }
+      };
+
+      updateTimer(); // Initial update
+      sleepTimerIntervalRef.current = setInterval(updateTimer, 1000);
+
+      return () => {
+        if (sleepTimerIntervalRef.current) {
+          clearInterval(sleepTimerIntervalRef.current);
+          sleepTimerIntervalRef.current = null;
+        }
+      };
+    } else {
+      if (sleepTimerIntervalRef.current) {
+        clearInterval(sleepTimerIntervalRef.current);
+        sleepTimerIntervalRef.current = null;
+      }
+    }
+  }, [sleepTimer.isActive, sleepTimer.endTime, isPlaying]);
+
+  // Sleep Timer Functions
+  const setSleepTimer = (durationMs: number) => {
+    const endTime = Date.now() + durationMs;
+    setSleepTimerState({
+      isActive: true,
+      endTime,
+      remainingTime: durationMs,
+    });
+  };
+
+  const clearSleepTimer = () => {
+    if (sleepTimerIntervalRef.current) {
+      clearInterval(sleepTimerIntervalRef.current);
+      sleepTimerIntervalRef.current = null;
+    }
+    setSleepTimerState({
+      isActive: false,
+      endTime: null,
+      remainingTime: 0,
+    });
+  };
+
+  const setCustomSleepTimer = (hours: number, minutes: number) => {
+    const totalMs = (hours * 60 + minutes) * 60 * 1000;
+    if (totalMs > 0) {
+      setSleepTimer(totalMs);
+    }
+  };
 
   // Fetch initial library
   const refreshLibrary = async () => {
@@ -393,6 +472,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         repeatMode,
         isLoadingStream,
         streamError,
+        // Sleep Timer
+        sleepTimer,
+        sleepTimerPresets: SLEEP_TIMER_PRESETS,
+        setSleepTimer,
+        clearSleepTimer,
+        setCustomSleepTimer,
         playTrack,
         togglePlayPause,
         seek,

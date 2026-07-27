@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { X, Play, Pause, SkipBack, SkipForward, Heart, Music, Sparkles, Volume2, Info } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 
 interface ExpandedPlayerModalProps {
@@ -8,8 +7,26 @@ interface ExpandedPlayerModalProps {
 }
 
 export const ExpandedPlayerModal: React.FC<ExpandedPlayerModalProps> = ({ isOpen, onClose }) => {
-  const { currentTrack, isPlaying, togglePlayPause, playNext, playPrevious, toggleLikeTrack, currentTime, duration, seek } = usePlayer();
-  const [activeTab, setActiveTab] = useState<'visualizer' | 'info'>('visualizer');
+  const {
+    currentTrack,
+    isPlaying,
+    togglePlayPause,
+    playNext,
+    playPrevious,
+    toggleLikeTrack,
+    currentTime,
+    duration,
+    seek,
+    isShuffle,
+    toggleShuffle,
+    repeatMode,
+    toggleRepeat,
+    library,
+    queue,
+    playTrack,
+  } = usePlayer();
+
+  const [activeTab, setActiveTab] = useState<'cover' | 'lyrics' | 'queue'>('cover');
 
   if (!isOpen || !currentTrack) return null;
 
@@ -20,147 +37,241 @@ export const ExpandedPlayerModal: React.FC<ExpandedPlayerModalProps> = ({ isOpen
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  const isLiked = library?.likedTrackIds.includes(currentTrack.id);
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  // Karaoke sample lyrics synchronized by time ratio
+  const sampleLyrics = [
+    'I feel the pulse inside the sound',
+    'Atmospheric echoes all around',
+    'Hypnotic synths that take control',
+    'Deep frequency straight to the soul',
+    'Lost in the rhythm of the night',
+    'Drenched in glowing crimson light',
+    'Moving forward into the void',
+    'Pure melodic technoid',
+  ];
+
+  const activeLyricIdx = Math.min(
+    sampleLyrics.length - 1,
+    Math.floor((currentTime / (duration || 1)) * sampleLyrics.length)
+  );
+
   return (
-    <div className="fixed inset-0 bg-[#080808]/95 backdrop-blur-2xl z-50 flex flex-col justify-between p-6 md:p-12 animate-in fade-in duration-200">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/30">
-            <Music className="w-4 h-4 text-white fill-white" />
+    <div className="fixed inset-0 bg-[#0e0e0e]/98 backdrop-blur-3xl z-50 flex flex-col justify-between p-6 md:p-10 select-none animate-in fade-in duration-200">
+      {/* Background Ambient Glow Tint */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#ff5540]/15 via-transparent to-[#0e0e0e] pointer-events-none" />
+
+      {/* Top Header */}
+      <div className="relative z-10 flex items-center justify-between">
+        <button
+          onClick={onClose}
+          className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#ebbbb4] hover:text-white transition-colors cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-[24px]">keyboard_arrow_down</span>
+        </button>
+
+        {/* Tab Switcher */}
+        <div className="flex items-center gap-1 bg-[#201f1f] p-1 rounded-full border border-white/10">
+          <button
+            onClick={() => setActiveTab('cover')}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'cover' ? 'bg-[#ff5540] text-white' : 'text-[#ebbbb4]/60 hover:text-white'
+            }`}
+          >
+            Cover
+          </button>
+          <button
+            onClick={() => setActiveTab('lyrics')}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'lyrics' ? 'bg-[#ff5540] text-white' : 'text-[#ebbbb4]/60 hover:text-white'
+            }`}
+          >
+            Lyrics
+          </button>
+          <button
+            onClick={() => setActiveTab('queue')}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'queue' ? 'bg-[#ff5540] text-white' : 'text-[#ebbbb4]/60 hover:text-white'
+            }`}
+          >
+            Up Next
+          </button>
+        </div>
+
+        <button
+          onClick={() => toggleLikeTrack(currentTrack.id)}
+          className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#ebbbb4] hover:text-[#ff5540] transition-colors cursor-pointer"
+        >
+          <span
+            className={`material-symbols-outlined text-[22px] ${
+              isLiked ? 'text-[#ff5540] fill-1' : ''
+            }`}
+          >
+            favorite
+          </span>
+        </button>
+      </div>
+
+      {/* Main Display Container */}
+      <div className="relative z-10 flex-1 flex items-center justify-center my-6 max-w-4xl mx-auto w-full">
+        {activeTab === 'cover' && (
+          <div className="flex flex-col md:flex-row items-center gap-10 md:gap-16 w-full justify-center">
+            <div className="w-72 h-72 md:w-96 md:h-96 rounded-2xl overflow-hidden shadow-2xl border border-white/10 shrink-0 relative group">
+              <img
+                src={currentTrack.thumbnailUrl}
+                alt={currentTrack.title}
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+              />
+              {isPlaying && (
+                <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-[#ff5540] border border-[#ff5540]/30 uppercase tracking-widest flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#ff5540] animate-ping" />
+                  Playing Audio
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 max-w-md space-y-3 text-center md:text-left">
+              <span className="text-xs font-bold text-[#ff5540] uppercase tracking-widest bg-[#ff5540]/10 px-3 py-1 rounded-full border border-[#ff5540]/20">
+                Playing Now
+              </span>
+              <h1 className="text-3xl md:text-5xl font-black text-[#e5e2e1] tracking-tight leading-tight">
+                {currentTrack.title}
+              </h1>
+              <p className="text-base text-[#ebbbb4]/80 font-medium">{currentTrack.artist}</p>
+              <p className="text-xs text-[#ebbbb4]/40 font-mono">
+                YouTube ID: {currentTrack.videoId}
+              </p>
+            </div>
           </div>
-          <span className="font-bold text-lg text-white">YouTube Music Player</span>
-        </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setActiveTab('visualizer')}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === 'visualizer' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            Visualizer
-          </button>
-          <button
-            onClick={() => setActiveTab('info')}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === 'info' ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            Metadata Info
-          </button>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-full text-neutral-400 hover:text-white transition-colors cursor-pointer ml-4"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-      </div>
+        {activeTab === 'lyrics' && (
+          <div className="w-full max-w-2xl py-8 space-y-6 text-center overflow-y-auto max-h-[450px] hide-scrollbar">
+            <p className="text-xs font-bold text-[#ff5540] uppercase tracking-widest mb-4">
+              Synchronized Karaoke Lyrics
+            </p>
+            {sampleLyrics.map((line, idx) => (
+              <p
+                key={idx}
+                className={`text-2xl md:text-3xl font-black transition-all cursor-pointer ${
+                  idx === activeLyricIdx
+                    ? 'text-[#ff5540] scale-105 drop-shadow-[0_0_15px_rgba(255,85,64,0.5)]'
+                    : 'text-white/30 hover:text-white/60'
+                }`}
+              >
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col md:flex-row items-center justify-center gap-12 my-8 max-w-5xl mx-auto w-full">
-        {/* Large Album Art */}
-        <div className="relative w-72 h-72 md:w-96 md:h-96 rounded-3xl overflow-hidden shadow-2xl border border-white/10 shrink-0 group">
-          <img
-            src={currentTrack.thumbnailUrl}
-            alt={currentTrack.title}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-          />
-
-          {/* Audio Wave Visualizer Overlay when playing */}
-          {isPlaying && activeTab === 'visualizer' && (
-            <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex items-end justify-center gap-1.5 h-32">
-              {[40, 70, 30, 90, 60, 100, 45, 80, 55, 95, 35, 75, 50, 85].map((h, i) => (
-                <div
-                  key={i}
-                  className="w-1.5 bg-red-500 rounded-full animate-pulse"
-                  style={{
-                    height: `${isPlaying ? h : 10}%`,
-                    animationDelay: `${i * 0.15}s`,
-                    animationDuration: '0.8s',
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Track Metadata & Interactive Controls */}
-        <div className="flex-1 flex flex-col justify-center space-y-6 max-w-md w-full">
-          {activeTab === 'visualizer' ? (
-            <div>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight leading-snug">
-                    {currentTrack.title}
-                  </h1>
-                  <p className="text-base text-neutral-400 mt-1 font-medium">{currentTrack.artist}</p>
-                </div>
-                <button
-                  onClick={() => toggleLikeTrack(currentTrack.id)}
-                  className="p-3 bg-white/5 hover:bg-white/10 rounded-full cursor-pointer transition-colors"
-                >
-                  <Heart
-                    className={`w-6 h-6 ${currentTrack.liked ? 'text-red-500 fill-red-500' : 'text-neutral-400'}`}
+        {activeTab === 'queue' && (
+          <div className="w-full max-w-2xl py-4 space-y-2 overflow-y-auto max-h-[450px] custom-scrollbar">
+            <h3 className="text-xs font-bold text-[#ff5540] uppercase tracking-widest mb-4">
+              Queue ({queue.length} items)
+            </h3>
+            {queue.map((track, idx) => (
+              <div
+                key={`q-${track.id}-${idx}`}
+                onClick={() => playTrack(track, queue, idx)}
+                className={`flex items-center justify-between p-3 rounded-xl hover:bg-[#252525] transition-colors cursor-pointer border ${
+                  track.id === currentTrack.id
+                    ? 'bg-[#353534]/50 border-[#ff5540]/40'
+                    : 'border-transparent'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <img
+                    src={track.thumbnailUrl}
+                    alt={track.title}
+                    className="w-10 h-10 rounded-lg object-cover"
                   />
-                </button>
-              </div>
-
-              {/* Progress Slider */}
-              <div className="space-y-2 mt-8">
-                <input
-                  type="range"
-                  min={0}
-                  max={duration || 100}
-                  value={currentTime}
-                  onChange={(e) => seek(Number(e.target.value))}
-                  className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-red-600"
-                />
-                <div className="flex justify-between text-xs font-mono text-neutral-400">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(duration)}</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm text-[#e5e2e1] truncate">{track.title}</p>
+                    <p className="text-xs text-[#ebbbb4]/60 truncate">{track.artist}</p>
+                  </div>
                 </div>
+                <span className="material-symbols-outlined text-[20px] text-[#ff5540]">
+                  {track.id === currentTrack.id ? 'graphic_eq' : 'play_arrow'}
+                </span>
               </div>
-
-              {/* Controls */}
-              <div className="flex items-center justify-center gap-8 mt-8">
-                <button onClick={playPrevious} className="p-3 text-neutral-300 hover:text-white cursor-pointer">
-                  <SkipBack className="w-8 h-8" />
-                </button>
-                <button
-                  onClick={togglePlayPause}
-                  className="w-16 h-16 rounded-full bg-white text-black hover:bg-neutral-200 flex items-center justify-center shadow-xl active:scale-95 transition-transform cursor-pointer"
-                >
-                  {isPlaying ? <Pause className="w-8 h-8 fill-black" /> : <Play className="w-8 h-8 fill-black ml-1" />}
-                </button>
-                <button onClick={playNext} className="p-3 text-neutral-300 hover:text-white cursor-pointer">
-                  <SkipForward className="w-8 h-8" />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-[#141414] border border-white/10 rounded-2xl p-6 space-y-4">
-              <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
-                <Info className="w-4 h-4" />
-                <span>yt-dlp Track Metadata</span>
-              </div>
-              <div className="space-y-2 text-xs font-mono text-neutral-300">
-                <div><span className="text-neutral-500">Video ID:</span> {currentTrack.videoId}</div>
-                <div><span className="text-neutral-500">Title:</span> {currentTrack.title}</div>
-                <div><span className="text-neutral-500">Artist / Channel:</span> {currentTrack.artist}</div>
-                <div><span className="text-neutral-500">Duration:</span> {currentTrack.durationFormatted || formatTime(currentTrack.duration)}</div>
-                <div><span className="text-neutral-500">Added Date:</span> {new Date(currentTrack.addedAt).toLocaleDateString()}</div>
-                <div><span className="text-neutral-500">Storage Backend:</span> data/playlists.json</div>
-              </div>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Footer */}
-      <div className="text-center text-xs text-neutral-500">
-        Streaming via Node.js yt-dlp process wrapper • Audio Proxy Active
+      {/* Bottom Controls Area */}
+      <div className="relative z-10 max-w-xl mx-auto w-full space-y-4">
+        {/* Scrubber */}
+        <div className="space-y-1">
+          <div className="relative h-2 bg-[#353534] rounded-full overflow-hidden cursor-pointer">
+            <input
+              type="range"
+              min={0}
+              max={duration || 100}
+              value={currentTime}
+              onChange={(e) => seek(Number(e.target.value))}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            />
+            <div
+              className="h-full bg-[#ff5540] rounded-full transition-all"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs font-mono text-[#ebbbb4]/60">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center justify-center gap-8 pt-2">
+          <button
+            onClick={toggleShuffle}
+            className={`transition-colors cursor-pointer ${
+              isShuffle ? 'text-[#ff5540]' : 'text-[#ebbbb4]/60 hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[26px]">shuffle</span>
+          </button>
+
+          <button
+            onClick={playPrevious}
+            className="text-[#ebbbb4] hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[36px]">skip_previous</span>
+          </button>
+
+          <button
+            onClick={togglePlayPause}
+            className="w-16 h-16 rounded-full bg-[#e5e2e1] text-[#131313] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform cursor-pointer shadow-2xl"
+          >
+            <span className="material-symbols-outlined text-[40px] fill-1">
+              {isPlaying ? 'pause' : 'play_arrow'}
+            </span>
+          </button>
+
+          <button
+            onClick={playNext}
+            className="text-[#ebbbb4] hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[36px]">skip_next</span>
+          </button>
+
+          <button
+            onClick={toggleRepeat}
+            className={`transition-colors cursor-pointer ${
+              repeatMode !== 'off' ? 'text-[#ff5540]' : 'text-[#ebbbb4]/60 hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[26px]">
+              {repeatMode === 'one' ? 'repeat_one' : 'repeat'}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   );
 };
+

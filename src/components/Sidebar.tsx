@@ -1,6 +1,6 @@
 import React from 'react';
-import { Home, Compass, Library, Heart, Plus, Music, Radio, Disc } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
+import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
   currentTab: string;
@@ -18,6 +18,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAddModal,
 }) => {
   const { library, createNewPlaylist } = usePlayer();
+  const { user } = useAuth();
 
   const handleNavClick = (tab: string) => {
     setCurrentTab(tab);
@@ -39,138 +40,158 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const userName = user?.name || 'Alex Rivera';
+  const userImage =
+    user?.image ||
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80';
+
   return (
-    <aside className="w-64 bg-[#030303] border-r border-white/10 flex flex-col h-full select-none shrink-0">
-      {/* Top Brand Logo */}
-      <div className="h-16 px-6 flex items-center gap-3 border-b border-white/5">
-        <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/30">
-          <div className="w-3 h-3 bg-white rounded-sm" />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="font-bold text-lg tracking-tight text-white">YouTube</span>
-          <span className="font-light text-lg tracking-tight text-neutral-300">Music</span>
+    <aside className="w-[240px] bg-[#1c1b1b] flex flex-col py-6 h-full select-none shrink-0 border-r border-white/5 z-50">
+      {/* Brand Header */}
+      <div className="px-6 mb-8 flex items-center justify-between">
+        <div
+          onClick={() => handleNavClick('home')}
+          className="cursor-pointer group flex items-center gap-2"
+        >
+          <h1 className="font-extrabold text-[28px] text-[#ff5540] tracking-tighter group-hover:opacity-90 transition-opacity">
+            Music
+          </h1>
+          <span className="text-[10px] uppercase font-bold tracking-widest text-white/40 border border-white/10 px-1.5 py-0.5 rounded">
+            PULSE
+          </span>
         </div>
       </div>
 
-      {/* Primary Navigation */}
-      <div className="p-3 space-y-1">
+      {/* Main Navigation */}
+      <nav className="flex-1 space-y-1">
         <button
           onClick={() => handleNavClick('home')}
-          className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl font-medium text-sm transition-all cursor-pointer ${
+          className={`w-full flex items-center gap-4 px-6 py-3 transition-colors text-left font-medium text-sm cursor-pointer ${
             currentTab === 'home' && !selectedPlaylistId
-              ? 'bg-white/10 text-white font-semibold'
-              : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              ? 'text-[#e5e2e1] border-l-4 border-[#ff5540] font-bold bg-[#353534]/40'
+              : 'text-[#ebbbb4]/70 hover:text-[#e5e2e1] hover:bg-[#353534]/20'
           }`}
         >
-          <Home className="w-5 h-5 text-red-500" />
+          <span
+            className={`material-symbols-outlined text-[24px] ${
+              currentTab === 'home' && !selectedPlaylistId ? 'fill-1 text-[#ff5540]' : ''
+            }`}
+          >
+            home
+          </span>
           <span>Home</span>
         </button>
 
         <button
           onClick={() => handleNavClick('explore')}
-          className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl font-medium text-sm transition-all cursor-pointer ${
-            currentTab === 'explore'
-              ? 'bg-white/10 text-white font-semibold'
-              : 'text-neutral-400 hover:text-white hover:bg-white/5'
+          className={`w-full flex items-center gap-4 px-6 py-3 transition-colors text-left font-medium text-sm cursor-pointer ${
+            currentTab === 'explore' || currentTab === 'search'
+              ? 'text-[#e5e2e1] border-l-4 border-[#ff5540] font-bold bg-[#353534]/40'
+              : 'text-[#ebbbb4]/70 hover:text-[#e5e2e1] hover:bg-[#353534]/20'
           }`}
         >
-          <Compass className="w-5 h-5" />
-          <span>Explore & Search</span>
+          <span
+            className={`material-symbols-outlined text-[24px] ${
+              currentTab === 'explore' || currentTab === 'search' ? 'fill-1 text-[#ff5540]' : ''
+            }`}
+          >
+            explore
+          </span>
+          <span>Explore</span>
         </button>
 
         <button
           onClick={() => handleNavClick('library')}
-          className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl font-medium text-sm transition-all cursor-pointer ${
+          className={`w-full flex items-center gap-4 px-6 py-3 transition-colors text-left font-medium text-sm cursor-pointer ${
             currentTab === 'library' && !selectedPlaylistId
-              ? 'bg-white/10 text-white font-semibold'
-              : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              ? 'text-[#e5e2e1] border-l-4 border-[#ff5540] font-bold bg-[#353534]/40'
+              : 'text-[#ebbbb4]/70 hover:text-[#e5e2e1] hover:bg-[#353534]/20'
           }`}
         >
-          <Library className="w-5 h-5" />
+          <span
+            className={`material-symbols-outlined text-[24px] ${
+              currentTab === 'library' && !selectedPlaylistId ? 'fill-1 text-[#ff5540]' : ''
+            }`}
+          >
+            library_music
+          </span>
           <span>Library</span>
         </button>
-      </div>
 
-      {/* Quick Action Button */}
-      <div className="px-3 py-2">
-        <button
-          onClick={onOpenAddModal}
-          className="w-full py-2.5 px-4 bg-red-600/15 hover:bg-red-600/25 border border-red-500/30 text-red-400 rounded-xl font-medium text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Song by YouTube Link</span>
-        </button>
-      </div>
-
-      <div className="my-2 border-t border-white/5 mx-4" />
-
-      {/* Playlists & Saved Section */}
-      <div className="flex-1 overflow-y-auto px-3 space-y-1 custom-scrollbar">
-        <div className="px-4 py-2 flex items-center justify-between text-xs font-semibold uppercase text-neutral-500 tracking-wider">
-          <span>Playlists & Saved</span>
+        {/* Action Button: New Playlist / Add Song */}
+        <div className="pt-4 px-6 space-y-2 border-t border-white/5 mt-4">
           <button
             onClick={handleCreatePlaylist}
-            title="Create Playlist"
-            className="p-1 hover:bg-white/10 rounded-md text-neutral-400 hover:text-white transition-colors cursor-pointer"
+            className="w-full flex items-center gap-3 py-2 px-3 text-[#ebbbb4]/80 hover:text-[#e5e2e1] hover:bg-[#353534]/40 rounded-lg text-xs font-semibold transition-colors cursor-pointer text-left"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <span className="material-symbols-outlined text-[20px] text-[#ff5540]">add_box</span>
+            <span>New Playlist</span>
+          </button>
+
+          <button
+            onClick={onOpenAddModal}
+            className="w-full flex items-center gap-3 py-2 px-3 bg-[#ff5540]/10 hover:bg-[#ff5540]/20 border border-[#ff5540]/30 text-[#ffb4a8] rounded-lg text-xs font-semibold transition-colors cursor-pointer text-left"
+          >
+            <span className="material-symbols-outlined text-[18px]">add_circle</span>
+            <span>Add Song Link</span>
           </button>
         </div>
 
-        {/* Liked Songs Special Item */}
-        <button
-          onClick={() => handlePlaylistClick('liked')}
-          className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl font-medium text-sm transition-all text-left cursor-pointer ${
-            selectedPlaylistId === 'liked'
-              ? 'bg-white/10 text-white font-semibold'
-              : 'text-neutral-300 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center shrink-0 shadow-sm">
-            <Heart className="w-4 h-4 text-white fill-white" />
+        {/* Playlists Section */}
+        <div className="pt-4 px-6 space-y-1">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">
+            My Playlists
           </div>
-          <div className="overflow-hidden">
-            <div className="truncate text-xs font-medium">Liked Songs</div>
-            <div className="text-[10px] text-neutral-500 truncate">
-              {library?.likedTrackIds.length || 0} tracks
-            </div>
-          </div>
-        </button>
 
-        {/* Custom Playlists List */}
-        {library?.playlists.map((playlist) => {
-          const isSelected = selectedPlaylistId === playlist.id;
-          return (
+          <button
+            onClick={() => handlePlaylistClick('liked')}
+            className={`w-full flex items-center justify-between py-2 px-2.5 rounded-lg text-xs text-left cursor-pointer transition-colors ${
+              selectedPlaylistId === 'liked'
+                ? 'bg-[#ff5540]/15 text-[#ffb4a8] font-bold'
+                : 'text-white/70 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <div className="flex items-center gap-2 truncate">
+              <span className="material-symbols-outlined text-[18px] text-[#ff5540] fill-1">favorite</span>
+              <span className="truncate">Liked Songs</span>
+            </div>
+            <span className="text-[10px] text-white/30">{library?.likedTrackIds.length || 0}</span>
+          </button>
+
+          {library?.playlists.map((pl) => (
             <button
-              key={playlist.id}
-              onClick={() => handlePlaylistClick(playlist.id)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl font-medium text-sm transition-all text-left cursor-pointer ${
-                isSelected
-                  ? 'bg-white/10 text-white font-semibold'
-                  : 'text-neutral-300 hover:text-white hover:bg-white/5'
+              key={pl.id}
+              onClick={() => handlePlaylistClick(pl.id)}
+              className={`w-full flex items-center justify-between py-2 px-2.5 rounded-lg text-xs text-left cursor-pointer transition-colors ${
+                selectedPlaylistId === pl.id
+                  ? 'bg-[#ff5540]/15 text-[#ffb4a8] font-bold'
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
               }`}
             >
-              <div className="w-8 h-8 rounded-lg bg-[#222] border border-white/10 overflow-hidden shrink-0 flex items-center justify-center">
-                {playlist.coverUrl ? (
-                  <img src={playlist.coverUrl} alt={playlist.name} className="w-full h-full object-cover" />
-                ) : (
-                  <Disc className="w-4 h-4 text-neutral-400" />
-                )}
-              </div>
-              <div className="overflow-hidden">
-                <div className="truncate text-xs font-medium">{playlist.name}</div>
-                <div className="text-[10px] text-neutral-500 truncate">{playlist.trackIds.length} tracks</div>
-              </div>
+              <span className="truncate">{pl.name}</span>
+              <span className="text-[10px] text-white/30">{pl.trackIds.length}</span>
             </button>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      </nav>
 
-      {/* Footer Info */}
-      <div className="p-4 border-t border-white/5 text-[11px] text-neutral-500 flex items-center justify-between">
-        <span>yt-dlp Engine Active</span>
-        <span className="font-mono text-[10px] text-emerald-500">JSON DB</span>
+      {/* User Profile Container */}
+      <div className="px-4 mt-auto">
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-[#2a2a2a]/60 border border-white/5">
+          <img
+            src={userImage}
+            alt={userName}
+            className="w-9 h-9 rounded-full object-cover border border-white/10 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold text-[#e5e2e1] truncate">{userName}</p>
+            <p className="text-[10px] font-semibold text-[#ff5540] uppercase tracking-wider">
+              Pro Listener
+            </p>
+          </div>
+        </div>
       </div>
     </aside>
   );
 };
+

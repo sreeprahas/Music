@@ -1,4 +1,6 @@
 node_modules/
+.next/
+data/
 build/
 dist/
 coverage/
@@ -6,3 +8,12 @@ coverage/
 *.log
 .env*
 !.env.example
+tsconfig.tsbuildinfo
+package-lock.json
+native-wrapper/
+.antigravity/
+.vscode/
+.cursor/
+.idea/
+.trae/
+.gemini/
