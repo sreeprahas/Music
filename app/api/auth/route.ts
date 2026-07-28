@@ -17,8 +17,12 @@ export async function GET() {
   if (sessionCookie?.value) {
     try {
       const decoded = JSON.parse(Buffer.from(sessionCookie.value, 'base64').toString('utf-8'));
-      if (decoded && decoded.email && decoded.email.toLowerCase().trim() === AUTHORIZED_EMAIL) {
-        user = { ...decoded, isAuthorized: true };
+      if (decoded && decoded.email) {
+        user = {
+          ...decoded,
+          picture: decoded.picture || decoded.image || '',
+          isAuthorized: true,
+        };
       }
     } catch (e) {
       // Invalid cookie

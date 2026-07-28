@@ -296,8 +296,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  // Store the volume level before muting, used to restore volume on unmute
+  const volumeBeforeMute = useRef<number>(volume);
+
   const toggleMute = () => {
-    setIsMuted(!isMuted);
+    const willMute = !isMuted;
+    if (willMute) {
+      // About to mute: save current volume
+      volumeBeforeMute.current = volume;
+    }
+    setIsMuted(willMute);
+    if (!willMute) {
+      // Unmuting: restore saved volume
+      setVolume(volumeBeforeMute.current);
+    }
   };
 
   const handleTrackEnded = () => {

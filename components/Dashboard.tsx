@@ -54,14 +54,18 @@ function readPlaybackSession(): PlaybackSession | null {
   if (typeof window === 'undefined') return null;
   try {
     const value = localStorage.getItem('yt_playback_session');
-    return value ? JSON.parse(value) as PlaybackSession : null;
+    return value ? (JSON.parse(value) as PlaybackSession) : null;
   } catch {
     return null;
   }
 }
 
 function decodeSlug(value: string) {
-  try { return decodeURIComponent(value); } catch { return value; }
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function readRoute(): RouteState {
@@ -108,8 +112,26 @@ export function Dashboard({ user }: Props) {
   const [isShuffle, setIsShuffle] = useState(savedSession?.isShuffle ?? false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(savedSession?.repeatMode ?? 'off');
   const [isQueueOpen, setIsQueueOpen] = useState(savedSession?.isQueueOpen ?? false);
+  const [isQueueClosing, setIsQueueClosing] = useState(false);
   const [isLyricsOpen, setIsLyricsOpen] = useState(savedSession?.isLyricsOpen ?? false);
+  const [isLyricsClosing, setIsLyricsClosing] = useState(false);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+
+  const handleCloseQueue = useCallback(() => {
+    setIsQueueClosing(true);
+    setTimeout(() => {
+      setIsQueueOpen(false);
+      setIsQueueClosing(false);
+    }, 240);
+  }, []);
+
+  const handleCloseLyrics = useCallback(() => {
+    setIsLyricsClosing(true);
+    setTimeout(() => {
+      setIsLyricsOpen(false);
+      setIsLyricsClosing(false);
+    }, 240);
+  }, []);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(savedSession?.time ?? 0);
@@ -159,45 +181,62 @@ export function Dashboard({ user }: Props) {
       if (savedSidebarWidth) setSidebarWidth(parseFloat(savedSidebarWidth));
       if (savedQueueWidth) setQueueWidth(parseFloat(savedQueueWidth));
       if (savedLyricsWidth) setLyricsWidth(parseFloat(savedLyricsWidth));
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
-    try { localStorage.setItem('yt_playback_shuffle', JSON.stringify(isShuffle)); } catch {}
+    try {
+      localStorage.setItem('yt_playback_shuffle', JSON.stringify(isShuffle));
+    } catch { }
   }, [isShuffle]);
   useEffect(() => {
-    try { localStorage.setItem('yt_playback_repeat', JSON.stringify(repeatMode)); } catch {}
+    try {
+      localStorage.setItem('yt_playback_repeat', JSON.stringify(repeatMode));
+    } catch { }
   }, [repeatMode]);
   useEffect(() => {
-    try { localStorage.setItem('yt_playback_volume', String(volume)); } catch {}
+    try {
+      localStorage.setItem('yt_playback_volume', String(volume));
+    } catch { }
   }, [volume]);
   useEffect(() => {
-    try { localStorage.setItem('yt_playback_muted', JSON.stringify(isMuted)); } catch {}
+    try {
+      localStorage.setItem('yt_playback_muted', JSON.stringify(isMuted));
+    } catch { }
   }, [isMuted]);
   useEffect(() => {
-    try { localStorage.setItem('yt_sidebar_width', String(sidebarWidth)); } catch {}
+    try {
+      localStorage.setItem('yt_sidebar_width', String(sidebarWidth));
+    } catch { }
   }, [sidebarWidth]);
   useEffect(() => {
-    try { localStorage.setItem('yt_queue_width', String(queueWidth)); } catch {}
+    try {
+      localStorage.setItem('yt_queue_width', String(queueWidth));
+    } catch { }
   }, [queueWidth]);
   useEffect(() => {
-    try { localStorage.setItem('yt_lyrics_width', String(lyricsWidth)); } catch {}
+    try {
+      localStorage.setItem('yt_lyrics_width', String(lyricsWidth));
+    } catch { }
   }, [lyricsWidth]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('yt_playback_session', JSON.stringify({
-        track: currentTrack,
-        queue,
-        time: currentTime,
-        isShuffle,
-        repeatMode,
-        volume,
-        isMuted,
-        isQueueOpen,
-        isLyricsOpen,
-      } satisfies PlaybackSession));
-    } catch {}
+      localStorage.setItem(
+        'yt_playback_session',
+        JSON.stringify({
+          track: currentTrack,
+          queue,
+          time: currentTime,
+          isShuffle,
+          repeatMode,
+          volume,
+          isMuted,
+          isQueueOpen,
+          isLyricsOpen,
+        } satisfies PlaybackSession)
+      );
+    } catch { }
   }, [currentTrack, queue, currentTime, isShuffle, repeatMode, volume, isMuted, isQueueOpen, isLyricsOpen]);
 
   const nativeProgress = useNativeDownloadProgress();
@@ -232,18 +271,21 @@ export function Dashboard({ user }: Props) {
         const parsed = JSON.parse(hiddenStored);
         if (Array.isArray(parsed)) setHiddenIds(parsed);
       }
-    } catch {}
+    } catch { }
   }, []);
 
-  const applyRoute = useCallback((route: RouteState) => {
-    setShowHiddenFolder(route.kind === 'hidden');
-    setSearchQuery(route.kind === 'search' ? route.query : '');
-    setSelectedPlaylist(
-      route.kind === 'playlist'
-        ? playlists.find((playlist) => playlist.id === route.playlistId) ?? null
-        : null
-    );
-  }, [playlists]);
+  const applyRoute = useCallback(
+    (route: RouteState) => {
+      setShowHiddenFolder(route.kind === 'hidden');
+      setSearchQuery(route.kind === 'search' ? route.query : '');
+      setSelectedPlaylist(
+        route.kind === 'playlist'
+          ? playlists.find((playlist) => playlist.id === route.playlistId) ?? null
+          : null
+      );
+    },
+    [playlists]
+  );
 
   useEffect(() => {
     const initialPosition = Number(window.history.state?.musicNavigationIndex ?? 0);
@@ -263,19 +305,22 @@ export function Dashboard({ user }: Props) {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [applyRoute]);
 
-  const navigateRoute = useCallback((route: RouteState) => {
-    const href = routeHref(route);
-    if (window.location.pathname === href) {
+  const navigateRoute = useCallback(
+    (route: RouteState) => {
+      const href = routeHref(route);
+      if (window.location.pathname === href) {
+        applyRoute(route);
+        return;
+      }
+      const nextPosition = historyPositionRef.current + 1;
+      window.history.pushState({ musicNavigationIndex: nextPosition }, '', href);
+      historyPositionRef.current = nextPosition;
+      setHistoryPosition(nextPosition);
+      setHistoryLength(nextPosition);
       applyRoute(route);
-      return;
-    }
-    const nextPosition = historyPositionRef.current + 1;
-    window.history.pushState({ musicNavigationIndex: nextPosition }, '', href);
-    historyPositionRef.current = nextPosition;
-    setHistoryPosition(nextPosition);
-    setHistoryLength(nextPosition);
-    applyRoute(route);
-  }, [applyRoute]);
+    },
+    [applyRoute]
+  );
 
   const handleUndoNavigation = useCallback(() => window.history.back(), []);
   const handleRedoNavigation = useCallback(() => window.history.forward(), []);
@@ -283,7 +328,9 @@ export function Dashboard({ user }: Props) {
   const handleTogglePin = useCallback((id: string) => {
     setPinnedIds((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      try { localStorage.setItem('pinned_playlists', JSON.stringify(next)); } catch {}
+      try {
+        localStorage.setItem('pinned_playlists', JSON.stringify(next));
+      } catch { }
       return next;
     });
   }, []);
@@ -291,26 +338,44 @@ export function Dashboard({ user }: Props) {
   const handleToggleHidden = useCallback((id: string) => {
     setHiddenIds((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      try { localStorage.setItem('hidden_playlists', JSON.stringify(next)); } catch {}
+      try {
+        localStorage.setItem('hidden_playlists', JSON.stringify(next));
+      } catch { }
       return next;
     });
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
+    let cancelled = false;
     setLoadingPlaylists(true);
-    fetch('/api/playlists?forceRefresh=1')
+    const url = navigator.onLine ? '/api/playlists?forceRefresh=1' : '/api/playlists';
+    fetch(url)
       .then((res) => res.json())
       .then((data) => {
-        if (!isMounted) return;
-        if (Array.isArray(data.playlists)) setPlaylists(data.playlists);
+        if (cancelled) return;
+        if (!data?.playlists?.length && navigator.onLine) {
+          return fetch('/api/playlists')
+            .then((r) => r.json())
+            .then((d) => {
+              if (!cancelled && d?.playlists) setPlaylists(d.playlists);
+            });
+        }
+        if (data?.playlists) setPlaylists(data.playlists);
       })
-      .catch((err) => console.error('Failed to load playlists:', err))
+      .catch(() => {
+        if (cancelled) return;
+        fetch('/api/playlists')
+          .then((r) => r.json())
+          .then((d) => {
+            if (!cancelled && d?.playlists) setPlaylists(d.playlists);
+          })
+          .catch(() => { });
+      })
       .finally(() => {
-        if (isMounted) setLoadingPlaylists(false);
+        if (!cancelled) setLoadingPlaylists(false);
       });
     return () => {
-      isMounted = false;
+      cancelled = true;
     };
   }, []);
 
@@ -339,7 +404,10 @@ export function Dashboard({ user }: Props) {
     if (currentIndex === -1) return;
     if (repeatMode === 'one') {
       const audio = document.querySelector('audio') as HTMLAudioElement | null;
-      if (audio) { audio.currentTime = 0; audio.play(); }
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play();
+      }
       return;
     }
     setShouldAutoplay(true);
@@ -371,6 +439,7 @@ export function Dashboard({ user }: Props) {
   const handleToggleRepeat = useCallback(() => {
     setRepeatMode((prev) => (prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'));
   }, []);
+
   const handleFullscreenPlayPause = useCallback(() => {
     const audio = document.querySelector('audio') as HTMLAudioElement | null;
     if (!audio) return;
@@ -381,6 +450,7 @@ export function Dashboard({ user }: Props) {
       setIsPlaying(false);
     }
   }, []);
+
   const handleFullscreenVolumeChange = useCallback((nextVolume: number) => {
     const audio = document.querySelector('audio') as HTMLAudioElement | null;
     if (nextVolume > 0) lastAudibleVolumeRef.current = nextVolume;
@@ -388,6 +458,7 @@ export function Dashboard({ user }: Props) {
     setVolume(nextVolume);
     setIsMuted(nextVolume === 0);
   }, []);
+
   const handleFullscreenMuteToggle = useCallback(() => {
     const audio = document.querySelector('audio') as HTMLAudioElement | null;
     const nextMuted = !isMuted;
@@ -396,21 +467,51 @@ export function Dashboard({ user }: Props) {
     setIsMuted(nextMuted);
     setVolume(nextVolume);
   }, [isMuted]);
+
   const handleToggleQueue = useCallback(() => {
-    setIsQueueOpen((prev) => !prev);
-    setIsLyricsOpen(false);
-  }, []);
+    if (isQueueOpen) {
+      handleCloseQueue();
+      return;
+    }
+    if (isLyricsOpen) {
+      handleCloseLyrics();
+      setTimeout(() => setIsQueueOpen(true), 240);
+      return;
+    }
+    setIsQueueOpen(true);
+  }, [isQueueOpen, isLyricsOpen, handleCloseQueue, handleCloseLyrics]);
+
   const handleToggleLyrics = useCallback(() => {
-    setIsLyricsOpen((prev) => !prev);
-    setIsQueueOpen(false);
+    if (isLyricsOpen) {
+      handleCloseLyrics();
+      return;
+    }
+    if (isQueueOpen) {
+      handleCloseQueue();
+      setTimeout(() => setIsLyricsOpen(true), 240);
+      return;
+    }
+    setIsLyricsOpen(true);
+  }, [isQueueOpen, isLyricsOpen, handleCloseQueue, handleCloseLyrics]);
+
+  const handleAddToQueue = useCallback((track: Track) => {
+    setQueue((prev) => {
+      if (prev.some((t) => t.videoId === track.videoId)) return prev;
+      return [...prev, track];
+    });
+    setCurrentTrack((prev) => prev ?? track);
   }, []);
+
   const handleRemoveFromQueue = useCallback((videoId: string) => {
     setQueue((prev) => prev.filter((t) => t.videoId !== videoId));
   }, []);
+
   const handleClearQueue = useCallback(() => {
-    setQueue([]);
-    setCurrentTrack(null);
-  }, []);
+    setQueue((prev) => {
+      if (!currentTrack) return [];
+      return prev.filter((t) => t.videoId === currentTrack.videoId);
+    });
+  }, [currentTrack]);
 
   const handleDownload = useCallback(
     (playlistId: string) => {
@@ -454,7 +555,7 @@ export function Dashboard({ user }: Props) {
             }
             return next;
           });
-        } catch {}
+        } catch { }
       };
       es.onerror = () => {
         setDownloadJobs((prev) => {
@@ -518,7 +619,6 @@ export function Dashboard({ user }: Props) {
             handleTracksLoaded(playlist, data.tracks as Track[]);
           }
         } catch {
-          // Leave this playlist available for a later visit if its request fails.
           prefetchedPlaylistIds.current.delete(playlist.id);
         }
       }
@@ -526,28 +626,33 @@ export function Dashboard({ user }: Props) {
     };
 
     void prefetchTracksForSearch();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [handleTracksLoaded, playlists, searchQuery]);
 
-  const handleDeletePlaylist = useCallback(async (playlistId: string) => {
-    try {
-      const res = await fetch(`/api/playlist/delete?playlistId=${encodeURIComponent(playlistId)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
-        setHiddenIds((prev) => prev.filter((id) => id !== playlistId));
-        setPinnedIds((prev) => prev.filter((id) => id !== playlistId));
-        if (selectedPlaylist?.id === playlistId) {
-          setSelectedPlaylist(null);
+  const handleDeletePlaylist = useCallback(
+    async (playlistId: string) => {
+      try {
+        const res = await fetch(`/api/playlist/delete?playlistId=${encodeURIComponent(playlistId)}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
+          setHiddenIds((prev) => prev.filter((id) => id !== playlistId));
+          setPinnedIds((prev) => prev.filter((id) => id !== playlistId));
+          if (selectedPlaylist?.id === playlistId) {
+            setSelectedPlaylist(null);
+          }
+        } else {
+          alert('Failed to delete playlist');
         }
-      } else {
-        alert('Failed to delete playlist');
+      } catch {
+        alert('Error deleting playlist');
       }
-    } catch {
-      alert('Error deleting playlist');
-    }
-  }, [selectedPlaylist]);
+    },
+    [selectedPlaylist]
+  );
 
   const handlePushPlaylist = useCallback(async (playlist: Playlist) => {
     try {
@@ -638,6 +743,7 @@ export function Dashboard({ user }: Props) {
                 isPinned={pinnedIds.includes(selectedPlaylist.id)}
                 isHidden={hiddenIds.includes(selectedPlaylist.id)}
                 onPlay={handlePlay}
+                onAddToQueue={handleAddToQueue}
                 onDownload={handleDownload}
                 onTogglePin={handleTogglePin}
                 onToggleHidden={handleToggleHidden}
@@ -658,11 +764,15 @@ export function Dashboard({ user }: Props) {
           {isQueueOpen && (
             <>
               <ResizeDivider onDelta={(d) => setQueueWidth((w) => clamp(w - d, QUEUE_MIN, QUEUE_MAX))} />
-              <div className="h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden" style={{ width: queueWidth }}>
+              <div
+                className={`h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden ${isQueueClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                  }`}
+                style={{ width: queueWidth }}
+              >
                 <QueueDrawer
                   currentTrack={currentTrack}
                   queue={queue}
-                  onClose={() => setIsQueueOpen(false)}
+                  onClose={handleCloseQueue}
                   onPlayTrack={(t) => setCurrentTrack(t)}
                   onRemoveFromQueue={handleRemoveFromQueue}
                   onClearQueue={handleClearQueue}
@@ -674,11 +784,15 @@ export function Dashboard({ user }: Props) {
           {isLyricsOpen && (
             <>
               <ResizeDivider onDelta={(d) => setLyricsWidth((w) => clamp(w - d, LYRICS_MIN, LYRICS_MAX))} />
-              <div className="h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden" style={{ width: lyricsWidth }}>
+              <div
+                className={`h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                  }`}
+                style={{ width: lyricsWidth }}
+              >
                 <LyricsDrawer
                   track={currentTrack}
                   currentTime={currentTime}
-                  onClose={() => setIsLyricsOpen(false)}
+                  onClose={handleCloseLyrics}
                   onSeek={(secs) => {
                     const el = document.querySelector('audio') as HTMLAudioElement | null;
                     if (el) el.currentTime = secs;
@@ -799,14 +913,14 @@ function GlobalSearchResults({
               <p className="text-xs text-white/40 truncate">{track.playlistTitle}</p>
             </div>
             <div className="hidden md:block w-16 text-right text-xs text-white/35">
-              {track.duration ? formatDuration(track.duration) : 'â€”'}
+              {track.duration ? formatDuration(track.duration) : '—'}
             </div>
             <div className="shrink-0 text-white/25">
               <Play className="w-4 h-4" />
             </div>
           </button>
         ))}
-      {results.length === 0 && !isIndexing && (
+        {results.length === 0 && !isIndexing && (
           <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center text-white/35">
             <Search className="w-5 h-5 mx-auto mb-3 text-white/20" />
             No matching tracks found in loaded playlists.

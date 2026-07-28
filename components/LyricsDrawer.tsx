@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Track } from '@/types';
 import { X, Music2, Loader2 } from 'lucide-react';
 import { parseLRC, getActiveLyricIndex } from '@/lib/lyrics';
@@ -22,6 +22,18 @@ interface Props {
   onSeek?: (seconds: number) => void;
 }
 
+/** Strip YouTube/topic noise + @ handles + pipe separators for cleaner API queries */
+function cleanForLyrics(str: string): string {
+  return str
+    .replace(/\s*-\s*Topic$/i, '')
+    .replace(/\s+Topic$/i, '')
+    .replace(/\s*\|.*$/, '')          // strip everything after pipe
+    .replace(/@\S+/g, '')             // strip @handles
+    .replace(/\s*&\s*\S+/g, '')       // strip & collaborators
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,46 +43,71 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastFetchKey = useRef('');
 
-  const fetchLyrics = useCallback(async (title: string, artist: string) => {
+  useEffect(() => {
+    if (!track) return;
+    const rawTitle = track.title;
+    const rawArtist = track.artist;
+    const key = `${rawTitle}|${rawArtist}`;
+    if (key === lastFetchKey.current) return;
+    lastFetchKey.current = key;
+
+    let cancelled = false;
     setLoading(true);
     setLyricsData(null);
     setParsedLines([]);
     setActiveIndex(-1);
-    try {
-      const res = await fetch(
-        `/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`
-      );
-      const data: LyricsData = await res.json();
-      setLyricsData(data);
-      if (data.syncedLyrics) setParsedLines(parseLRC(data.syncedLyrics));
-    } catch {
-      setLyricsData({ syncedLyrics: null, plainLyrics: null, error: 'Failed to load lyrics' });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
-  useEffect(() => {
-    if (!track) return;
-    const key = `${track.title}|${track.artist}`;
-    if (key === lastFetchKey.current) return;
-    lastFetchKey.current = key;
-    fetchLyrics(track.title, track.artist);
-  }, [track?.title, track?.artist, fetchLyrics]);
+    const title = cleanForLyrics(rawTitle);
+    const artist = cleanForLyrics(rawArtist);
+
+    const doFetch = async () => {
+      try {
+        const res = await fetch(
+          `/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`
+        );
+        if (cancelled) return;
+        if (!res.ok) {
+          setLyricsData({ syncedLyrics: null, plainLyrics: null, notFound: true });
+          return;
+        }
+        const data: LyricsData = await res.json();
+        if (cancelled) return;
+        setLyricsData(data);
+        if (data.syncedLyrics) setParsedLines(parseLRC(data.syncedLyrics));
+      } catch {
+        if (cancelled) return;
+        // Retry once with just the title (no artist) before giving up
+        try {
+          const res2 = await fetch(`/api/lyrics?title=${encodeURIComponent(title)}&artist=`);
+          if (cancelled) return;
+          if (res2.ok) {
+            const data2: LyricsData = await res2.json();
+            if (cancelled) return;
+            setLyricsData(data2);
+            if (data2.syncedLyrics) setParsedLines(parseLRC(data2.syncedLyrics));
+            return;
+          }
+        } catch { /* ignore */ }
+        if (!cancelled) setLyricsData({ syncedLyrics: null, plainLyrics: null, notFound: true });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    doFetch();
+    return () => { cancelled = true; };
+  }, [track?.title, track?.artist]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (parsedLines.length === 0) return;
-    const idx = getActiveLyricIndex(parsedLines, currentTime);
-    setActiveIndex(idx);
+    setActiveIndex(getActiveLyricIndex(parsedLines, currentTime));
   }, [currentTime, parsedLines]);
 
   useEffect(() => {
     if (activeRef.current && scrollRef.current) {
       const container = scrollRef.current;
       const el = activeRef.current;
-      // Target position: offset so the 5th line (index offset) aligns near top
-      const offset = el.offsetTop - container.offsetTop - 160;
-      container.scrollTo({ top: offset, behavior: 'smooth' });
+      container.scrollTo({ top: el.offsetTop - container.offsetTop - 160, behavior: 'smooth' });
     }
   }, [activeIndex]);
 
@@ -81,7 +118,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
 
   return (
     <div className="h-full bg-[#0c0c0c] flex flex-col overflow-hidden relative select-none">
-      {/* Ambient thumbnail bg */}
+      {/* Ambient bg */}
       <div className="absolute inset-0 opacity-[0.07] pointer-events-none z-0">
         {track.thumbnailUrl && (
           <img
@@ -109,7 +146,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
         </button>
       </div>
 
-      {/* Scroll body */}
+      {/* Body */}
       <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0">
         {loading && (
           <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -129,18 +166,12 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
             </div>
             <div>
               <p className="text-sm font-semibold text-white/50">{track.title}</p>
-              <p className="text-xs text-white/25 mt-1">No lyrics found for this song</p>
+              <p className="text-xs text-white/25 mt-1">No lyrics found</p>
             </div>
           </div>
         )}
 
-        {!loading && lyricsData?.error && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-red-400/60">{lyricsData.error}</p>
-          </div>
-        )}
-
-        {/* Synced LRC lyrics — Silky smooth line highlight without layout reflow */}
+        {/* Synced LRC */}
         {!loading && hasSynced && (
           <div className="py-44 space-y-1">
             {parsedLines.map((line, i) => {
@@ -151,21 +182,18 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
                   key={i}
                   ref={isActive ? activeRef : undefined}
                   onClick={() => onSeek?.(line.time)}
-                  className={`
-                    group px-3 py-2 rounded-xl cursor-pointer transition-all duration-300 ease-out origin-left border border-transparent
-                    ${isActive ? 'bg-white/5 border-white/5 shadow-inner' : 'hover:bg-white/5'}
-                  `}
+                  className={`group px-3 py-2 rounded-xl cursor-pointer transition-all duration-300 ease-out origin-left border border-transparent ${
+                    isActive ? 'bg-white/5 border-white/5 shadow-inner' : 'hover:bg-white/5'
+                  }`}
                 >
                   <p
-                    className={`
-                      text-lg font-bold leading-snug tracking-tight transition-all duration-300 ease-out
-                      ${isActive
+                    className={`text-lg font-bold leading-snug tracking-tight transition-all duration-300 ease-out ${
+                      isActive
                         ? 'text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.45)] scale-[1.02]'
                         : isPast
                         ? 'text-white/20 group-hover:text-white/50 scale-100'
                         : 'text-white/35 group-hover:text-white/70 scale-100'
-                      }
-                    `}
+                    }`}
                   >
                     {line.text}
                   </p>
@@ -180,9 +208,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
           <div className="pb-8 pt-2 space-y-3">
             <div className="flex items-center gap-2 mb-5">
               <div className="h-px flex-1 bg-white/5" />
-              <span className="text-[10px] text-white/20 uppercase tracking-widest font-semibold">
-                Plain Lyrics
-              </span>
+              <span className="text-[10px] text-white/20 uppercase tracking-widest font-semibold">Plain Lyrics</span>
               <div className="h-px flex-1 bg-white/5" />
             </div>
             {lyricsData!.plainLyrics!.split('\n').map((line, i) => (

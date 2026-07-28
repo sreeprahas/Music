@@ -20,7 +20,8 @@ export interface Playlist {
 export interface UserProfile {
   name: string;
   email: string;
-  picture: string;
+  picture?: string;
+  image?: string;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -73,6 +74,7 @@ export interface SessionData {
   email: string;
   name: string;
   picture: string;
+  image?: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;

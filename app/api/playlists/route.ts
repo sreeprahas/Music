@@ -24,6 +24,10 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
 
   const session = await getSession();
   if (!session) {
+    const cached = getCachedPlaylists();
+    if (cached.length > 0) {
+      return NextResponse.json({ playlists: cached, offline: true });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

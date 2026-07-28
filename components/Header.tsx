@@ -248,9 +248,9 @@ export function Header({
             onClick={() => setIsAccountMenuOpen((prev) => !prev)}
             className="flex items-center gap-2.5 p-1.5 pl-2 pr-3 rounded-2xl bg-white/5 hover:bg-[#1A1A1A] border border-white/10 transition-all duration-500 ease-out cursor-pointer hover:shadow-[0_0_18px_rgba(0,242,254,0.15)]"
           >
-            {user.picture ? (
+            {(user.picture || user.image) ? (
               <img
-                src={user.picture}
+                src={user.picture || user.image}
                 alt={user.name}
                 className="w-7 h-7 rounded-xl object-cover shrink-0"
               />

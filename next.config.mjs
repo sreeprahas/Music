@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  trailingSlash: false,
   output: process.env.IS_NATIVE_BUILD === 'true' ? 'export' : undefined,
-  reactStrictMode: true,
+  reactStrictMode: false,
   images: {
     unoptimized: true,
     remotePatterns: [

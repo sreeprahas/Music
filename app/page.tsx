@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import { LoginScreen } from '@/components/LoginScreen';
 import { Dashboard } from '@/components/Dashboard';
-import { isNativeHost } from '@/lib/webviewBridge';
 import type { UserProfile } from '@/types';
 
 export default function Home() {
@@ -12,20 +11,20 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check for session info via API
-    // In native mode, C# intercepts this and returns the "Offline Player" profile
-    fetch('/api/auth')
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.user) setSession({ user: data.user });
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-
     // Handle search params for error messages
     const params = new URLSearchParams(window.location.search);
     const err = params.get('error');
     if (err) setError(err);
+
+    // Check for session info via API
+    // In native mode, C# intercepts this and returns the "Offline Player" profile
+    fetch('/api/auth')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.user) setSession({ user: data.user });
+      })
+      .catch(() => { })
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) {

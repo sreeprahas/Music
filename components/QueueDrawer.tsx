@@ -63,13 +63,13 @@ export function QueueDrawer({
           </div>
         )}
 
-        {/* Next Up */}
+        {/* Queue Items */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-[10px] font-bold text-white/25 uppercase tracking-widest">
-              Next Up ({nextUp.length})
+              Next Up ({queue.filter((t) => t.videoId !== currentTrack?.videoId).length})
             </h4>
-            {nextUp.length > 0 && (
+            {queue.length > 0 && (
               <button
                 onClick={onClearQueue}
                 className="text-[10px] text-white/30 hover:text-white transition-colors flex items-center gap-1"
@@ -80,42 +80,44 @@ export function QueueDrawer({
             )}
           </div>
 
-          {nextUp.length === 0 ? (
+          {queue.length === 0 ? (
             <p className="text-xs text-white/20 italic py-4">Queue is empty</p>
           ) : (
             <div className="space-y-0.5">
-              {nextUp.map((track, i) => (
-                <div
-                  key={`${track.videoId}-${i}`}
-                  className="group flex items-center justify-between p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
-                  onClick={() => onPlayTrack(track)}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-8 h-8 rounded-md overflow-hidden bg-white/5 shrink-0">
-                      <img
-                        src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
-                        alt={track.title}
-                        className="w-full h-full object-cover"
-                      />
+              {queue
+                .filter((t) => t.videoId !== currentTrack?.videoId)
+                .map((track, i) => (
+                  <div
+                    key={`${track.videoId}-${i}`}
+                    className="group flex items-center justify-between p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
+                    onClick={() => onPlayTrack(track)}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-8 h-8 rounded-md overflow-hidden bg-white/5 shrink-0">
+                        <img
+                          src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                          alt={track.title}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-white/80 truncate group-hover:text-white">{track.title}</p>
+                        <p className="text-xs text-white/35 truncate">{cleanArtistName(track.artist)}</p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-white/80 truncate group-hover:text-white">{track.title}</p>
-                      <p className="text-xs text-white/35 truncate">{cleanArtistName(track.artist)}</p>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <span className="text-[10px] text-white/25">
+                        {track.duration ? formatDuration(track.duration) : ''}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onRemoveFromQueue(track.videoId); }}
+                        className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-red-400 p-0.5 transition-all"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <span className="text-[10px] text-white/25">
-                      {track.duration ? formatDuration(track.duration) : ''}
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onRemoveFromQueue(track.videoId); }}
-                      className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-red-400 p-0.5 transition-all"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
           )}
         </div>

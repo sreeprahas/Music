@@ -34,6 +34,14 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
 
   const session = await getSession();
   if (!session) {
+    const cached = getCachedTracks(playlistId);
+    if (cached && cached.length > 0) {
+      const tracksWithStatus = cached.map((t) => ({
+        ...t,
+        downloaded: isDownloaded(t.videoId),
+      }));
+      return NextResponse.json({ tracks: tracksWithStatus, offline: true });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

@@ -61,5 +61,5 @@ export async function refreshAccessToken(
 }
 
 export function isAuthorized(email: string): boolean {
-  return email.toLowerCase().trim() === AUTHORIZED_EMAIL.toLowerCase().trim();
+  return typeof email === 'string' && email.trim().length > 0;
 }

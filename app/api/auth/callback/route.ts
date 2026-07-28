@@ -59,7 +59,8 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   setSessionCookie(response, {
     email: profile.email,
     name: profile.name,
-    picture: profile.picture,
+    picture: profile.picture || '',
+    image: profile.picture || '',
     accessToken: access_token,
     refreshToken: refresh_token || '',
     expiresAt: Date.now() + expires_in * 1000,
