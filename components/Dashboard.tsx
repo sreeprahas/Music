@@ -542,7 +542,7 @@ export function Dashboard({ user }: Props) {
             const current = next.get(playlistId);
             if (!current) return prev;
             if (evt.type === 'start') next.set(playlistId, { ...current, status: 'running', total: evt.total || 0, toDownload: evt.toDownload || 0 });
-            else if (evt.type === 'progress') next.set(playlistId, { ...current, done: evt.current || current.done, toDownload: evt.toDownload || current.toDownload, currentTitle: evt.title, currentArtist: evt.artist });
+            else if (evt.type === 'progress') next.set(playlistId, { ...current, done: evt.current || current.done, toDownload: evt.total || current.toDownload, currentTitle: evt.title, currentArtist: evt.artist });
             else if (evt.type === 'complete') {
               next.set(playlistId, { ...current, status: 'done', done: evt.downloaded || current.done });
               es.close();

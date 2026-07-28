@@ -7,8 +7,18 @@
  // Export a placeholder function that can be overridden as needed.
 export function isNativeHost(): boolean {
   // Determine if the current environment is a native host.
-  // This is a placeholder implementation; replace with actual logic.
-  return typeof window !== 'undefined';
+  // Check for native bridge APIs (Tauri, Electron, etc.)
+  return (
+    typeof window !== 'undefined' &&
+    (
+      // Tauri
+      ('__TAURI__' in window) ||
+      // Electron
+      ('electron' in window && typeof (window as any).electron !== 'undefined') ||
+      // Custom native bridge
+      ('nativeHost' in window)
+    )
+  );
 }
 
 /**
