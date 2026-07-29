@@ -17,3 +17,6 @@ native-wrapper/
 .idea/
 .trae/
 .gemini/
+bin/
+.tmp/
+resources/

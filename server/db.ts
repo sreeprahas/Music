@@ -1,9 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import { LibraryData, Track, Playlist } from '../src/types.js';
+import { getDataDir } from '../lib/nativeData.js';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'playlists.json');
+function getPaths() {
+  const DATA_DIR = path.join(getDataDir());
+  return {
+    DATA_DIR,
+    DB_FILE: path.join(DATA_DIR, 'playlists.json'),
+  };
+}
 
 const INITIAL_TRACKS: Track[] = [
   {
@@ -100,6 +106,7 @@ function getInitialData(): LibraryData {
 
 export function initDatabase(): LibraryData {
   try {
+    const { DATA_DIR, DB_FILE } = getPaths();
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
@@ -121,6 +128,7 @@ export function initDatabase(): LibraryData {
 
 export function readDatabase(): LibraryData {
   try {
+    const { DB_FILE } = getPaths();
     if (!fs.existsSync(DB_FILE)) {
       return initDatabase();
     }
@@ -134,6 +142,7 @@ export function readDatabase(): LibraryData {
 
 export function writeDatabase(data: LibraryData): void {
   try {
+    const { DATA_DIR, DB_FILE } = getPaths();
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }

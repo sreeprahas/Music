@@ -28,8 +28,10 @@
     "app/**/*.tsx",
     "components/**/*.ts",
     "components/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     "types/**/*.ts",
     ".next/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "src", "server.ts", "vite.config.ts"]
+  "exclude": ["node_modules", "server.ts", "vite.config.ts"]
 }

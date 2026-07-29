@@ -2,14 +2,21 @@ import fs from 'fs';
 import path from 'path';
 import type { Playlist, Track } from '@/types';
 import { cleanArtistName } from './ytmusicApi';
+import { getDataDir } from './nativeData';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const METADATA_PATH = path.join(DATA_DIR, 'metadata_cache.json');
-const LYRICS_DIR = path.join(DATA_DIR, 'lyrics');
-const THUMBNAILS_DIR = path.join(DATA_DIR, 'thumbnails');
-const PLAYLIST_THUMBNAILS_DIR = path.join(DATA_DIR, 'playlist-thumbnails');
+function getPaths() {
+  const DATA_DIR = path.resolve(getDataDir());
+  return {
+    DATA_DIR,
+    METADATA_PATH: path.join(DATA_DIR, 'metadata_cache.json'),
+    LYRICS_DIR: path.join(DATA_DIR, 'lyrics'),
+    THUMBNAILS_DIR: path.join(DATA_DIR, 'thumbnails'),
+    PLAYLIST_THUMBNAILS_DIR: path.join(DATA_DIR, 'playlist-thumbnails'),
+  };
+}
 
 export function ensureDirs() {
+  const { DATA_DIR, LYRICS_DIR, THUMBNAILS_DIR, PLAYLIST_THUMBNAILS_DIR } = getPaths();
   [DATA_DIR, LYRICS_DIR, THUMBNAILS_DIR, PLAYLIST_THUMBNAILS_DIR].forEach((d) => {
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   });
@@ -23,6 +30,7 @@ interface MetadataCache {
 
 function getCache(): MetadataCache {
   ensureDirs();
+  const { METADATA_PATH } = getPaths();
   if (!fs.existsSync(METADATA_PATH)) {
     return { playlists: [], playlistTracks: {}, lastUpdated: 0 };
   }
@@ -35,6 +43,7 @@ function getCache(): MetadataCache {
 
 function saveCache(cache: MetadataCache) {
   ensureDirs();
+  const { METADATA_PATH } = getPaths();
   fs.writeFileSync(METADATA_PATH, JSON.stringify(cache, null, 2));
 }
 
@@ -79,6 +88,7 @@ export function setCachedTracks(playlistId: string, tracks: Track[]) {
 // Lyrics persistence
 export function getSavedLyrics(artist: string, title: string) {
   ensureDirs();
+  const { LYRICS_DIR } = getPaths();
   const cleanedArtist = cleanArtistName(artist);
   const safeName = `${cleanedArtist}_${title}`.replace(/[/\\?%*:|"<>]/g, '-').toLowerCase();
   const filePath = path.join(LYRICS_DIR, `${safeName}.json`);
@@ -92,6 +102,7 @@ export function getSavedLyrics(artist: string, title: string) {
 
 export function saveLyrics(artist: string, title: string, data: any) {
   ensureDirs();
+  const { LYRICS_DIR } = getPaths();
   const cleanedArtist = cleanArtistName(artist);
   const safeName = `${cleanedArtist}_${title}`.replace(/[/\\?%*:|"<>]/g, '-').toLowerCase();
   const filePath = path.join(LYRICS_DIR, `${safeName}.json`);
@@ -100,6 +111,7 @@ export function saveLyrics(artist: string, title: string, data: any) {
 
 // Thumbnail path helper
 export function getLocalThumbnailPath(videoId: string): string {
+  const { THUMBNAILS_DIR } = getPaths();
   return path.join(THUMBNAILS_DIR, `${videoId}.webp`);
 }
 
@@ -112,6 +124,7 @@ function safeCacheKey(value: string) {
 }
 
 export function getLocalPlaylistThumbnailPath(playlistId: string): string {
+  const { PLAYLIST_THUMBNAILS_DIR } = getPaths();
   return path.join(PLAYLIST_THUMBNAILS_DIR, `${safeCacheKey(playlistId)}.webp`);
 }
 

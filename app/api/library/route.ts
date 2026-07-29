@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { getDataDir } from '@/lib/nativeData';
 
 export const dynamic = 'force-dynamic';
 
-const CACHE_PATH = path.join(process.cwd(), 'data', 'user_cache.json');
+function getCachePath() {
+  return path.join(getDataDir(), 'user_cache.json');
+}
 
 function ensureCacheFile() {
+  const CACHE_PATH = getCachePath();
   const dir = path.dirname(CACHE_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -31,6 +35,7 @@ function ensureCacheFile() {
 function readCache() {
   ensureCacheFile();
   try {
+    const CACHE_PATH = getCachePath();
     const content = fs.readFileSync(CACHE_PATH, 'utf-8');
     return JSON.parse(content);
   } catch (e) {
@@ -40,14 +45,11 @@ function readCache() {
 
 function writeCache(data: any) {
   ensureCacheFile();
+  const CACHE_PATH = getCachePath();
   fs.writeFileSync(CACHE_PATH, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 export async function GET() {
-  if (process.env.IS_NATIVE_BUILD === 'true') {
-    return NextResponse.json({ playlists: [], tracks: {} });
-  }
-
   const cache = readCache();
   return NextResponse.json(cache);
 }

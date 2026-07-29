@@ -2,18 +2,22 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { getLocalThumbnailPath, ensureDirs } from './db';
+import { getDataDir } from './nativeData';
 
-const MP3_DIR = path.join(process.cwd(), 'data', 'mp3');
+function getMp3Dir() {
+  return path.join(getDataDir(), 'mp3');
+}
 
 export function ensureMp3Dir(): void {
   ensureDirs();
+  const MP3_DIR = getMp3Dir();
   if (!fs.existsSync(MP3_DIR)) {
     fs.mkdirSync(MP3_DIR, { recursive: true });
   }
 }
 
 export function getMp3Path(videoId: string): string {
-  return path.join(MP3_DIR, `${videoId}.mp3`);
+  return path.join(getMp3Dir(), `${videoId}.mp3`);
 }
 
 export function isDownloaded(videoId: string): boolean {
@@ -33,13 +37,14 @@ export function downloadTrack(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     ensureMp3Dir();
+    const MP3_DIR = getMp3Dir();
     const outputTemplate = path.join(MP3_DIR, `${videoId}.%(ext)s`).replace(/\\/g, '/');
     const directUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const directCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 3 --extractor-args "youtube:player_client=android,web" -o "${outputTemplate}" "${directUrl}"`;
 
     exec(directCmd, { timeout: 300000 }, (error, _stdout, stderr) => {
       // Move thumbnail if it exists
-      const tempThumb = path.join(MP3_DIR, `${videoId}.webp`);
+      const tempThumb = path.join(getMp3Dir(), `${videoId}.webp`);
       const finalThumb = getLocalThumbnailPath(videoId);
       if (fs.existsSync(tempThumb)) {
         fs.renameSync(tempThumb, finalThumb);

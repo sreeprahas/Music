@@ -1,0 +1,34 @@
+{
+  "applicationId": "com.tractweb.music",
+  "defaultMode": "window",
+  "mode": "window",
+  "port": 0,
+  "url": "http://localhost:3000",
+  "enableServer": true,
+  "server": {
+    "path": "resources/app/start-server.bat"
+  },
+  "window": {
+    "title": "Music",
+    "icon": "resources/music-icon.png",
+    "width": 1400,
+    "height": 900,
+    "minWidth": 1000,
+    "minHeight": 700,
+    "fullscreen": false,
+    "alwaysOnTop": false,
+    "enableInspector": true
+  },
+  "applicationIcon": "resources/music-icon.png",
+  "modes": {
+    "window": {
+      "title": "Music",
+      "icon": "resources/music-icon.png"
+    }
+  },
+  "cli": {
+    "resourcesPath": "resources",
+    "binaryName": "neu",
+    "binaryVersion": "6.9.0"
+  }
+}

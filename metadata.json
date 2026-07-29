@@ -1,1 +1,17 @@
-{"name":"YouTube Music Personal","description":"Personal YouTube Music clone with yt-dlp audio extraction, local JSON playlist storage, single-user Google authentication, and dark bottom player.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
+{
+    "name":"MUSIC",
+    "description":"",
+    "requestFramePermissions":[],
+    "majorCapabilities":[
+        "audio playback",
+        "playlist management",
+        "user authentication"
+    ],
+    "minorCapabilities":[
+        "dark mode support",
+        "local storage for playlists",
+        "integration with YouTube Music API"],
+        "version":"1.0.0",
+        "author":"TractWeb",
+        "license":"MIT"
+}
