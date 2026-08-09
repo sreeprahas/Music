@@ -1,16 +1,18 @@
 {
-  "name": "youtube-music-personal",
+  "name": "music",
   "private": true,
   "version": "1.0.0",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
+    "build:native": "node -e \"process.env.IS_NATIVE_BUILD='true'; const { spawnSync } = require('child_process'); const { resolve, join } = require('path'); const nextBin = resolve(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'next.cmd' : 'next'); const res = spawnSync(nextBin, ['build'], { stdio: 'inherit', env: process.env, shell: process.platform === 'win32' }); process.exit(res.status ?? 1);\"",
     "start": "next start -p 3000",
+    "neutralino:clean": "node -e \"const fs=require('fs'), path=require('path'); ['dist/neu','dist/neu-release-extracted','dist/neu-release.zip'].forEach(rel => { const p=path.resolve(process.cwd(), rel); if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true }); });\"",
     "neutralino:dev": "concurrently \"npm run dev\" \"npx @neutralinojs/neu run\"",
     "neutralino:run": "concurrently \"npm run start\" \"npx @neutralinojs/neu run\"",
-    "neutralino:build": "npx @neutralinojs/neu build",
+    "neutralino:build": "npm run neutralino:clean && npx @neutralinojs/neu build",
     "neutralino:prepare": "node scripts/prepare-neutralino.js",
-    "neutralino:build:full": "npm run build && npm run neutralino:prepare && npx @neutralinojs/neu build",
+    "neutralino:build:full": "npm run build:native && npm run neutralino:prepare && npm run neutralino:build",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

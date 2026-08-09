@@ -5,6 +5,8 @@ export interface Track {
   thumbnailUrl: string;
   duration?: number;
   position: number;
+  dateAdded?: string;
+  playlistItemId?: string;
   downloaded?: boolean;
 }
 
@@ -13,6 +15,7 @@ export interface Playlist {
   title: string;
   description: string;
   thumbnailUrl: string;
+  thumbnailUrls?: string[];
   trackCount: number;
   hidden?: boolean;
 }

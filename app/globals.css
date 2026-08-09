@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .menu-action {
+    @apply flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm text-white/85 transition-colors hover:bg-white/10 hover:text-[#00F2FE];
+  }
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -23,27 +39,51 @@ body {
   color: #ffffff;
 }
 
-/* Global Custom Scrollbars for EVERY panel and scrollable container */
+/* Vertical scrollbars appear only while their scrollable division is hovered. */
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 0;
 }
+
+*::-webkit-scrollbar:horizontal {
+  display: none;
+  height: 0;
+}
+
 *::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.15);
+  background: transparent;
+}
+
+*:hover::-webkit-scrollbar-track {
+  background: #0b0b0b;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(0, 242, 254, 0.42);
-  border-radius: 99px;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 2px;
+  background-clip: padding-box;
   transition: background 0.2s ease;
 }
+*:hover::-webkit-scrollbar-thumb {
+  background-color: #4a4a4a;
+}
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 242, 254, 0.5);
+  background-color: #707070;
 }
 
 /* Firefox scrollbar */
 * {
-  scrollbar-width: auto;
-  scrollbar-color: rgba(0, 242, 254, 0.58) transparent;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover {
+  scrollbar-color: #4a4a4a #0b0b0b;
+}
+
+/* Reserve the scrollbar space only where a vertical scrollbar can actually exist. */
+:where([class~='overflow-y-auto'], [class~='overflow-y-scroll']) {
+  scrollbar-gutter: stable;
 }
 
 /* Waveform animation for download progress */

@@ -3,6 +3,7 @@
 import React from 'react';
 import type { Playlist } from '@/types';
 import { Pin, Play, Music } from 'lucide-react';
+import { Skeleton } from './Skeleton';
 
 interface Props {
   playlists: Playlist[];
@@ -10,6 +11,23 @@ interface Props {
   hiddenIds: string[];
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
+}
+
+export function PlaylistGridSkeleton() {
+  return (
+    <div className="h-full min-h-0 overflow-y-auto px-8 py-8 select-none">
+      <Skeleton className="mb-6 h-8 w-44" />
+      <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {Array.from({ length: 10 }, (_, index) => (
+          <div key={index} className="rounded-3xl border border-white/5 bg-white/[0.03] p-3">
+            <Skeleton className="aspect-square w-full rounded-2xl" />
+            <Skeleton className="mt-4 h-4 w-4/5" />
+            <Skeleton className="mt-2 h-3 w-2/5" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function PlaylistGrid({

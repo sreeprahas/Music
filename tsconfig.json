@@ -31,6 +31,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "types/**/*.ts",
+    "types/**/*.d.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": ["node_modules", "server.ts", "vite.config.ts"]

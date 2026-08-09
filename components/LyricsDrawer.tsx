@@ -2,9 +2,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { Track } from '@/types';
-import { X, Music2, Loader2 } from 'lucide-react';
+import { X, Music2 } from 'lucide-react';
 import { parseLRC, getActiveLyricIndex } from '@/lib/lyrics';
 import type { LyricLine } from '@/lib/lyrics';
+import { Skeleton } from './Skeleton';
 
 interface LyricsData {
   syncedLyrics: string | null;
@@ -149,9 +150,10 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       {/* Body */}
       <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0">
         {loading && (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <Loader2 className="w-7 h-7 text-[#00F2FE] animate-spin" />
-            <p className="text-sm text-white/30">Finding lyrics…</p>
+          <div className="space-y-5 px-3 py-12">
+            {[0, 1, 2, 3, 4, 5].map((index) => (
+              <Skeleton key={index} className={`h-7 ${index % 3 === 0 ? 'w-3/4' : index % 3 === 1 ? 'w-full' : 'w-5/6'}`} />
+            ))}
           </div>
         )}
 
@@ -173,7 +175,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
 
         {/* Synced LRC */}
         {!loading && hasSynced && (
-          <div className="py-44 space-y-1">
+          <div className="py-0 space-y-1">
             {parsedLines.map((line, i) => {
               const isActive = i === activeIndex;
               const isPast = i < activeIndex;

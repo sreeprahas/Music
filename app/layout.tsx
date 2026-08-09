@@ -33,6 +33,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           dangerouslySetInnerHTML={{
             __html: `
+              window.addEventListener('contextmenu', function(e) {
+                if (e.target && e.target.closest && e.target.closest('[data-song-context]')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }, { capture: true });
+            `,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
               (function(){
                 try {
                   var nl = window.Neutralino || window.__Neutralino || null;

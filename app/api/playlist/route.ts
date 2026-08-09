@@ -13,6 +13,8 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
 
   const { searchParams } = new URL(request.url);
   const playlistId = searchParams.get('playlistId');
+  const limitParam = Number(searchParams.get('limit') || 0);
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 0;
   // When ?forceRefresh=1, always fetch from network; otherwise serve cache first
   const forceRefresh = searchParams.get('forceRefresh') === '1';
 
@@ -24,7 +26,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!forceRefresh) {
     const cached = getCachedTracks(playlistId);
     if (cached && cached.length > 0) {
-      const tracksWithStatus = cached.map((t) => ({
+      const tracksWithStatus = cached.slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
@@ -36,7 +38,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!session) {
     const cached = getCachedTracks(playlistId);
     if (cached && cached.length > 0) {
-      const tracksWithStatus = cached.map((t) => ({
+      const tracksWithStatus = cached.slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
@@ -53,7 +55,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
 
   try {
     const tracks = await getPlaylistTracks(accessToken, playlistId);
-    const tracksWithStatus = tracks.map((t) => ({
+    const tracksWithStatus = tracks.slice(0, limit || undefined).map((t) => ({
       ...t,
       downloaded: isDownloaded(t.videoId),
     }));
@@ -63,7 +65,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
     console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);
     const cached = getCachedTracks(playlistId);
     if (cached) {
-      const tracksWithStatus = cached.map((t) => ({
+      const tracksWithStatus = cached.slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));

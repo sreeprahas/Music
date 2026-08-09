@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { Playlist, Track, UserProfile, RepeatMode, DownloadJob, DownloadProgressEvent } from '@/types';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
-import { PlaylistGrid } from './PlaylistGrid';
+import { PlaylistGrid, PlaylistGridSkeleton } from './PlaylistGrid';
 import { PlaylistView } from './PlaylistView';
 import { HiddenPlaylistsView } from './HiddenPlaylistsView';
 import { PlayerBar } from './PlayerBar';
@@ -16,12 +16,12 @@ import { isNativeHost, sendNativeDownloadRequest, useNativeDownloadProgress } fr
 import { Search, Play } from 'lucide-react';
 import { cleanArtistName, formatDuration } from '@/lib/ytmusicApi';
 
-const SIDEBAR_MIN = 160;
-const SIDEBAR_MAX = 380;
-const QUEUE_MIN = 240;
-const QUEUE_MAX = 480;
-const LYRICS_MIN = 280;
-const LYRICS_MAX = 520;
+const QUEUE_MIN = 16;
+const QUEUE_MAX = 28;
+const LYRICS_MIN = 18;
+const LYRICS_MAX = 30;
+const SIDEBAR_EXPANDED_WIDTH = 20;
+const SIDEBAR_COLLAPSED_WIDTH = 5.5;
 
 function clamp(val: number, min: number, max: number) {
   return Math.min(Math.max(val, min), max);
@@ -103,9 +103,8 @@ export function Dashboard({ user }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('name');
 
-  const [sidebarWidth, setSidebarWidth] = useState(240);
-  const [queueWidth, setQueueWidth] = useState(320);
-  const [lyricsWidth, setLyricsWidth] = useState(360);
+  const [queueWidth, setQueueWidth] = useState(22);
+  const [lyricsWidth, setLyricsWidth] = useState(24);
 
   const [currentTrack, setCurrentTrack] = useState<Track | null>(savedSession?.track ?? null);
   const [queue, setQueue] = useState<Track[]>(savedSession?.queue ?? []);
@@ -116,6 +115,15 @@ export function Dashboard({ user }: Props) {
   const [isLyricsOpen, setIsLyricsOpen] = useState(savedSession?.isLyricsOpen ?? false);
   const [isLyricsClosing, setIsLyricsClosing] = useState(false);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const [sleepTimerRequest, setSleepTimerRequest] = useState<{ type: 'open' | 'set'; minutes?: number; id: number } | null>(null);
+  const [undoAction, setUndoAction] = useState<{ track: Track; playlistId: string } | null>(null);
+
+  useEffect(() => {
+    if (!undoAction) return;
+    const timeout = window.setTimeout(() => setUndoAction(null), 7000);
+    return () => window.clearTimeout(timeout);
+  }, [undoAction]);
 
   const handleCloseQueue = useCallback(() => {
     setIsQueueClosing(true);
@@ -171,14 +179,12 @@ export function Dashboard({ user }: Props) {
       const savedRepeat = localStorage.getItem('yt_playback_repeat');
       const savedVolume = localStorage.getItem('yt_playback_volume');
       const savedMuted = localStorage.getItem('yt_playback_muted');
-      const savedSidebarWidth = localStorage.getItem('yt_sidebar_width');
-      const savedQueueWidth = localStorage.getItem('yt_queue_width');
-      const savedLyricsWidth = localStorage.getItem('yt_lyrics_width');
+      const savedQueueWidth = localStorage.getItem('yt_queue_width_pct');
+      const savedLyricsWidth = localStorage.getItem('yt_lyrics_width_pct');
       if (savedShuffle) setIsShuffle(JSON.parse(savedShuffle));
       if (savedRepeat) setRepeatMode(JSON.parse(savedRepeat));
       if (savedVolume) setVolume(parseFloat(savedVolume));
       if (savedMuted) setIsMuted(JSON.parse(savedMuted));
-      if (savedSidebarWidth) setSidebarWidth(parseFloat(savedSidebarWidth));
       if (savedQueueWidth) setQueueWidth(parseFloat(savedQueueWidth));
       if (savedLyricsWidth) setLyricsWidth(parseFloat(savedLyricsWidth));
     } catch { }
@@ -206,17 +212,12 @@ export function Dashboard({ user }: Props) {
   }, [isMuted]);
   useEffect(() => {
     try {
-      localStorage.setItem('yt_sidebar_width', String(sidebarWidth));
-    } catch { }
-  }, [sidebarWidth]);
-  useEffect(() => {
-    try {
-      localStorage.setItem('yt_queue_width', String(queueWidth));
+      localStorage.setItem('yt_queue_width_pct', String(queueWidth));
     } catch { }
   }, [queueWidth]);
   useEffect(() => {
     try {
-      localStorage.setItem('yt_lyrics_width', String(lyricsWidth));
+      localStorage.setItem('yt_lyrics_width_pct', String(lyricsWidth));
     } catch { }
   }, [lyricsWidth]);
 
@@ -398,6 +399,19 @@ export function Dashboard({ user }: Props) {
     setShouldAutoplay(true);
   }, []);
 
+  const handlePlayPlaylist = useCallback((playlistId: string) => {
+    const tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId && track.downloaded);
+    if (tracks.length > 0) {
+      handlePlay(tracks[0], tracks);
+    } else {
+      handleSelectPlaylist(playlistId);
+    }
+  }, [allTracks, handlePlay, handleSelectPlaylist]);
+
+  const playingPlaylistId = currentTrack
+    ? Object.values(allTracks).find((track) => track.videoId === currentTrack.videoId)?.playlistId ?? null
+    : null;
+
   const handleNext = useCallback(() => {
     if (!currentTrack || queue.length === 0) return;
     const currentIndex = queue.findIndex((t) => t.videoId === currentTrack.videoId);
@@ -495,11 +509,77 @@ export function Dashboard({ user }: Props) {
   }, [isQueueOpen, isLyricsOpen, handleCloseQueue, handleCloseLyrics]);
 
   const handleAddToQueue = useCallback((track: Track) => {
+    setQueue((prev) => [track, ...prev.filter((t) => t.videoId !== track.videoId)]);
+    setCurrentTrack((prev) => prev ?? track);
+  }, []);
+
+  const handleReorderQueue = useCallback((fromVideoId: string, toVideoId: string) => {
     setQueue((prev) => {
-      if (prev.some((t) => t.videoId === track.videoId)) return prev;
-      return [...prev, track];
+      const fromIndex = prev.findIndex((track) => track.videoId === fromVideoId);
+      const toIndex = prev.findIndex((track) => track.videoId === toVideoId);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const handlePlayNext = useCallback((track: Track) => {
+    setQueue((prev) => {
+      const withoutTrack = prev.filter((item) => item.videoId !== track.videoId);
+      if (!currentTrack) return [...withoutTrack, track];
+      const currentIndex = withoutTrack.findIndex((item) => item.videoId === currentTrack.videoId);
+      if (currentIndex === -1) return [...withoutTrack, track];
+      withoutTrack.splice(currentIndex + 1, 0, track);
+      return withoutTrack;
     });
     setCurrentTrack((prev) => prev ?? track);
+  }, [currentTrack]);
+
+  const handleAddToPlaylist = useCallback(async (track: Track, playlistId: string) => {
+    try {
+      const response = await fetch('/api/playlist/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId, videoId: track.videoId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to add song to playlist');
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to add song to playlist');
+    }
+  }, []);
+
+  const handleRemoveFromPlaylist = useCallback(async (track: Track, playlistId: string) => {
+    try {
+      const response = await fetch('/api/playlist/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to remove song from playlist');
+      setRefreshKey((key) => key + 1);
+      setUndoAction({ track, playlistId });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to remove song from playlist');
+    }
+  }, []);
+
+  const handleUndoRemove = useCallback(async () => {
+    if (!undoAction) return;
+    await handleAddToPlaylist(undoAction.track, undoAction.playlistId);
+    setUndoAction(null);
+  }, [handleAddToPlaylist, undoAction]);
+
+  const handleSetSleepTimer = useCallback((minutes: number) => {
+    setSleepTimerRequest({ type: 'set', minutes, id: Date.now() });
+  }, []);
+
+  const handleOpenSleepTimer = useCallback(() => {
+    setSleepTimerRequest({ type: 'open', id: Date.now() });
   }, []);
 
   const handleRemoveFromQueue = useCallback((videoId: string) => {
@@ -595,9 +675,36 @@ export function Dashboard({ user }: Props) {
       }
       return next;
     });
+    const thumbnailUrls = tracks.slice(0, 4).map((track) => track.thumbnailUrl).filter(Boolean);
+    setPlaylists((prev) => prev.map((item) => item.id === playlist.id ? { ...item, thumbnailUrls } : item));
   }, []);
 
   const prefetchedPlaylistIds = useRef(new Set<string>());
+  const artworkPrefetchIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (playlists.length === 0) return;
+    let cancelled = false;
+    const loadPlaylistArtwork = async () => {
+      const pending = playlists.filter((playlist) => !playlist.thumbnailUrls || playlist.thumbnailUrls.length < 4);
+      for (const playlist of pending) {
+        if (cancelled || artworkPrefetchIds.current.has(playlist.id)) continue;
+        artworkPrefetchIds.current.add(playlist.id);
+        try {
+          const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=4`);
+          const data = await response.json().catch(() => ({}));
+          if (!cancelled && response.ok && Array.isArray(data.tracks)) {
+            handleTracksLoaded(playlist, data.tracks as Track[]);
+          }
+        } catch {
+          artworkPrefetchIds.current.delete(playlist.id);
+        }
+      }
+    };
+    void loadPlaylistArtwork();
+    return () => { cancelled = true; };
+  }, [handleTracksLoaded, playlists]);
+
   useEffect(() => {
     if (!searchQuery.trim() || playlists.length === 0) {
       setIsSearchIndexing(false);
@@ -695,27 +802,28 @@ export function Dashboard({ user }: Props) {
       />
 
       <div className="flex-1 flex overflow-hidden min-h-0 relative">
-        <aside className="h-full shrink-0 border-r border-white/5 overflow-hidden" style={{ width: sidebarWidth }}>
+        <aside className="h-full shrink-0 border-r border-white/5 overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]" style={{ width: sidebarExpanded ? `${SIDEBAR_EXPANDED_WIDTH}%` : '85px' }}>
           <Sidebar
             playlists={playlists}
             selectedId={selectedPlaylist ? selectedPlaylist.id : showHiddenFolder ? '__hidden__' : null}
             pinnedIds={pinnedIds}
             hiddenIds={hiddenIds}
+            playingPlaylistId={playingPlaylistId}
+            isPlaybackActive={isPlaying}
             onSelect={handleSelectPlaylist}
             onTogglePin={handleTogglePin}
             onToggleHidden={handleToggleHidden}
             onOpenHiddenFolder={handleOpenHiddenFolder}
+            onPlayPlaylist={handlePlayPlaylist}
+            expanded={sidebarExpanded}
+            onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
           />
         </aside>
-
-        <ResizeDivider onDelta={(d) => setSidebarWidth((w) => clamp(w + d, SIDEBAR_MIN, SIDEBAR_MAX))} />
 
         <div className="flex-1 min-w-0 h-full flex overflow-hidden">
           <div className="flex-1 min-w-0 h-full relative overflow-hidden flex flex-col">
             {loadingPlaylists ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="w-6 h-6 rounded-2xl border-2 border-white/20 border-t-[#00F2FE] animate-spin" />
-              </div>
+              <PlaylistGridSkeleton />
             ) : showGlobalSearch ? (
               <GlobalSearchResults
                 query={searchQuery}
@@ -744,6 +852,12 @@ export function Dashboard({ user }: Props) {
                 isHidden={hiddenIds.includes(selectedPlaylist.id)}
                 onPlay={handlePlay}
                 onAddToQueue={handleAddToQueue}
+                onPlayNext={handlePlayNext}
+                onAddToPlaylist={handleAddToPlaylist}
+                onRemoveFromPlaylist={handleRemoveFromPlaylist}
+                onSetSleepTimer={handleSetSleepTimer}
+                onOpenSleepTimer={handleOpenSleepTimer}
+                playlists={playlists}
                 onDownload={handleDownload}
                 onTogglePin={handleTogglePin}
                 onToggleHidden={handleToggleHidden}
@@ -763,11 +877,11 @@ export function Dashboard({ user }: Props) {
 
           {isQueueOpen && (
             <>
-              <ResizeDivider onDelta={(d) => setQueueWidth((w) => clamp(w - d, QUEUE_MIN, QUEUE_MAX))} />
+              <ResizeDivider onDelta={(d) => setQueueWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, QUEUE_MIN, QUEUE_MAX))} />
               <div
                 className={`h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden ${isQueueClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
-                style={{ width: queueWidth }}
+                style={{ width: `${queueWidth}%` }}
               >
                 <QueueDrawer
                   currentTrack={currentTrack}
@@ -776,6 +890,13 @@ export function Dashboard({ user }: Props) {
                   onPlayTrack={(t) => setCurrentTrack(t)}
                   onRemoveFromQueue={handleRemoveFromQueue}
                   onClearQueue={handleClearQueue}
+                  onReorderQueue={handleReorderQueue}
+                  playlists={playlists}
+                  onPlayNext={handlePlayNext}
+                  onAddToQueue={handleAddToQueue}
+                  onAddToPlaylist={handleAddToPlaylist}
+                  onSetSleepTimer={handleSetSleepTimer}
+                  onOpenSleepTimer={handleOpenSleepTimer}
                 />
               </div>
             </>
@@ -783,11 +904,11 @@ export function Dashboard({ user }: Props) {
 
           {isLyricsOpen && (
             <>
-              <ResizeDivider onDelta={(d) => setLyricsWidth((w) => clamp(w - d, LYRICS_MIN, LYRICS_MAX))} />
+              <ResizeDivider onDelta={(d) => setLyricsWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, LYRICS_MIN, LYRICS_MAX))} />
               <div
                 className={`h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
-                style={{ width: lyricsWidth }}
+                style={{ width: `${lyricsWidth}%` }}
               >
                 <LyricsDrawer
                   track={currentTrack}
@@ -829,8 +950,16 @@ export function Dashboard({ user }: Props) {
         onToggleShuffle={handleToggleShuffle}
         onToggleRepeat={handleToggleRepeat}
         sleepTimerTarget={currentTrack}
+        sleepTimerRequest={sleepTimerRequest}
         isFullscreenOpen={isFullscreenOpen}
       />
+
+      {undoAction && (
+        <div className="fixed bottom-[112px] left-1/2 z-[120] flex -translate-x-1/2 items-center gap-4 rounded-xl border border-white/10 bg-[#292929] px-4 py-3 text-sm text-white shadow-2xl shadow-black/50">
+          <span>Removed “{undoAction.track.title}” from the playlist</span>
+          <button onClick={handleUndoRemove} className="rounded-md px-2 py-1 font-semibold text-[#00F2FE] hover:bg-white/10">Undo</button>
+        </div>
+      )}
 
       {isFullscreenOpen && currentTrack && (
         <ExpandedPlayerModal

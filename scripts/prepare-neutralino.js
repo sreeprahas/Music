@@ -43,6 +43,55 @@ function writeWrappers() {
   console.log('Wrote start-server wrappers.');
 }
 
+function writeFallbackServer() {
+  const dest = path.join(RESOURCES_APP, 'server');
+  const fallbackServer = path.join(dest, 'server.js');
+  if (fs.existsSync(fallbackServer)) {
+    return;
+  }
+
+  const content = [
+    "const { spawn } = require('child_process');",
+    "const { join, resolve } = require('path');",
+    "const fs = require('fs');",
+    "",
+    "const serverDir = resolve(__dirname);",
+    "const projectRoot = resolve(serverDir, '..', '..', '..');",
+    "const standaloneServer = join(projectRoot, '.next', 'standalone', 'server.js');",
+    "const useStandalone = fs.existsSync(standaloneServer);",
+    "",
+    "let command;",
+    "let args;",
+    "",
+    "if (useStandalone) {",
+    "  command = process.execPath;",
+    "  args = [standaloneServer, ...process.argv.slice(2)];",
+    "} else if (fs.existsSync(join(projectRoot, 'package.json'))) {",
+    "  command = process.platform === 'win32' ? 'npm.cmd' : 'npm';",
+    "  args = ['run', 'start', '--', ...process.argv.slice(2)];",
+    "} else {",
+    "  command = process.platform === 'win32' ? 'npx.cmd' : 'npx';",
+    "  args = ['next', 'start', ...process.argv.slice(2)];",
+    "}",
+    "",
+    "const child = spawn(command, args, {",
+    "  cwd: projectRoot,",
+    "  env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' },",
+    "  stdio: 'inherit',",
+    "});",
+    "",
+    "child.on('exit', (code) => process.exit(code));",
+    "child.on('error', (error) => {",
+    "  console.error('Failed to start server:', error);",
+    "  process.exit(1);",
+    "});",
+  ].join('\n');
+
+  fs.writeFileSync(fallbackServer, content, 'utf-8');
+  fs.chmodSync(fallbackServer, 0o755);
+  console.log('Wrote fallback server entrypoint ->', fallbackServer);
+}
+
 function prepare() {
   if (!fs.existsSync(SERVER_SRC)) {
     console.warn('No server folder found at', SERVER_SRC);
@@ -50,6 +99,7 @@ function prepare() {
   }
   copyServer();
   writeWrappers();
+  writeFallbackServer();
 }
 
 prepare();

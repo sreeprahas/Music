@@ -3,7 +3,9 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
-import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, ListPlus } from 'lucide-react';
+import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, Grid2X2 } from 'lucide-react';
+import { SongContextMenu } from './SongContextMenu';
+import { Skeleton } from './Skeleton';
 
 interface Props {
   playlist: Playlist;
@@ -11,6 +13,12 @@ interface Props {
   isHidden?: boolean;
   onPlay: (track: Track, queue: Track[]) => void;
   onAddToQueue?: (track: Track) => void;
+  onPlayNext?: (track: Track) => void;
+  onAddToPlaylist?: (track: Track, playlistId: string) => void;
+  onRemoveFromPlaylist?: (track: Track, playlistId: string) => void;
+  onSetSleepTimer?: (minutes: number) => void;
+  onOpenSleepTimer?: () => void;
+  playlists?: Playlist[];
   onDownload: (playlistId: string) => void;
   onTogglePin: (playlistId: string) => void;
   onToggleHidden: (playlistId: string) => void;
@@ -24,6 +32,12 @@ export function PlaylistView({
   isHidden = false,
   onPlay,
   onAddToQueue,
+  onPlayNext,
+  onAddToPlaylist,
+  onRemoveFromPlaylist,
+  onSetSleepTimer,
+  onOpenSleepTimer,
+  playlists = [],
   onDownload,
   onTogglePin,
   onToggleHidden,
@@ -35,6 +49,7 @@ export function PlaylistView({
   const [error, setError] = useState('');
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const callbackRef = useRef(onTracksLoaded);
   callbackRef.current = onTracksLoaded;
@@ -114,12 +129,12 @@ export function PlaylistView({
   return (
     <div className="h-full w-full min-w-0 flex flex-col min-h-0">
       <div
-        className={`px-6 select-none shrink-0 transition-all duration-500 ease-out flex items-center gap-4 overflow-hidden ${
+        className={`px-6 select-none shrink-0 transition-[padding,background-color,gap] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] flex items-center gap-4 overflow-hidden ${
           isCollapsed ? 'py-3 bg-[#0A0A0A]' : 'pt-6 pb-4'
         }`}
       >
         <div
-          className={`rounded-2xl overflow-hidden bg-white/5 shrink-0 shadow-2xl relative border border-white/10 transition-all duration-500 ease-out ${
+          className={`rounded-2xl overflow-hidden bg-white/5 shrink-0 shadow-2xl relative border border-white/10 transition-[width,height,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             isCollapsed ? 'w-10 h-10' : 'w-28 h-28'
           }`}
         >
@@ -143,7 +158,7 @@ export function PlaylistView({
                 Playlist
               </span>
             )}
-            <h1 className={`font-black text-white truncate transition-all duration-500 ${isCollapsed ? 'text-base' : 'text-2xl'}`}>
+            <h1 className={`font-black text-white truncate transition-[font-size] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isCollapsed ? 'text-base' : 'text-2xl'}`}>
               {playlist.title}
             </h1>
             {playlist.description && !isCollapsed && (
@@ -258,8 +273,18 @@ export function PlaylistView({
         )}
 
         {loading && (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-6 h-6 rounded-2xl border-2 border-white/20 border-t-[#00F2FE] animate-spin" />
+          <div className="space-y-3 py-6">
+            {[0, 1, 2, 3, 4, 5].map((index) => (
+              <div key={index} className="flex items-center gap-4 px-3 py-2">
+                <Skeleton className="h-4 w-5" />
+                <Skeleton className="h-10 w-10 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-2/5" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+                <Skeleton className="h-3 w-16" />
+              </div>
+            ))}
           </div>
         )}
 
@@ -272,6 +297,7 @@ export function PlaylistView({
                 <th className="text-left py-3 px-3 w-10">#</th>
                 <th className="text-left py-3 px-3 w-[46%]">Title</th>
                 <th className="text-left py-3 px-3 hidden md:table-cell">Artist</th>
+                <th className="text-right py-3 px-3 hidden lg:table-cell w-28">Date added</th>
                 <th className="text-right py-3 px-3 w-16">Time</th>
                 <th className="text-center py-3 px-3 w-12"></th>
               </tr>
@@ -284,6 +310,12 @@ export function PlaylistView({
                 return (
                   <tr
                     key={track.videoId}
+                    data-song-context="true"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextMenu({ track, x: event.clientX, y: event.clientY });
+                    }}
                     onClick={() => {
                       if (!canPlay) return;
                       const trackIndex = downloadedTracks.findIndex((t) => t.videoId === track.videoId);
@@ -308,7 +340,7 @@ export function PlaylistView({
                     </td>
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
+                        <div className="w-10 aspect-square rounded-xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
                           <img
                             src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
                             alt={track.title}
@@ -327,6 +359,11 @@ export function PlaylistView({
                     <td className="py-2.5 px-3 hidden md:table-cell">
                       <span className="text-sm text-white/50 truncate">{artist}</span>
                     </td>
+                    <td className="py-2.5 px-3 text-right hidden lg:table-cell">
+                      <span className="text-sm text-white/30">
+                        {track.dateAdded ? new Date(track.dateAdded).toLocaleDateString() : '—'}
+                      </span>
+                    </td>
                     <td className="py-2.5 px-3 text-right">
                       <span className="text-sm text-white/30">
                         {track.duration ? formatDuration(track.duration) : '–'}
@@ -338,12 +375,13 @@ export function PlaylistView({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onAddToQueue(track);
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setContextMenu({ track, x: rect.right, y: rect.bottom });
                           }}
                           className="p-1.5 rounded-lg text-white/40 hover:text-[#00F2FE] hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
-                          title="Add to Queue"
+                          title="More actions"
                         >
-                          <ListPlus className="w-4 h-4" />
+                          <Grid2X2 className="w-4 h-4" />
                         </button>
                       )}
                     </td>
@@ -354,6 +392,22 @@ export function PlaylistView({
           </table>
         )}
       </div>
+      {contextMenu && onPlayNext && onAddToPlaylist && onRemoveFromPlaylist && onSetSleepTimer && onOpenSleepTimer && (
+        <SongContextMenu
+          track={contextMenu.track}
+          playlists={playlists}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onPlayNext={onPlayNext}
+          onAddToQueue={onAddToQueue ?? (() => {})}
+          onAddToPlaylist={onAddToPlaylist}
+          onRemoveFromPlaylist={onRemoveFromPlaylist}
+          playlistId={playlist.id}
+          onSetSleepTimer={onSetSleepTimer}
+          onOpenSleepTimer={onOpenSleepTimer}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }

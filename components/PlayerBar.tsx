@@ -40,6 +40,7 @@ interface Props {
   onToggleShuffle: () => void;
   onToggleRepeat: () => void;
   sleepTimerTarget: Track | null;
+  sleepTimerRequest?: { type: 'open' | 'set'; minutes?: number; id: number } | null;
   isFullscreenOpen?: boolean;
 }
 
@@ -63,6 +64,7 @@ export function PlayerBar({
   onToggleShuffle,
   onToggleRepeat,
   sleepTimerTarget,
+  sleepTimerRequest,
   isFullscreenOpen,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -143,6 +145,15 @@ export function PlayerBar({
     persistSleepTimer({ isActive: false, endTime: null, remainingTime: 0 });
     setTimerMenuOpen(false);
   }, [persistSleepTimer]);
+
+  useEffect(() => {
+    if (!sleepTimerRequest) return;
+    if (sleepTimerRequest.type === 'set' && sleepTimerRequest.minutes) {
+      startSleepTimer(sleepTimerRequest.minutes);
+    } else {
+      setTimerMenuOpen(true);
+    }
+  }, [sleepTimerRequest, startSleepTimer]);
 
   // Load track when changed
   useEffect(() => {

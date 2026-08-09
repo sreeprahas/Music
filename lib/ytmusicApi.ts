@@ -215,6 +215,8 @@ export async function getPlaylistTracks(
 
         tracks.push({
           videoId,
+          playlistItemId: item.id as string | undefined,
+          dateAdded: snippet.publishedAt as string | undefined,
           title,
           artist: cleanArtistName(
             (snippet.videoOwnerChannelTitle as string) ||
@@ -256,6 +258,8 @@ export async function getPlaylistTracks(
 
         tracks.push({
           videoId,
+          playlistItemId: item.id as string | undefined,
+          dateAdded: snippet.publishedAt as string | undefined,
           title,
           artist: cleanArtistName(
             (snippet.videoOwnerChannelTitle as string) ||
