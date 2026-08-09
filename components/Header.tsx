@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { DownloadJob, UserProfile } from '@/types';
-import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2 } from 'lucide-react';
+import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff } from 'lucide-react';
 
 interface HeaderProps {
   user: UserProfile;
@@ -18,6 +18,9 @@ interface HeaderProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  isOfflineMode?: boolean;
+  isHardwareOffline?: boolean;
+  onToggleOfflineMode?: () => void;
 }
 
 export function Header({
@@ -34,6 +37,9 @@ export function Header({
   onRedo,
   canUndo = false,
   canRedo = false,
+  isOfflineMode = false,
+  isHardwareOffline = false,
+  onToggleOfflineMode,
 }: HeaderProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
@@ -136,8 +142,38 @@ export function Header({
         </div>
       </div>
 
-      {/* Right section: Download Center + Account */}
+      {/* Right section: Download Center + Offline Toggle + Account */}
       <div className="flex items-center gap-3 relative shrink-0">
+        {/* Offline Mode Toggle */}
+        <button
+          onClick={isHardwareOffline ? undefined : onToggleOfflineMode}
+          disabled={isHardwareOffline}
+          className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-semibold transition-all duration-300 border ${
+            isOfflineMode
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.2)]'
+              : 'bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10'
+          } ${isHardwareOffline ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'}`}
+          title={
+            isHardwareOffline
+              ? 'No physical internet connection detected (Locked in Offline Mode)'
+              : isOfflineMode
+              ? 'Offline Mode Active (Manual setting stored in browser)'
+              : 'Online Mode Active (Click to switch to Offline Mode)'
+          }
+        >
+          {isOfflineMode ? (
+            <>
+              <WifiOff className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">Offline</span>
+            </>
+          ) : (
+            <>
+              <Wifi className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Online</span>
+            </>
+          )}
+        </button>
+
         {/* Download Center Button & Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
@@ -311,7 +347,7 @@ function DropdownJobRow({ job, onSelect }: { job: DownloadJob; onSelect: () => v
             <Loader2 className="w-3.5 h-3.5 text-[#00F2FE] animate-spin" />
           )}
           {job.status === 'done' && <CheckCircle className="w-3.5 h-3.5 text-[#00F2FE]" />}
-          {job.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-white" />}
+          {job.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-red-400" />}
         </div>
       </div>
 

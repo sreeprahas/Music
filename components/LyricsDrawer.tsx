@@ -118,7 +118,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const hasPlain = !!lyricsData?.plainLyrics;
 
   return (
-    <div className="h-full bg-[#0c0c0c] flex flex-col overflow-hidden relative select-none">
+    <div className="h-full bg-[#120e18] flex flex-col overflow-hidden relative select-none">
       {/* Ambient bg */}
       <div className="absolute inset-0 opacity-[0.07] pointer-events-none z-0">
         {track.thumbnailUrl && (
@@ -150,9 +150,21 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       {/* Body */}
       <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0">
         {loading && (
-          <div className="space-y-5 px-3 py-12">
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-              <Skeleton key={index} className={`h-7 ${index % 3 === 0 ? 'w-3/4' : index % 3 === 1 ? 'w-full' : 'w-5/6'}`} />
+          <div className="py-0 space-y-1">
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((index) => (
+              <div key={index} className="px-3 py-2 rounded-xl">
+                <Skeleton
+                  className={`h-6 rounded-lg ${
+                    index % 4 === 0
+                      ? 'w-3/5'
+                      : index % 4 === 1
+                      ? 'w-5/6'
+                      : index % 4 === 2
+                      ? 'w-2/3'
+                      : 'w-4/5'
+                  }`}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -184,17 +196,17 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
                   key={i}
                   ref={isActive ? activeRef : undefined}
                   onClick={() => onSeek?.(line.time)}
-                  className={`group px-3 py-2 rounded-xl cursor-pointer transition-all duration-300 ease-out origin-left border border-transparent ${
+                  className={`group px-3 py-2 rounded-xl cursor-pointer transition-all duration-300 ease-out origin-left border border-transparent break-words ${
                     isActive ? 'bg-white/5 border-white/5 shadow-inner' : 'hover:bg-white/5'
                   }`}
                 >
                   <p
-                    className={`text-lg font-bold leading-snug tracking-tight transition-all duration-300 ease-out ${
+                    className={`text-base sm:text-lg font-bold leading-snug tracking-tight transition-all duration-300 ease-out break-words ${
                       isActive
-                        ? 'text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.45)] scale-[1.02]'
+                        ? 'text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.45)]'
                         : isPast
-                        ? 'text-white/20 group-hover:text-white/50 scale-100'
-                        : 'text-white/35 group-hover:text-white/70 scale-100'
+                        ? 'text-white/20 group-hover:text-white/50'
+                        : 'text-white/35 group-hover:text-white/70'
                     }`}
                   >
                     {line.text}

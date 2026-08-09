@@ -155,6 +155,90 @@ export function PlayerBar({
     }
   }, [sleepTimerRequest, startSleepTimer]);
 
+  // Dynamic Loudness AGC (Automatic Gain Control) Pipeline
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    let animFrameId: number;
+
+    const setupAudioPipeline = () => {
+      if (audioCtxRef.current) return;
+      try {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new AudioCtx();
+
+        // Nodes: Source -> Analyser -> DynamicsCompressor -> Auto-Gain -> Destination
+        const source = ctx.createMediaElementSource(audio);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.setValueAtTime(-20, ctx.currentTime);
+        compressor.knee.setValueAtTime(20, ctx.currentTime);
+        compressor.ratio.setValueAtTime(8, ctx.currentTime);
+        compressor.attack.setValueAtTime(0.005, ctx.currentTime);
+        compressor.release.setValueAtTime(0.1, ctx.currentTime);
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(1.0, ctx.currentTime);
+
+        source.connect(analyser);
+        analyser.connect(compressor);
+        compressor.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        audioCtxRef.current = ctx;
+        gainNodeRef.current = gainNode;
+
+        // Real-time RMS Loudness measurement and automatic gain correction loop
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const targetLoudnessRms = 0.18; // Desired calibrated playback RMS level
+
+        const autoLevelLoop = () => {
+          if (audio && !audio.paused && audio.readyState >= 2) {
+            analyser.getByteTimeDomainData(dataArray);
+            let sumSquares = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const norm = (dataArray[i] - 128) / 128;
+              sumSquares += norm * norm;
+            }
+            const currentRms = Math.sqrt(sumSquares / dataArray.length);
+
+            // Dynamically adjust gain if song is louder or softer than target
+            if (currentRms > 0.02) {
+              const delta = targetLoudnessRms / currentRms;
+              const clampedGain = Math.min(Math.max(delta, 0.4), 2.5); // Smooth safety gain bounds
+              // Smooth exponential ramp to prevent audio artifacts or clicks
+              gainNode.gain.setTargetAtTime(clampedGain, ctx.currentTime, 0.15);
+            }
+          }
+          animFrameId = requestAnimationFrame(autoLevelLoop);
+        };
+
+        autoLevelLoop();
+      } catch { }
+    };
+
+    const handleUserGesture = () => {
+      setupAudioPipeline();
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+    };
+
+    window.addEventListener('click', handleUserGesture, { once: true });
+    window.addEventListener('keydown', handleUserGesture, { once: true });
+    return () => {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      window.removeEventListener('click', handleUserGesture);
+      window.removeEventListener('keydown', handleUserGesture);
+    };
+  }, []);
+
   // Load track when changed
   useEffect(() => {
     const audio = audioRef.current;
@@ -174,21 +258,13 @@ export function PlayerBar({
     }
     audio.volume = isMuted ? 0 : volume;
 
-    // A restored session must be ready to continue, but never start on its own.
-    try {
-      const savedVideoId = localStorage.getItem('yt_playback_videoid');
-      const savedTime = localStorage.getItem('yt_playback_time');
-      if (!hasRestoredInitialTime.current) {
-        hasRestoredInitialTime.current = true;
-        const targetTime = resumeTime > 0
-          ? resumeTime
-          : savedVideoId === track.videoId && savedTime ? parseFloat(savedTime) : 0;
-        if (!isNaN(targetTime) && targetTime > 0) {
-          audio.currentTime = targetTime;
-          setCurrentTime(targetTime);
-        }
+    if (!hasRestoredInitialTime.current) {
+      hasRestoredInitialTime.current = true;
+      if (resumeTime > 0) {
+        audio.currentTime = resumeTime;
+        setCurrentTime(resumeTime);
       }
-    } catch { }
+    }
 
     if (autoPlay) {
       const playPromise = audio.play();
@@ -197,7 +273,6 @@ export function PlayerBar({
           .then(() => setIsPlaying(true))
           .catch(() => {
             setIsPlaying(false);
-            // Fallback: resume playback on first user click/keydown if browser autoplay policy blocked it on reload
             const resumeOnInteraction = () => {
               audio.play().then(() => setIsPlaying(true)).catch(() => {});
               window.removeEventListener('click', resumeOnInteraction);
@@ -228,18 +303,7 @@ export function PlayerBar({
     }
   }, [volume, isMuted, isPlaying, duration, onStateChange]);
 
-  // Persist volume settings
-  useEffect(() => {
-    try {
-      localStorage.setItem('yt_playback_volume', String(volume));
-    } catch { }
-  }, [volume]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('yt_playback_muted', JSON.stringify(isMuted));
-    } catch { }
-  }, [isMuted]);
 
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current;
@@ -258,13 +322,7 @@ export function PlayerBar({
     const val = parseFloat(e.target.value);
     audio.currentTime = val;
     setCurrentTime(val);
-    try {
-      if (track) {
-        localStorage.setItem('yt_playback_videoid', track.videoId);
-        localStorage.setItem('yt_playback_time', String(val));
-      }
-    } catch { }
-  }, [track]);
+  }, []);
 
   const handleEnded = useCallback(() => {
     if (repeatMode === 'one' && audioRef.current) {
@@ -281,17 +339,7 @@ export function PlayerBar({
   const canNext = currentIdx >= 0 && currentIdx < queue.length - 1;
 
   if (!track) {
-    return (
-      <div className="relative w-full h-[92px] bg-[#0A0A0A] border-t border-[#00F2FE]/25 flex items-center px-6 z-30 select-none shrink-0">
-        <div className="w-14 h-14 rounded-xl border border-[#00F2FE]/20 bg-[#1A1A1A] flex items-center justify-center">
-          <Play className="w-5 h-5 text-[#00F2FE] ml-0.5" />
-        </div>
-        <div className="ml-4">
-          <p className="text-sm font-semibold text-white">Your player is ready</p>
-          <p className="text-xs text-white">Choose a downloaded track to begin.</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -308,12 +356,6 @@ export function PlayerBar({
             const t = audioRef.current.currentTime;
             setCurrentTime(t);
             onTimeUpdate?.(t);
-            if (track && t > 0) {
-              try {
-                localStorage.setItem('yt_playback_videoid', track.videoId);
-                localStorage.setItem('yt_playback_time', String(t));
-              } catch { }
-            }
           }
         }}
         onLoadedMetadata={() => {
@@ -479,7 +521,7 @@ export function PlayerBar({
           </button>
 
           {/* Volume */}
-          <div className="flex items-center gap-2 w-[140px] group">
+          <div className="flex items-center gap-2 w-[140px] group relative">
             <button
               onClick={() => setIsMuted((m: boolean) => !m)}
               className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300 p-1 rounded-lg shrink-0"
@@ -495,11 +537,11 @@ export function PlayerBar({
               <input
                 type="range"
                 min={0}
-                max={1}
-                step={0.01}
-                value={isMuted ? 0 : volume}
+                max={100}
+                step={1}
+                value={isMuted ? 0 : Math.round(volume * 100)}
                 onChange={(e) => {
-                  const val = parseFloat(e.target.value);
+                  const val = parseFloat(e.target.value) / 100;
                   setIsMuted(false);
                   setVolume(val);
                 }}
@@ -508,7 +550,11 @@ export function PlayerBar({
               />
               <div className="h-1 w-full bg-white/15 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
                 <div
-                  className="h-full bg-[#00F2FE] group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full"
+                  className={`h-full group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-colors ${
+                    !isMuted && volume * 100 > 90
+                      ? 'bg-amber-400'
+                      : 'bg-[#00F2FE]'
+                  }`}
                   style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
                 />
               </div>

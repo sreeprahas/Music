@@ -35,6 +35,7 @@ interface Props {
   onToggleShuffle: () => void;
   onToggleRepeat: () => void;
   onClose: () => void;
+  isClosing?: boolean;
   onStateChange?: (state: any) => void;
 }
 
@@ -56,11 +57,14 @@ export function ExpandedPlayerModal({
   onToggleShuffle,
   onToggleRepeat,
   onClose,
+  isClosing = false,
 }: Props) {
   if (!track) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#070707] overflow-hidden flex flex-col animate-in fade-in duration-300">
+    <div className={`fixed inset-0 z-50 bg-[#070707] overflow-hidden flex flex-col ${
+      isClosing ? 'animate-slide-down-full' : 'animate-slide-up-full'
+    }`}>
       {/* Blurred album art background */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <img
@@ -175,7 +179,7 @@ export function ExpandedPlayerModal({
             </div>
 
             {/* Volume */}
-            <div className="flex items-center gap-2 max-w-[160px]">
+            <div className="flex items-center gap-2 max-w-[150px] w-full">
               <button
                 onClick={onToggleMute}
                 className="text-white/70 hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300 p-1 rounded-lg shrink-0"
@@ -186,16 +190,20 @@ export function ExpandedPlayerModal({
                 <input
                   type="range"
                   min={0}
-                  max={1}
-                  step={0.01}
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                  max={100}
+                  step={1}
+                  value={isMuted ? 0 : Math.round(volume * 100)}
+                  onChange={(e) => onVolumeChange(parseFloat(e.target.value) / 100)}
                   className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
                   aria-label="Volume"
                 />
                 <div className="h-1 w-full bg-white/15 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
                   <div
-                    className="h-full bg-[#00F2FE] group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full"
+                    className={`h-full group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-colors ${
+                      !isMuted && volume * 100 > 90
+                        ? 'bg-amber-400'
+                        : 'bg-[#00F2FE]'
+                    }`}
                     style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
                   />
                 </div>

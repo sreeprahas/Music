@@ -54,6 +54,17 @@ export function Sidebar({
   const [hoveredPlaylist, setHoveredPlaylist] = useState<{ playlist: Playlist; isPinned: boolean; x: number; y: number } | null>(null);
 
   useEffect(() => {
+    fetch('/api/user/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.playlistOrder) && data.playlistOrder.length > 0) {
+          setOrderedIds(data.playlistOrder);
+        }
+      })
+      .catch(() => { });
+  }, []);
+
+  useEffect(() => {
     safePlaylists.forEach((playlist) => {
       if (!playlist.thumbnailUrl) return;
       const image = new Image();
@@ -64,20 +75,52 @@ export function Sidebar({
   useEffect(() => {
     const ids = [...orderedIds.filter((id) => safePlaylists.some((playlist) => playlist.id === id)), ...safePlaylists.map((playlist) => playlist.id).filter((id) => !orderedIds.includes(id))];
     if (ids.join('|') !== orderedIds.join('|')) setOrderedIds(ids);
-    localStorage.setItem('yt_playlist_order', JSON.stringify(ids));
+    fetch('/api/user/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playlistOrder: ids }),
+    }).catch(() => { });
   }, [safePlaylists, orderedIds]);
+
+  const [pinnedOrderedIds, setPinnedOrderedIds] = useState<string[]>(() => safePinnedIds);
+
+  // Sync pinnedOrderedIds when pinnedIds prop changes (new pin/unpin)
+  useEffect(() => {
+    setPinnedOrderedIds((prev) => {
+      const next = [
+        ...prev.filter((id) => safePinnedIds.includes(id)),
+        ...safePinnedIds.filter((id) => !prev.includes(id)),
+      ];
+      if (next.join('|') === prev.join('|')) return prev;
+      return next;
+    });
+  }, [safePinnedIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const orderedPlaylists = orderedIds
     .map((id) => safePlaylists.find((playlist) => playlist.id === id))
     .filter((playlist): playlist is Playlist => Boolean(playlist));
-  const pinnedPlaylists = safePinnedIds
-    .map((id) => orderedPlaylists.find((p) => p && p.id === id))
+  const pinnedPlaylists = pinnedOrderedIds
+    .map((id) => safePlaylists.find((p) => p && p.id === id))
     .filter((p): p is Playlist => Boolean(p));
   const unpinnedPlaylists = orderedPlaylists.filter((p) => p && !pinnedSet.has(p.id) && !hiddenSet.has(p.id));
   const hiddenPlaylists = orderedPlaylists.filter((p) => p && hiddenSet.has(p.id));
 
   const reorder = (fromId: string, toId: string) => {
+    // Only reorder within unpinned
+    if (pinnedSet.has(fromId) || pinnedSet.has(toId)) return;
     setOrderedIds((current) => {
+      const next = [...current];
+      const from = next.indexOf(fromId);
+      const to = next.indexOf(toId);
+      if (from < 0 || to < 0 || from === to) return current;
+      next.splice(from, 1);
+      next.splice(to, 0, fromId);
+      return next;
+    });
+  };
+
+  const reorderPinned = (fromId: string, toId: string) => {
+    setPinnedOrderedIds((current) => {
       const next = [...current];
       const from = next.indexOf(fromId);
       const to = next.indexOf(toId);
@@ -226,7 +269,7 @@ export function Sidebar({
                   onTogglePin={() => onTogglePin(pl.id)}
                   onToggleHidden={() => onToggleHidden(pl.id)}
                   onPlay={() => onPlayPlaylist(pl.id)}
-                  onDropOn={(id) => reorder(id, pl.id)}
+                  onDropOn={(id) => reorderPinned(id, pl.id)}
                   isPlaying={pl.id === playingPlaylistId}
                   isPlaybackActive={isPlaybackActive}
                   draggingPlaylistId={draggingPlaylistId}
@@ -364,10 +407,10 @@ function PlaylistNavItem({
   return (
     <div
       draggable
-      onMouseDown={(event) => event.preventDefault()}
       onDragStart={(event) => {
         onDragPlaylist(playlist.id);
         event.dataTransfer.setData('text/playlist-id', playlist.id);
+        event.dataTransfer.setData('text/playlist-pinned', isPinned ? '1' : '0');
         event.dataTransfer.effectAllowed = 'move';
       }}
       onDragEnd={() => { onDragPlaylist(null); onDragTarget(null); }}
@@ -378,13 +421,15 @@ function PlaylistNavItem({
       onDrop={(event) => {
         event.preventDefault();
         const id = event.dataTransfer.getData('text/playlist-id');
-        if (id) onDropOn(id);
+        const draggedPinned = event.dataTransfer.getData('text/playlist-pinned') === '1';
+        // Only allow drops within the same group (pinned↔pinned, unpinned↔unpinned)
+        if (id && draggedPinned === isPinned) onDropOn(id);
         onDragPlaylist(null);
         onDragTarget(null);
       }}
       onClick={onSelect}
-      className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${
-        draggingPlaylistId === playlist.id ? 'opacity-40' : ''
+      className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left cursor-pointer active:cursor-grabbing transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${
+        draggingPlaylistId === playlist.id ? 'opacity-40 cursor-grabbing' : ''
       } ${
         dropTargetPlaylistId === playlist.id
           ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]'
@@ -409,7 +454,7 @@ function PlaylistNavItem({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(event) => { event.stopPropagation(); onPlay(); }} 
-          className="absolute inset-0 flex items-center justify-center bg-black/25 text-white/75 opacity-0 transition-opacity duration-200 group-hover/art:opacity-100 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]" 
+          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]" 
           aria-label={`Play ${playlist.title}`}
         >
           <Play className="h-5 w-5 fill-current" />

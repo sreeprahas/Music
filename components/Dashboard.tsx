@@ -5,7 +5,7 @@ import type { Playlist, Track, UserProfile, RepeatMode, DownloadJob, DownloadPro
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { PlaylistGrid, PlaylistGridSkeleton } from './PlaylistGrid';
-import { PlaylistView } from './PlaylistView';
+import { PlaylistView, PlaylistViewSkeleton } from './PlaylistView';
 import { HiddenPlaylistsView } from './HiddenPlaylistsView';
 import { PlayerBar } from './PlayerBar';
 import { QueueDrawer } from './QueueDrawer';
@@ -91,14 +91,17 @@ function routeHref(route: RouteState) {
 export function Dashboard({ user }: Props) {
   const savedSessionRef = useRef<PlaybackSession | null>(readPlaybackSession());
   const savedSession = savedSessionRef.current;
+  // Read the initial URL route once synchronously — used to pick the right skeleton before playlists load
+  const [initialRoute] = useState<RouteState>(() => (typeof window !== 'undefined' ? readRoute() : { kind: 'home' }));
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loadingPlaylists, setLoadingPlaylists] = useState(true);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [showHiddenFolder, setShowHiddenFolder] = useState(false);
   const [allTracks, setAllTracks] = useState<Record<string, CachedTrack>>({});
+  const [lastDownloadedTrack, setLastDownloadedTrack] = useState<{ videoId: string; timestamp: number } | null>(null);
+  const [restoredTrack, setRestoredTrack] = useState<{ track: Track; playlistId: string; timestamp: number } | null>(null);
   const [isSearchIndexing, setIsSearchIndexing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('name');
@@ -115,14 +118,121 @@ export function Dashboard({ user }: Props) {
   const [isLyricsOpen, setIsLyricsOpen] = useState(savedSession?.isLyricsOpen ?? false);
   const [isLyricsClosing, setIsLyricsClosing] = useState(false);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  const [isFullscreenClosing, setIsFullscreenClosing] = useState(false);
+  const handleOpenFullscreen = useCallback(() => setIsFullscreenOpen(true), []);
+  const handleCloseFullscreen = useCallback(() => {
+    setIsFullscreenClosing(true);
+    setTimeout(() => {
+      setIsFullscreenOpen(false);
+      setIsFullscreenClosing(false);
+    }, 300);
+  }, []);
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [sleepTimerRequest, setSleepTimerRequest] = useState<{ type: 'open' | 'set'; minutes?: number; id: number } | null>(null);
-  const [undoAction, setUndoAction] = useState<{ track: Track; playlistId: string } | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true'
+  );
+  // isHardwareOffline = true when the physical network is actually gone
+  const [isHardwareOffline, setIsHardwareOffline] = useState(() =>
+    typeof window !== 'undefined' ? !navigator.onLine : false
+  );
+
+  // Auto-detect browser online/offline events + check on page load and right-click
+  useEffect(() => {
+    // If the user manually set the state to offline, stop pinging completely
+    if (isOfflineMode && !isHardwareOffline) return;
+
+    const checkReachability = async () => {
+      if (typeof window === 'undefined') return;
+      if (!navigator.onLine) {
+        setIsHardwareOffline(true);
+        setIsOfflineMode(true);
+        return;
+      }
+      try {
+        const res = await fetch('/api/ping', { cache: 'no-store' }).catch(() => null);
+        const online = !!(res && res.ok);
+        setIsHardwareOffline(!online);
+        if (!online) {
+          setIsOfflineMode(true);
+        } else {
+          const userPref = localStorage.getItem('yt_offline_mode') === 'true';
+          setIsOfflineMode(userPref);
+        }
+      } catch {
+        setIsHardwareOffline(true);
+        setIsOfflineMode(true);
+      }
+    };
+
+    checkReachability();
+    const intervalId = setInterval(checkReachability, 3000);
+
+    const handleOnline = () => checkReachability();
+    const handleOffline = () => {
+      setIsHardwareOffline(true);
+      setIsOfflineMode(true);
+    };
+    const handleContextMenu = () => checkReachability();
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [isOfflineMode, isHardwareOffline]);
+
+  const handleToggleOfflineMode = useCallback(() => {
+    if (isHardwareOffline) return; // can't go online when hardware is offline
+    setIsOfflineMode((prev) => {
+      const next = !prev;
+      localStorage.setItem('yt_offline_mode', String(next));
+      return next;
+    });
+  }, [isHardwareOffline]);
 
   useEffect(() => {
+    if (!currentTrack) {
+      setIsLyricsOpen(false);
+      setIsQueueOpen(false);
+      setIsFullscreenOpen(false);
+    }
+  }, [currentTrack]);
+
+  const [undoAction, setUndoAction] = useState<{ track: Track; playlistId: string } | null>(null);
+  // Holds the timeout that fires the actual API delete after the undo window expires
+  const pendingDeleteRef = useRef<{ timeoutId: number; track: Track; playlistId: string } | null>(null);
+
+  // When undoAction clears (banner dismissed without clicking undo), fire the deferred API delete
+  useEffect(() => {
     if (!undoAction) return;
-    const timeout = window.setTimeout(() => setUndoAction(null), 7000);
-    return () => window.clearTimeout(timeout);
+    // Clear any previous timer
+    if (pendingDeleteRef.current) {
+      window.clearTimeout(pendingDeleteRef.current.timeoutId);
+    }
+    const { track, playlistId } = undoAction;
+    const timeoutId = window.setTimeout(async () => {
+      setUndoAction(null);
+      pendingDeleteRef.current = null;
+      // Now actually call the API to remove from YouTube
+      try {
+        const response = await fetch('/api/playlist/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to remove song from playlist');
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Failed to remove song from playlist');
+      }
+    }, 7000);
+    pendingDeleteRef.current = { timeoutId, track, playlistId };
+    return () => window.clearTimeout(timeoutId);
   }, [undoAction]);
 
   const handleCloseQueue = useCallback(() => {
@@ -174,6 +284,16 @@ export function Dashboard({ user }: Props) {
   }, [volume]);
 
   useEffect(() => {
+    // Hidden & pinned playlists load from DB account
+    fetch('/api/user/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.pinnedPlaylists)) setPinnedIds(data.pinnedPlaylists);
+        if (Array.isArray(data?.hiddenPlaylists)) setHiddenIds(data.hiddenPlaylists);
+      })
+      .catch(() => { });
+
+    // Player settings & session load from localStorage
     try {
       const savedShuffle = localStorage.getItem('yt_playback_shuffle');
       const savedRepeat = localStorage.getItem('yt_playback_repeat');
@@ -195,26 +315,31 @@ export function Dashboard({ user }: Props) {
       localStorage.setItem('yt_playback_shuffle', JSON.stringify(isShuffle));
     } catch { }
   }, [isShuffle]);
+
   useEffect(() => {
     try {
       localStorage.setItem('yt_playback_repeat', JSON.stringify(repeatMode));
     } catch { }
   }, [repeatMode]);
+
   useEffect(() => {
     try {
       localStorage.setItem('yt_playback_volume', String(volume));
     } catch { }
   }, [volume]);
+
   useEffect(() => {
     try {
       localStorage.setItem('yt_playback_muted', JSON.stringify(isMuted));
     } catch { }
   }, [isMuted]);
+
   useEffect(() => {
     try {
       localStorage.setItem('yt_queue_width_pct', String(queueWidth));
     } catch { }
   }, [queueWidth]);
+
   useEffect(() => {
     try {
       localStorage.setItem('yt_lyrics_width_pct', String(lyricsWidth));
@@ -261,18 +386,13 @@ export function Dashboard({ user }: Props) {
   }, [nativeProgress]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('pinned_playlists');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) setPinnedIds(parsed);
-      }
-      const hiddenStored = localStorage.getItem('hidden_playlists');
-      if (hiddenStored) {
-        const parsed = JSON.parse(hiddenStored);
-        if (Array.isArray(parsed)) setHiddenIds(parsed);
-      }
-    } catch { }
+    fetch('/api/user/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.pinnedPlaylists)) setPinnedIds(data.pinnedPlaylists);
+        if (Array.isArray(data?.hiddenPlaylists)) setHiddenIds(data.hiddenPlaylists);
+      })
+      .catch(() => { });
   }, []);
 
   const applyRoute = useCallback(
@@ -329,9 +449,11 @@ export function Dashboard({ user }: Props) {
   const handleTogglePin = useCallback((id: string) => {
     setPinnedIds((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      try {
-        localStorage.setItem('pinned_playlists', JSON.stringify(next));
-      } catch { }
+      fetch('/api/user/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinnedPlaylists: next }),
+      }).catch(() => { });
       return next;
     });
   }, []);
@@ -339,9 +461,11 @@ export function Dashboard({ user }: Props) {
   const handleToggleHidden = useCallback((id: string) => {
     setHiddenIds((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      try {
-        localStorage.setItem('hidden_playlists', JSON.stringify(next));
-      } catch { }
+      fetch('/api/user/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hiddenPlaylists: next }),
+      }).catch(() => { });
       return next;
     });
   }, []);
@@ -393,24 +517,25 @@ export function Dashboard({ user }: Props) {
     navigateRoute({ kind: 'hidden' });
   }, [navigateRoute]);
 
-  const handlePlay = useCallback((track: Track, newQueue: Track[]) => {
+  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
+
+  const handlePlay = useCallback((track: Track, newQueue: Track[], sourcePlaylistId?: string) => {
     setCurrentTrack(track);
     setQueue(newQueue);
+    setActivePlaylistId(sourcePlaylistId ?? selectedPlaylist?.id ?? null);
     setShouldAutoplay(true);
-  }, []);
+  }, [selectedPlaylist?.id]);
 
   const handlePlayPlaylist = useCallback((playlistId: string) => {
     const tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId && track.downloaded);
     if (tracks.length > 0) {
-      handlePlay(tracks[0], tracks);
+      handlePlay(tracks[0], tracks, playlistId);
     } else {
       handleSelectPlaylist(playlistId);
     }
   }, [allTracks, handlePlay, handleSelectPlaylist]);
 
-  const playingPlaylistId = currentTrack
-    ? Object.values(allTracks).find((track) => track.videoId === currentTrack.videoId)?.playlistId ?? null
-    : null;
+  const playingPlaylistId = activePlaylistId;
 
   const handleNext = useCallback(() => {
     if (!currentTrack || queue.length === 0) return;
@@ -546,33 +671,28 @@ export function Dashboard({ user }: Props) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to add song to playlist');
-      setRefreshKey((key) => key + 1);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to add song to playlist');
     }
   }, []);
 
-  const handleRemoveFromPlaylist = useCallback(async (track: Track, playlistId: string) => {
-    try {
-      const response = await fetch('/api/playlist/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Failed to remove song from playlist');
-      setRefreshKey((key) => key + 1);
-      setUndoAction({ track, playlistId });
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to remove song from playlist');
-    }
+  const handleRemoveFromPlaylist = useCallback((track: Track, playlistId: string) => {
+    // Show undo banner immediately — actual API call is deferred 7s
+    setUndoAction({ track, playlistId });
   }, []);
 
-  const handleUndoRemove = useCallback(async () => {
+  const handleUndoRemove = useCallback(() => {
     if (!undoAction) return;
-    await handleAddToPlaylist(undoAction.track, undoAction.playlistId);
+    // Cancel the pending API delete — no server call needed
+    if (pendingDeleteRef.current) {
+      window.clearTimeout(pendingDeleteRef.current.timeoutId);
+      pendingDeleteRef.current = null;
+    }
+    const target = undoAction;
     setUndoAction(null);
-  }, [handleAddToPlaylist, undoAction]);
+    // Re-insert track into PlaylistView state at original position
+    setRestoredTrack({ track: target.track, playlistId: target.playlistId, timestamp: Date.now() });
+  }, [undoAction]);
 
   const handleSetSleepTimer = useCallback((minutes: number) => {
     setSleepTimerRequest({ type: 'set', minutes, id: Date.now() });
@@ -592,6 +712,110 @@ export function Dashboard({ user }: Props) {
       return prev.filter((t) => t.videoId === currentTrack.videoId);
     });
   }, [currentTrack]);
+
+  const handleDownloadTrack = useCallback(async (track: Track) => {
+    try {
+      // Auto open download center modal in header when single song download starts
+      setDownloadJobs((prev) => {
+        const next = new Map(prev);
+        const id = `track-${track.videoId}`;
+        next.set(id, {
+          playlistId: id,
+          playlistTitle: track.title,
+          total: 1,
+          toDownload: 1,
+          done: 0,
+          status: 'running',
+          errorCount: 0,
+          startedAt: Date.now(),
+        });
+        return next;
+      });
+
+      const res = await fetch('/api/download/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: track.videoId, title: track.title, artist: track.artist }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setDownloadJobs((prev) => {
+          const next = new Map(prev);
+          const id = `track-${track.videoId}`;
+          next.set(id, {
+            playlistId: id,
+            playlistTitle: track.title,
+            total: 1,
+            toDownload: 1,
+            done: 0,
+            status: 'error',
+            errorCount: 1,
+            startedAt: Date.now(),
+          });
+          return next;
+        });
+        throw new Error(data.error || 'Failed to download song');
+      }
+
+      setDownloadJobs((prev) => {
+        const next = new Map(prev);
+        const id = `track-${track.videoId}`;
+        next.set(id, {
+          playlistId: id,
+          playlistTitle: track.title,
+          total: 1,
+          toDownload: 1,
+          done: 100,
+          status: 'done',
+          errorCount: 0,
+          startedAt: Date.now(),
+        });
+        return next;
+      });
+      // PlaylistView handles the optimistic track state update — no reload needed
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to download song';
+      if (msg.includes('internet') || msg.includes('offline') || msg.includes('ENOTFOUND') || msg.includes('fetch failed')) {
+        setIsHardwareOffline(true);
+        setIsOfflineMode(true);
+      }
+      alert(msg);
+    }
+  }, []);
+
+  const handleDeleteTrack = useCallback(async (track: Track) => {
+    try {
+      const res = await fetch('/api/download/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: track.videoId, action: 'delete' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to delete download');
+      // PlaylistView handles the optimistic track state update — no reload needed
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete download';
+      if (msg.includes('internet') || msg.includes('offline') || msg.includes('ENOTFOUND') || msg.includes('fetch failed') || !navigator.onLine) {
+        setIsHardwareOffline(true);
+        setIsOfflineMode(true);
+      }
+      alert(msg);
+    }
+  }, []);
+
+  // Called by PlaylistView after a track is deleted — stops the player if it was playing
+  const handleTrackDeleted = useCallback((videoId: string) => {
+    setCurrentTrack((prev) => {
+      if (prev?.videoId === videoId) {
+        setIsLyricsOpen(false);
+        setIsQueueOpen(false);
+        setIsFullscreenOpen(false);
+        return null;
+      }
+      return prev;
+    });
+    setQueue((prev) => prev.filter((t) => t.videoId !== videoId));
+  }, []);
 
   const handleDownload = useCallback(
     (playlistId: string) => {
@@ -621,13 +845,26 @@ export function Dashboard({ user }: Props) {
             const next = new Map(prev);
             const current = next.get(playlistId);
             if (!current) return prev;
-            if (evt.type === 'start') next.set(playlistId, { ...current, status: 'running', total: evt.total || 0, toDownload: evt.toDownload || 0 });
-            else if (evt.type === 'progress') next.set(playlistId, { ...current, done: evt.current || current.done, toDownload: evt.total || current.toDownload, currentTitle: evt.title, currentArtist: evt.artist });
-            else if (evt.type === 'complete') {
+            if (evt.type === 'start') next.set(playlistId, { ...current, status: 'running', total: evt.total || 0, toDownload: evt.toDownload || 0, errorCount: 0 });
+            else if (evt.type === 'progress') {
+              const isErr = evt.status === 'error';
+              const errCount = isErr ? current.errorCount + 1 : current.errorCount;
+              next.set(playlistId, {
+                ...current,
+                done: evt.current || current.done,
+                toDownload: evt.total || current.toDownload,
+                currentTitle: evt.title,
+                currentArtist: evt.artist,
+                errorCount: errCount,
+              });
+              // Dynamically notify UI when an individual song finishes downloading
+              if (evt.status === 'done' && evt.videoId) {
+                setLastDownloadedTrack({ videoId: evt.videoId, timestamp: Date.now() });
+              }
+            } else if (evt.type === 'complete') {
               next.set(playlistId, { ...current, status: 'done', done: evt.downloaded || current.done });
               es.close();
               downloadSources.current.delete(playlistId);
-              setRefreshKey((k) => k + 1);
             } else if (evt.type === 'error') {
               next.set(playlistId, { ...current, status: 'error', errorCount: current.errorCount + 1 });
               es.close();
@@ -796,6 +1033,9 @@ export function Dashboard({ user }: Props) {
         onRedo={handleRedoNavigation}
         canUndo={historyPosition > 0}
         canRedo={historyPosition < historyLength}
+        isOfflineMode={isOfflineMode}
+        isHardwareOffline={isHardwareOffline}
+        onToggleOfflineMode={handleToggleOfflineMode}
         onHomeClick={() => {
           navigateRoute({ kind: 'home' });
         }}
@@ -823,7 +1063,8 @@ export function Dashboard({ user }: Props) {
         <div className="flex-1 min-w-0 h-full flex overflow-hidden">
           <div className="flex-1 min-w-0 h-full relative overflow-hidden flex flex-col">
             {loadingPlaylists ? (
-              <PlaylistGridSkeleton />
+              // Show the skeleton that matches where the user actually is
+              initialRoute.kind === 'playlist' ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
             ) : showGlobalSearch ? (
               <GlobalSearchResults
                 query={searchQuery}
@@ -846,11 +1087,11 @@ export function Dashboard({ user }: Props) {
               />
             ) : selectedPlaylist ? (
               <PlaylistView
-                key={`${selectedPlaylist.id}-${refreshKey}`}
+                key={selectedPlaylist.id}
                 playlist={selectedPlaylist}
                 isPinned={pinnedIds.includes(selectedPlaylist.id)}
                 isHidden={hiddenIds.includes(selectedPlaylist.id)}
-                onPlay={handlePlay}
+                onPlay={(track, queue) => handlePlay(track, queue, selectedPlaylist.id)}
                 onAddToQueue={handleAddToQueue}
                 onPlayNext={handlePlayNext}
                 onAddToPlaylist={handleAddToPlaylist}
@@ -859,10 +1100,16 @@ export function Dashboard({ user }: Props) {
                 onOpenSleepTimer={handleOpenSleepTimer}
                 playlists={playlists}
                 onDownload={handleDownload}
+                onDownloadTrack={handleDownloadTrack}
+                onDeleteTrack={handleDeleteTrack}
+                onTrackDeleted={handleTrackDeleted}
                 onTogglePin={handleTogglePin}
                 onToggleHidden={handleToggleHidden}
                 onTracksLoaded={handleTracksLoaded}
+                lastDownloadedTrack={lastDownloadedTrack}
+                restoredTrack={restoredTrack}
                 currentVideoId={currentTrack?.videoId}
+                activePlaylistId={activePlaylistId}
               />
             ) : (
               <PlaylistGrid
@@ -906,7 +1153,7 @@ export function Dashboard({ user }: Props) {
             <>
               <ResizeDivider onDelta={(d) => setLyricsWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, LYRICS_MIN, LYRICS_MAX))} />
               <div
-                className={`h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                className={`h-full shrink-0 border-l border-[#a855f7]/35 overflow-hidden ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
                 style={{ width: `${lyricsWidth}%` }}
               >
@@ -961,7 +1208,7 @@ export function Dashboard({ user }: Props) {
         </div>
       )}
 
-      {isFullscreenOpen && currentTrack && (
+      {(isFullscreenOpen || isFullscreenClosing) && currentTrack && (
         <ExpandedPlayerModal
           track={currentTrack}
           isPlaying={isPlaying}
@@ -982,7 +1229,8 @@ export function Dashboard({ user }: Props) {
           onToggleMute={handleFullscreenMuteToggle}
           onToggleShuffle={handleToggleShuffle}
           onToggleRepeat={handleToggleRepeat}
-          onClose={() => setIsFullscreenOpen(false)}
+          isClosing={isFullscreenClosing}
+          onClose={handleCloseFullscreen}
           onStateChange={(state) => {
             setIsPlaying(state.isPlaying);
             setDuration(state.duration);

@@ -4,12 +4,16 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Music',
   description: 'Your personal YouTube Music library, downloaded and owned.',
+  icons: {
+    icon: '/music-icon.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head>
+        <link rel="icon" href="/music-icon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

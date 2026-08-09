@@ -22,23 +22,80 @@ export function ensureDirs() {
   });
 }
 
+export interface UserSettings {
+  hiddenPlaylists: string[];
+  pinnedPlaylists: string[];
+  playlistOrder: string[];
+  volume: number;
+  isMuted: boolean;
+  isShuffle: boolean;
+  repeatMode: string;
+  queueWidth?: number;
+  lyricsWidth?: number;
+  playbackSession?: {
+    track: Track | null;
+    queue: Track[];
+    time: number;
+    volume: number;
+    isMuted: boolean;
+    isShuffle: boolean;
+    repeatMode: string;
+    isQueueOpen: boolean;
+    isLyricsOpen: boolean;
+  } | null;
+}
+
 interface MetadataCache {
   playlists: Playlist[];
   playlistTracks: Record<string, Track[]>;
+  userSettings?: Record<string, UserSettings>;
   lastUpdated: number;
 }
+
+const DEFAULT_SETTINGS: UserSettings = {
+  hiddenPlaylists: [],
+  pinnedPlaylists: [],
+  playlistOrder: [],
+  volume: 1,
+  isMuted: false,
+  isShuffle: false,
+  repeatMode: 'off',
+  playbackSession: null,
+};
 
 function getCache(): MetadataCache {
   ensureDirs();
   const { METADATA_PATH } = getPaths();
   if (!fs.existsSync(METADATA_PATH)) {
-    return { playlists: [], playlistTracks: {}, lastUpdated: 0 };
+    return { playlists: [], playlistTracks: {}, userSettings: {}, lastUpdated: 0 };
   }
   try {
-    return JSON.parse(fs.readFileSync(METADATA_PATH, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(METADATA_PATH, 'utf-8'));
+    if (!data.userSettings) data.userSettings = {};
+    return data;
   } catch {
-    return { playlists: [], playlistTracks: {}, lastUpdated: 0 };
+    return { playlists: [], playlistTracks: {}, userSettings: {}, lastUpdated: 0 };
   }
+}
+
+export function getUserSettings(email: string): UserSettings {
+  const cache = getCache();
+  const key = email.toLowerCase().trim();
+  return { ...DEFAULT_SETTINGS, ...(cache.userSettings?.[key] || {}) };
+}
+
+export function saveUserSettings(email: string, settings: Partial<UserSettings>): UserSettings {
+  const cache = getCache();
+  const key = email.toLowerCase().trim();
+  if (!cache.userSettings) cache.userSettings = {};
+  const current = getUserSettings(key);
+  const updated: UserSettings = {
+    ...current,
+    ...settings,
+  };
+  cache.userSettings[key] = updated;
+  saveCache(cache);
+  return updated;
 }
 
 function saveCache(cache: MetadataCache) {

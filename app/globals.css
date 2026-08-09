@@ -4,7 +4,7 @@
 
 @layer components {
   .menu-action {
-    @apply flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm text-white/85 transition-colors hover:bg-white/10 hover:text-[#00F2FE];
+    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-white/75 transition-colors duration-150 hover:bg-white/[0.1] hover:text-white;
   }
 }
 
@@ -41,7 +41,7 @@ body {
 
 /* Vertical scrollbars appear only while their scrollable division is hovered. */
 *::-webkit-scrollbar {
-  width: 12px;
+  width: 16px;
   height: 0;
 }
 
@@ -59,8 +59,8 @@ body {
 }
 *::-webkit-scrollbar-thumb {
   background: transparent;
-  border: 2px solid transparent;
-  border-radius: 2px;
+  border: 3px solid transparent;
+  border-radius: 6px;
   background-clip: padding-box;
   transition: background 0.2s ease;
 }
@@ -73,7 +73,7 @@ body {
 
 /* Firefox scrollbar */
 * {
-  scrollbar-width: thin;
+  scrollbar-width: auto;
   scrollbar-color: transparent transparent;
 }
 
@@ -88,23 +88,14 @@ body {
 
 /* Waveform animation for download progress */
 @keyframes wave {
-  from {
-    height: 4px;
-  }
-  to {
-    height: 36px;
-  }
+  from { height: 4px; }
+  to   { height: 36px; }
 }
 
 /* Now-playing bars */
 @keyframes music-bar {
-  0%,
-  100% {
-    height: 4px;
-  }
-  50% {
-    height: 14px;
-  }
+  0%, 100% { height: 4px; }
+  50%       { height: 14px; }
 }
 
 .animate-music-bar {
@@ -112,14 +103,8 @@ body {
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fadeIn {
@@ -127,14 +112,8 @@ body {
 }
 
 @keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 .animate-slide-in-right {
@@ -142,18 +121,31 @@ body {
 }
 
 @keyframes slideOutRight {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(100%);
-  }
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(100%); }
 }
 
 .animate-slide-out-right {
   animation: slideOutRight 0.25s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+/* Fullscreen player — slide up to open, slide down to close */
+@keyframes slideUpFull {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDownFull {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(100%); }
+}
+
+.animate-slide-up-full {
+  animation: slideUpFull 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-down-full {
+  animation: slideDownFull 0.28s cubic-bezier(0.7, 0, 0.84, 0) forwards;
 }
 
 /* Custom range sliders (Volume & Seek bar) */
@@ -168,7 +160,7 @@ input[type='range']:focus {
   outline: none;
 }
 
-/* Webkit slider thumb - sleek small circle on hover */
+/* Webkit slider thumb — sleek small circle on hover */
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -176,7 +168,7 @@ input[type='range']::-webkit-slider-thumb {
   height: 10px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;
@@ -195,7 +187,7 @@ input[type='range']::-moz-range-thumb {
   border-radius: 50%;
   background: #ffffff;
   border: none;
-  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;

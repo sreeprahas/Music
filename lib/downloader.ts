@@ -30,6 +30,19 @@ export function isDownloaded(videoId: string): boolean {
   }
 }
 
+export function deleteTrack(videoId: string): boolean {
+  try {
+    const p = getMp3Path(videoId);
+    if (fs.existsSync(p)) {
+      fs.unlinkSync(p);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[downloader] Failed to delete track ${videoId}:`, err);
+    return false;
+  }
+}
+
 export function downloadTrack(
   videoId: string,
   title?: string,
@@ -40,7 +53,7 @@ export function downloadTrack(
     const MP3_DIR = getMp3Dir();
     const outputTemplate = path.join(MP3_DIR, `${videoId}.%(ext)s`).replace(/\\/g, '/');
     const directUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const directCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 3 --extractor-args "youtube:player_client=android,web" -o "${outputTemplate}" "${directUrl}"`;
+    const directCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --postprocessor-args "ffmpeg:-af loudnorm=I=-14:LRA=11:TP=-1.5" --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 3 --extractor-args "youtube:player_client=android,web" -o "${outputTemplate}" "${directUrl}"`;
 
     exec(directCmd, { timeout: 300000 }, (error, _stdout, stderr) => {
       // Move thumbnail if it exists
@@ -64,7 +77,7 @@ export function downloadTrack(
 
       console.log(`[downloader] Direct download failed for ${videoId}. Attempting fallback search: "${query}"`);
       const searchUrl = `ytsearch1:${query.replace(/"/g, '')}`;
-      const searchCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 3 -o "${outputTemplate}" "${searchUrl}"`;
+      const searchCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --postprocessor-args "ffmpeg:-af loudnorm=I=-14:LRA=11:TP=-1.5" --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 3 -o "${outputTemplate}" "${searchUrl}"`;
 
       exec(searchCmd, { timeout: 300000 }, (searchErr, _sOut, sErr) => {
         // Move thumbnail if it exists
