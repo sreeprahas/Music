@@ -2,20 +2,21 @@
   "name": "music",
   "private": true,
   "version": "1.0.0",
+  "main": "electron-main.js",
   "homepage": "./",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "electron:build": "npm run build",
+    "electron": "concurrently \"npm run start\" \"wait-on http://localhost:3000 && electron .\""
   },
   "dependencies": {
-    "@types/hls.js": "^0.13.3",
     "cookie": "^1.0.2",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.7",
     "express": "^4.18.2",
-    "hls.js": "^1.6.17",
     "lucide-react": "^0.475.0",
     "next": "^15.2.0",
     "react": "^19.0.0",
@@ -28,10 +29,14 @@
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "electron": "^43.4.0",
+    "electron-is-dev": "^3.0.0",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.8.1",
     "typescript": "^5.7.3",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "wait-on": "^7.1.0"
   }
 }

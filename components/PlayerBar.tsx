@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import Hls from 'hls.js';
 import type { Playlist, Track, RepeatMode, SleepTimer } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
 import {
@@ -114,36 +113,9 @@ export function PlayerBar({
   const [playlistFeedback, setPlaylistFeedback] = useState(false);
   const [trackPlaylistIds, setTrackPlaylistIds] = useState<Set<string>>(new Set());
   const playlistFeedbackTimeoutRef = useRef<number | null>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const sessionRef = useRef<{ sessionId: string; token: string; expiresAt: number } | null>(null);
-  const renewalTimerRef = useRef<number | null>(null);
 
   const setIsPlaying = useCallback((val: boolean | ((p: boolean) => boolean)) => {
     setIsPlayingState(val);
-  }, []);
-
-  // ── Token renewal: keep session alive while playback is active ──
-  const scheduleRenewal = useCallback((sessionId: string, token: string) => {
-    if (renewalTimerRef.current) window.clearInterval(renewalTimerRef.current);
-    renewalTimerRef.current = window.setInterval(async () => {
-      try {
-        const res = await fetch('/api/stream/session', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId, token: sessionRef.current?.token ?? token }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (sessionRef.current) sessionRef.current.token = data.token;
-        }
-      } catch { /* network blip — keep playing, next tick will retry */ }
-    }, 15000);
-  }, []);
-
-  const destroyHls = useCallback(() => {
-    if (renewalTimerRef.current) { window.clearInterval(renewalTimerRef.current); renewalTimerRef.current = null; }
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    sessionRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -324,21 +296,12 @@ export function PlayerBar({
   }, []);
 
   // Destroy HLS + sessions on unmount
-  useEffect(() => () => destroyHls(), [destroyHls]);
+  useEffect(() => () => {}, []);
 
-  // ── Secure HLS track loading ──
-  // Flow: POST /api/stream/session → get sessionId+token → load
-  //       /api/stream/hls/manifest?s=...&t=... via hls.js
-  // Each 4s segment is served from /api/stream/hls/segment?s=...&t=...&seq=N
-  // Token auto-renews every 15s. IDM/FDM cannot scrape segments because:
-  //   (1) No static file URL exists anywhere in DOM or network
-  //   (2) Segment URLs are ephemeral & session-bound
-  //   (3) Burst-downloading > 15 segs/2s immediately revokes the session
+  // ── Simple MP3 track loading ──
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
-    destroyHls();
 
     if (!track) {
       audio.pause();
@@ -351,81 +314,29 @@ export function PlayerBar({
 
     let cancelled = false;
 
-    const initHlsStream = async () => {
+    const loadTrack = async () => {
       try {
-        // Step 1: Acquire playback session
-        const sessRes = await fetch('/api/stream/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ videoId: track.videoId }),
-        });
-        if (!sessRes.ok) throw new Error('Failed to create playback session');
-        const sessData = await sessRes.json();
+        const mp3Url = `/api/mp3?videoId=${encodeURIComponent(track.videoId)}`;
         if (cancelled) return;
-
-        const { sessionId, token, expiresAt } = sessData;
-        sessionRef.current = { sessionId, token, expiresAt };
-        scheduleRenewal(sessionId, token);
-
-        const manifestUrl = `/api/stream/hls/manifest?s=${encodeURIComponent(sessionId)}&t=${encodeURIComponent(token)}`;
-
-        if (Hls.isSupported()) {
-          const hls = new Hls({
-            enableWorker: false,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-            fragLoadingTimeOut: 20000,
-            manifestLoadingTimeOut: 10000,
-            xhrSetup: (xhr) => {
-              xhr.withCredentials = true;
-            },
-          });
-          hlsRef.current = hls;
-          hls.loadSource(manifestUrl);
-          hls.attachMedia(audio);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            if (cancelled) { hls.destroy(); return; }
-            audio.volume = 1;
-            if (!hasRestoredInitialTime.current) {
-              hasRestoredInitialTime.current = true;
-              if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
-            }
-            if (autoPlay) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-          });
-          hls.on(Hls.Events.ERROR, (_evt, data) => {
-            if (data.fatal) {
-              console.error('[HLS] Fatal error:', data.type, data.details);
-              hls.destroy();
-              setIsPlaying(false);
-            }
-          });
-        } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari native HLS
-          audio.src = manifestUrl;
-          audio.volume = 1;
-          if (!hasRestoredInitialTime.current) {
-            hasRestoredInitialTime.current = true;
-            if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
-          }
-          if (autoPlay) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-        } else {
-          // Fallback: direct /api/mp3 (still session-token gated on backend)
-          const mp3Res = await fetch(`/api/mp3?videoId=${encodeURIComponent(track.videoId)}&s=${encodeURIComponent(sessionId)}&t=${encodeURIComponent(token)}`);
-          if (!mp3Res.ok || cancelled) return;
-          const blob = await mp3Res.blob();
-          if (cancelled) return;
-          const blobUrl = URL.createObjectURL(blob);
-          audio.src = blobUrl;
-          audio.volume = 1;
-          audio.load();
-          if (autoPlay) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        
+        audio.src = mp3Url;
+        audio.volume = 1;
+        audio.load();
+        
+        if (!hasRestoredInitialTime.current) {
+          hasRestoredInitialTime.current = true;
+          if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
+        }
+        
+        if (autoPlay) {
+          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
         }
       } catch (err) {
-        if (!cancelled) { console.error('[HLS Stream Error]:', err); setIsPlaying(false); }
+        if (!cancelled) { console.error('[Track Load Error]:', err); setIsPlaying(false); }
       }
     };
 
-    void initHlsStream();
+    void loadTrack();
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

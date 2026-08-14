@@ -1,6 +1,5 @@
 import fs from 'fs';
 import { getMp3Path, isDownloaded } from '@/lib/downloader';
-import { verifyAndTrackSegmentRequest } from '@/lib/sessionStreamAuth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,20 +11,9 @@ export async function GET(request: Request): Promise<Response> {
 
   const { searchParams } = new URL(request.url);
   const videoId = searchParams.get('videoId');
-  const sessionId = searchParams.get('s');
-  const token = searchParams.get('t');
 
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     return new Response('Invalid videoId', { status: 400 });
-  }
-
-  // Validate session token if provided (fallback path for non-HLS browsers)
-  if (sessionId && token) {
-    const clientIp = request.headers.get('x-forwarded-for') || '127.0.0.1';
-    const verification = verifyAndTrackSegmentRequest(sessionId, token, clientIp);
-    if (!verification.valid || verification.videoId !== videoId) {
-      return new Response('Invalid or expired playback session', { status: 403 });
-    }
   }
 
   if (!isDownloaded(videoId)) {
