@@ -31,10 +31,13 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const encoder = new TextEncoder();
-    
+    // Detect client disconnect — when browser closes the connection, request.signal aborts
+    const abortSignal = request.signal;
+
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (data: DownloadProgressEvent) => {
+          if (abortSignal.aborted) return;
           try {
             const encoded = encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
             controller.enqueue(encoded);
@@ -56,6 +59,12 @@ export async function GET(request: Request): Promise<Response> {
           let successful = 0;
 
           for (const track of toDownload) {
+            // Stop immediately if client disconnected
+            if (abortSignal.aborted) {
+              console.log('[download] Client disconnected — aborting loop');
+              break;
+            }
+
             send({
               type: 'progress',
               current: processed + 1,
@@ -97,8 +106,10 @@ export async function GET(request: Request): Promise<Response> {
             }
           }
 
-          console.log(`[download] Download complete. ${successful} successful, ${processed - successful} failed`);
-          send({ type: 'complete', downloaded: successful });
+          if (!abortSignal.aborted) {
+            console.log(`[download] Download complete. ${successful} successful, ${processed - successful} failed`);
+            send({ type: 'complete', downloaded: successful });
+          }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Unknown error';
           console.error('[download] API error:', message, err);
@@ -106,6 +117,10 @@ export async function GET(request: Request): Promise<Response> {
         } finally {
           controller.close();
         }
+      },
+      cancel() {
+        // Called when client closes the connection — nothing extra needed since abortSignal handles it
+        console.log('[download] Stream cancelled by client');
       },
     });
 

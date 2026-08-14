@@ -20,3 +20,8 @@ native-wrapper/
 bin/
 .tmp/
 resources/
+skills-lock.json
+.agents/skills/caveman/README.md
+.claude/skills/caveman/README.md
+.agents/skills/caveman/SKILL.md
+.claude/skills/caveman/SKILL.md

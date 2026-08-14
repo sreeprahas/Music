@@ -25,6 +25,13 @@ export async function GET(request: Request): Promise<Response> {
   const fileSize = stat.size;
   const rangeHeader = request.headers.get('range');
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'audio/mpeg',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+  };
+
   if (rangeHeader) {
     const parts = rangeHeader.replace('bytes=', '').split('-');
     const start = parseInt(parts[0], 10);
@@ -40,18 +47,16 @@ export async function GET(request: Request): Promise<Response> {
         nodeStream.on('end', () => controller.close());
         nodeStream.on('error', (err) => controller.error(err));
       },
-      cancel() {
-        nodeStream.destroy();
-      },
+      cancel() { nodeStream.destroy(); },
     });
 
     return new Response(webStream, {
       status: 206,
       headers: {
+        ...headers,
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': String(chunkSize),
-        'Content-Type': 'audio/mpeg',
       },
     });
   }
@@ -65,16 +70,10 @@ export async function GET(request: Request): Promise<Response> {
       nodeStream.on('end', () => controller.close());
       nodeStream.on('error', (err) => controller.error(err));
     },
-    cancel() {
-      nodeStream.destroy();
-    },
+    cancel() { nodeStream.destroy(); },
   });
 
   return new Response(webStream, {
-    headers: {
-      'Content-Length': String(fileSize),
-      'Content-Type': 'audio/mpeg',
-      'Accept-Ranges': 'bytes',
-    },
+    headers: { ...headers, 'Content-Length': String(fileSize), 'Accept-Ranges': 'bytes' },
   });
 }

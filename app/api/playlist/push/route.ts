@@ -53,7 +53,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     const newPlaylistId = createdPlaylist.id;
 
     // 2. Fetch tracks for the source playlist
-    const localTracks = getCachedTracks(playlistId) || [];
+    const localTracks = Array.from(
+      new Map((getCachedTracks(playlistId) || []).filter((track) => track.videoId).map((track) => [track.videoId, track])).values()
+    );
     
     // 3. Add items to the new playlist
     let addedCount = 0;

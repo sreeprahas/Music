@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Playlist, Track } from '@/types';
-import { CircleMinus, CirclePlus, ListPlus, SkipForward, Timer, Download, Trash2 } from 'lucide-react';
+import { CirclePlus, ListPlus, SkipForward, Timer, Download, Trash2 } from 'lucide-react';
+import { AddToPlaylistDropdown } from './AddToPlaylistDropdown';
 
 const SLEEP_TIMER_PRESETS = [
   { label: '15 mins', minutes: 15 },
@@ -24,6 +25,7 @@ interface Props {
   onDownloadTrack?: (track: Track) => void;
   onDeleteTrack?: (track: Track) => void;
   isDownloading?: boolean;
+  isHardwareOffline?: boolean;
   onClose: () => void;
 }
 
@@ -42,28 +44,21 @@ export function SongContextMenu({
   onDownloadTrack,
   onDeleteTrack,
   isDownloading = false,
+  isHardwareOffline = false,
   onClose,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
-  const [openSubmenu, setOpenSubmenu] = useState<'playlist' | 'sleep' | null>(null);
+  const [openSubmenu, setOpenSubmenu] = useState<'sleep' | 'add' | null>(null);
   const [menuTop, setMenuTop] = useState(y);
   const [submenuOffset, setSubmenuOffset] = useState(0);
+  const [addSubmenuOffset, setAddSubmenuOffset] = useState(0);
+  const addSubmenuRef = useRef<HTMLDivElement>(null);
   const menuWidth = 280;
   const submenuWidth = 224;
+  const addSubmenuWidth = 280;
   const left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth - 8));
   const rightSpace = window.innerWidth - (left + menuWidth);
-  const leftSpace = left;
-  const submenuPlacement = rightSpace >= submenuWidth + 8
-    ? 'right'
-    : leftSpace >= submenuWidth + 8
-      ? 'left'
-      : 'below';
-  const submenuSideSpace = submenuPlacement === 'left' ? leftSpace : window.innerWidth - left - 16;
-  const playlistColumns = Math.max(1, Math.min(
-    Math.ceil(Math.max(playlists.length, 1) / 8),
-    Math.floor(submenuSideSpace / submenuWidth) || 1,
-  ));
 
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -105,6 +100,16 @@ export function SongContextMenu({
     setSubmenuOffset(offset);
   }, [openSubmenu, playlists.length, menuTop]);
 
+  useLayoutEffect(() => {
+    setAddSubmenuOffset(0);
+    if (openSubmenu !== 'add' || !addSubmenuRef.current) return;
+    const rect = addSubmenuRef.current.getBoundingClientRect();
+    let offset = 0;
+    if (rect.bottom > window.innerHeight - 8) offset -= rect.bottom - (window.innerHeight - 8);
+    if (rect.top + offset < 8) offset += 8 - (rect.top + offset);
+    setAddSubmenuOffset(offset);
+  }, [openSubmenu, menuTop, playlists.length]);
+
   const run = (callback: () => void) => {
     onClose();
     callback();
@@ -112,7 +117,7 @@ export function SongContextMenu({
 
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const openMenu = (submenu: 'playlist' | 'sleep') => {
+  const openMenu = (submenu: 'sleep' | 'add') => {
     if (leaveTimeoutRef.current) {
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
@@ -120,20 +125,31 @@ export function SongContextMenu({
     setOpenSubmenu(submenu);
   };
 
-  const scheduleCloseMenu = (submenu: 'playlist' | 'sleep') => {
+  const scheduleCloseMenu = (submenu: 'sleep' | 'add') => {
     if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
     leaveTimeoutRef.current = setTimeout(() => {
       setOpenSubmenu((current) => (current === submenu ? null : current));
     }, 100);
   };
 
-  const toggleMenu = (submenu: 'playlist' | 'sleep') => {
+  const toggleMenu = (submenu: 'sleep' | 'add') => {
     if (leaveTimeoutRef.current) {
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
     }
-    setOpenSubmenu((current) => (current === submenu ? null : submenu));
+    setOpenSubmenu((current) => {
+      const next = current === submenu ? null : submenu;
+      return next;
+    });
   };
+
+  const leftSpace = left;
+  const submenuPlacement = rightSpace >= submenuWidth + 8
+    ? 'right'
+    : leftSpace >= submenuWidth + 8
+      ? 'left'
+      : 'below';
+  const addSubmenuPlacement = rightSpace >= addSubmenuWidth + 8 ? 'right' : 'left';
 
   const submenuPosition = submenuPlacement === 'left'
     ? 'right-full mr-1 top-0'
@@ -142,50 +158,25 @@ export function SongContextMenu({
       : 'left-0 top-full mt-1';
   const menuAction = 'menu-action h-10 w-full text-[15px]';
 
-  const [isOnline, setIsOnline] = useState<boolean>(
-    typeof window !== 'undefined' ? navigator.onLine : true
-  );
-
-  useEffect(() => {
-    const updateStatus = async () => {
-      const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
-      if (isManualOffline || !navigator.onLine) {
-        setIsOnline(false);
-        return;
-      }
-      try {
-        const res = await fetch('/api/ping', { cache: 'no-store' }).catch(() => null);
-        setIsOnline(!!(res && res.ok));
-      } catch {
-        setIsOnline(false);
-      }
-    };
-
-    updateStatus();
-    window.addEventListener('online', updateStatus);
-    window.addEventListener('offline', updateStatus);
-    return () => {
-      window.removeEventListener('online', updateStatus);
-      window.removeEventListener('offline', updateStatus);
-    };
-  }, []);
-
   const [showOfflineModal, setShowOfflineModal] = useState(false);
   const [showOfflineDownloadModal, setShowOfflineDownloadModal] = useState(false);
 
+  const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
+  const isOffline = isManualOffline || isHardwareOffline;
+
+  const pingCheck = async (): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/ping', { method: 'HEAD', cache: 'no-store' });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleDownloadClick = async () => {
     if (!onDownloadTrack) return;
-    const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
-    let reach = !isManualOffline && navigator.onLine;
-    if (reach) {
-      try {
-        const res = await fetch('/api/ping', { cache: 'no-store' }).catch(() => null);
-        reach = !!(res && res.ok);
-      } catch {
-        reach = false;
-      }
-    }
-    if (!reach) {
+    const online = await pingCheck();
+    if (isOffline || !online) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('offline'));
       }
@@ -197,24 +188,15 @@ export function SongContextMenu({
 
   const handleDeleteClick = async () => {
     if (!onDeleteTrack) return;
-    const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
-    let reach = !isManualOffline && navigator.onLine;
-    if (reach) {
-      try {
-        const res = await fetch('/api/ping', { cache: 'no-store' }).catch(() => null);
-        reach = !!(res && res.ok);
-      } catch {
-        reach = false;
-      }
-    }
-    if (!reach) {
+    const online = await pingCheck();
+    if (isOffline || !online) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('offline'));
       }
       setShowOfflineModal(true);
       return;
     }
-    onDeleteTrack(track);
+    run(() => onDeleteTrack(track));
   };
 
   const confirmOfflineDelete = () => {
@@ -233,7 +215,7 @@ export function SongContextMenu({
           <div>
             <h3 className="text-base font-bold text-white tracking-tight">Delete Download Offline?</h3>
             <p className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              You are currently offline. If you delete <span className="text-white font-medium">"{track.title}"</span>, you won't be able to play or redownload it until your internet connection is restored.
+              You are currently offline. If you delete <span className="text-white font-medium">"{track.title}"</span>, you won&apos;t be able to play or redownload it until your internet connection is restored.
             </p>
           </div>
           <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -298,7 +280,7 @@ export function SongContextMenu({
       className="fixed z-[100] w-[280px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl shadow-black/70 backdrop-blur-sm"
       style={{ left, top: menuTop }}
     >
-      {/* Individual Download / Delete Download — shown even when offline */}
+      {/* Download / Delete Download */}
       {!isDownloading && (
         track.downloaded ? (
           onDeleteTrack && (
@@ -315,39 +297,40 @@ export function SongContextMenu({
         )
       )}
 
-      <div
-        className="relative group"
-        onMouseEnter={() => openMenu('playlist')}
-        onMouseLeave={() => scheduleCloseMenu('playlist')}
-      >
-        <button onClick={() => toggleMenu('playlist')} className={menuAction}>
+      <div className="relative" onMouseEnter={() => openMenu('add')}>
+        <button
+          onClick={() => toggleMenu('add')}
+          className={`${menuAction} ${isOffline ? 'text-white/60' : ''}`}
+          title={isOffline ? 'Playlist changes are unavailable offline' : undefined}
+        >
           <CirclePlus className="h-5 w-5" /> Add to playlist <span className="ml-auto text-white/60">›</span>
         </button>
-        {openSubmenu === 'playlist' && (
-          <div ref={submenuRef} className={`absolute ${submenuPosition} grid gap-1 rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl z-50`} style={{ width: playlistColumns * submenuWidth, gridTemplateColumns: `repeat(${playlistColumns}, minmax(0, 1fr))`, transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}>
-            {playlists.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-white/40">No playlists available</p>
-            ) : playlists.map((playlist) => (
-              <button
-                key={playlist.id}
-                onClick={() => run(() => onAddToPlaylist(track, playlist.id))}
-                className="w-full min-w-0 truncate rounded-lg px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"
-              >
-                {playlist.title}
-              </button>
-            ))}
+        {openSubmenu === 'add' && (
+          <div
+            ref={addSubmenuRef}
+            className={`absolute top-0 z-50 ${addSubmenuPlacement === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}
+            style={{ transform: `translateY(${addSubmenuOffset}px)` }}
+          >
+            <AddToPlaylistDropdown
+              track={track}
+              playlists={playlists}
+              checkedIds={playlistId ? [playlistId] : []}
+              onAdd={onAddToPlaylist}
+              onRemove={(t, pid) => onRemoveFromPlaylist?.(t, pid)}
+              isOffline={isOffline}
+              onClose={() => {
+                setOpenSubmenu(null);
+                onClose();
+              }}
+            />
           </div>
         )}
       </div>
 
-      {playlistId && onRemoveFromPlaylist && (
-        <button onClick={() => run(() => onRemoveFromPlaylist(track, playlistId))} className={menuAction}>
-          <CircleMinus className="h-5 w-5" /> Remove from this playlist
-        </button>
-      )}
       <button onClick={() => run(() => onAddToQueue(track))} className={menuAction}>
         <ListPlus className="h-5 w-5" /> Add to queue
       </button>
+
       <div
         className="relative group border-t border-white/10 pt-1"
         onMouseEnter={() => openMenu('sleep')}
@@ -357,7 +340,11 @@ export function SongContextMenu({
           <Timer className="h-5 w-5" /> Sleep timer <span className="ml-auto text-white/60">›</span>
         </button>
         {openSubmenu === 'sleep' && (
-          <div ref={submenuRef} className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl z-50`} style={{ transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}>
+          <div
+            ref={submenuRef}
+            className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl z-50`}
+            style={{ transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}
+          >
             {SLEEP_TIMER_PRESETS.map((preset) => (
               <button
                 key={preset.minutes}
@@ -367,12 +354,16 @@ export function SongContextMenu({
                 {preset.label}
               </button>
             ))}
-            <button onClick={() => run(onOpenSleepTimer)} className="w-full rounded-lg border-t border-white/[0.08] px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150">
+            <button
+              onClick={() => run(onOpenSleepTimer)}
+              className="w-full rounded-lg border-t border-white/[0.08] px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"
+            >
               Custom timer…
             </button>
           </div>
         )}
       </div>
+
       <button onClick={() => run(() => onPlayNext(track))} className={menuAction}>
         <SkipForward className="h-5 w-5" /> Play next
       </button>

@@ -8,6 +8,8 @@ export interface Track {
   dateAdded?: string;
   playlistItemId?: string;
   downloaded?: boolean;
+  playlistId?: string;
+  sourcePlaylistId?: string;
 }
 
 export interface Playlist {

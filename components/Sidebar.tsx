@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import type { Playlist } from '@/types';
 import { Pin, FolderLock, Music2, Play, Plus, PanelLeftClose, PanelLeftOpen, Volume2 } from 'lucide-react';
 
@@ -11,6 +11,7 @@ interface SidebarProps {
   hiddenIds: string[];
   playingPlaylistId?: string | null;
   isPlaybackActive?: boolean;
+  isGlowDimmed?: boolean;
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
   onToggleHidden: (id: string) => void;
@@ -27,6 +28,7 @@ export function Sidebar({
   hiddenIds = [],
   playingPlaylistId = null,
   isPlaybackActive = false,
+  isGlowDimmed = false,
   onSelect,
   onTogglePin,
   onToggleHidden,
@@ -105,7 +107,7 @@ export function Sidebar({
   const unpinnedPlaylists = orderedPlaylists.filter((p) => p && !pinnedSet.has(p.id) && !hiddenSet.has(p.id));
   const hiddenPlaylists = orderedPlaylists.filter((p) => p && hiddenSet.has(p.id));
 
-  const reorder = (fromId: string, toId: string) => {
+  const reorder = (fromId: string, toId: string, insertBefore: boolean) => {
     // Only reorder within unpinned
     if (pinnedSet.has(fromId) || pinnedSet.has(toId)) return;
     setOrderedIds((current) => {
@@ -113,20 +115,27 @@ export function Sidebar({
       const from = next.indexOf(fromId);
       const to = next.indexOf(toId);
       if (from < 0 || to < 0 || from === to) return current;
+      // Target position: before or after the drop target item
+      let targetIdx = insertBefore ? to : to + 1;
+      if (from < targetIdx) targetIdx -= 1;
+      if (from === targetIdx) return current;
       next.splice(from, 1);
-      next.splice(to, 0, fromId);
+      next.splice(targetIdx, 0, fromId);
       return next;
     });
   };
 
-  const reorderPinned = (fromId: string, toId: string) => {
+  const reorderPinned = (fromId: string, toId: string, insertBefore: boolean) => {
     setPinnedOrderedIds((current) => {
       const next = [...current];
       const from = next.indexOf(fromId);
       const to = next.indexOf(toId);
       if (from < 0 || to < 0 || from === to) return current;
+      let targetIdx = insertBefore ? to : to + 1;
+      if (from < targetIdx) targetIdx -= 1;
+      if (from === targetIdx) return current;
       next.splice(from, 1);
-      next.splice(to, 0, fromId);
+      next.splice(targetIdx, 0, fromId);
       return next;
     });
   };
@@ -229,22 +238,22 @@ export function Sidebar({
     <div className="relative h-full w-full flex flex-col select-none overflow-hidden bg-[#161513] py-3 transition-[width,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
       <div className="relative shrink-0 h-12">
         <div className="absolute inset-0 flex items-center gap-3 px-3 opacity-100 translate-y-0 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
-          <button 
-            type="button" 
+          <button
+            type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={onToggleExpanded} 
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]" 
-            aria-label="Collapse playlist sidebar" 
+            onClick={onToggleExpanded}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+            aria-label="Collapse playlist sidebar"
             title="Collapse playlist sidebar"
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
           <span className="truncate text-base font-bold tracking-tight text-white">Your Library</span>
           <div className="flex-1" />
-          <button 
-            type="button" 
+          <button
+            type="button"
             onMouseDown={(e) => e.preventDefault()}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#242424] text-white/60 transition-colors hover:bg-[#303030] hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]" 
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#242424] text-white/60 transition-colors hover:bg-[#303030] hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Add playlist"
           >
             <Plus className="h-5 w-5" />
@@ -269,9 +278,10 @@ export function Sidebar({
                   onTogglePin={() => onTogglePin(pl.id)}
                   onToggleHidden={() => onToggleHidden(pl.id)}
                   onPlay={() => onPlayPlaylist(pl.id)}
-                  onDropOn={(id) => reorderPinned(id, pl.id)}
+                  onDropOn={(id, insertBefore) => reorderPinned(id, pl.id, insertBefore)}
                   isPlaying={pl.id === playingPlaylistId}
                   isPlaybackActive={isPlaybackActive}
+                  isGlowDimmed={isGlowDimmed}
                   draggingPlaylistId={draggingPlaylistId}
                   dropTargetPlaylistId={dropTargetPlaylistId}
                   onDragPlaylist={setDraggingPlaylistId}
@@ -297,9 +307,10 @@ export function Sidebar({
                 onTogglePin={() => onTogglePin(pl.id)}
                 onToggleHidden={() => onToggleHidden(pl.id)}
                 onPlay={() => onPlayPlaylist(pl.id)}
-                onDropOn={(id) => reorder(id, pl.id)}
+                onDropOn={(id, insertBefore) => reorder(id, pl.id, insertBefore)}
                 isPlaying={pl.id === playingPlaylistId}
                 isPlaybackActive={isPlaybackActive}
+                isGlowDimmed={isGlowDimmed}
                 draggingPlaylistId={draggingPlaylistId}
                 dropTargetPlaylistId={dropTargetPlaylistId}
                 onDragPlaylist={setDraggingPlaylistId}
@@ -313,11 +324,10 @@ export function Sidebar({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpenHiddenFolder}
-          className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group cursor-pointer outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${
-            selectedId === '__hidden__'
-              ? 'bg-white/10 text-white border border-white/10'
-              : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
-          }`}
+          className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group cursor-pointer outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${selectedId === '__hidden__'
+            ? 'bg-white/10 text-white border border-white/10'
+            : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
+            }`}
         >
           <div className="h-9 w-9 rounded-xl relative flex shrink-0 items-center justify-center overflow-hidden bg-white/5">
             <FolderLock className="w-4 h-4 text-[#00F2FE]" />
@@ -384,6 +394,7 @@ function PlaylistNavItem({
   onDropOn,
   isPlaying,
   isPlaybackActive,
+  isGlowDimmed = false,
   draggingPlaylistId,
   dropTargetPlaylistId,
   onDragPlaylist,
@@ -396,51 +407,97 @@ function PlaylistNavItem({
   onTogglePin: () => void;
   onToggleHidden: () => void;
   onPlay: () => void;
-  onDropOn: (id: string) => void;
+  onDropOn: (id: string, insertBefore: boolean) => void;
   isPlaying: boolean;
   isPlaybackActive: boolean;
+  isGlowDimmed?: boolean;
   draggingPlaylistId: string | null;
   dropTargetPlaylistId: string | null;
   onDragPlaylist: (id: string | null) => void;
   onDragTarget: (id: string | null) => void;
 }) {
+  const [canDrag, setCanDrag] = useState(false);
+  const [insertBefore, setInsertBefore] = useState(true);
+  const holdTimerRef = useRef<number | null>(null);
+
+  const startHold = useCallback(() => {
+    setCanDrag(false);
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = window.setTimeout(() => {
+      setCanDrag(true);
+    }, 100);
+  }, []);
+
+  const cancelHold = useCallback(() => {
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+    setCanDrag(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    };
+  }, []);
+
   return (
     <div
-      draggable
+      draggable={canDrag}
+      onMouseDown={startHold}
+      onMouseUp={cancelHold}
+      onMouseLeave={cancelHold}
+      onTouchStart={startHold}
+      onTouchEnd={cancelHold}
+      onTouchCancel={cancelHold}
       onDragStart={(event) => {
+        if (!canDrag) {
+          event.preventDefault();
+          return;
+        }
         onDragPlaylist(playlist.id);
         event.dataTransfer.setData('text/playlist-id', playlist.id);
         event.dataTransfer.setData('text/playlist-pinned', isPinned ? '1' : '0');
         event.dataTransfer.effectAllowed = 'move';
       }}
-      onDragEnd={() => { onDragPlaylist(null); onDragTarget(null); }}
+      onDragEnd={() => {
+        cancelHold();
+        onDragPlaylist(null);
+        onDragTarget(null);
+      }}
       onDragOver={(event) => {
         event.preventDefault();
-        if (draggingPlaylistId !== playlist.id) onDragTarget(playlist.id);
+        if (draggingPlaylistId !== playlist.id) {
+          const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+          setInsertBefore(event.clientY < rect.top + rect.height / 2);
+          onDragTarget(playlist.id);
+        }
       }}
       onDrop={(event) => {
         event.preventDefault();
         const id = event.dataTransfer.getData('text/playlist-id');
         const draggedPinned = event.dataTransfer.getData('text/playlist-pinned') === '1';
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        const before = event.clientY < rect.top + rect.height / 2;
         // Only allow drops within the same group (pinned↔pinned, unpinned↔unpinned)
-        if (id && draggedPinned === isPinned) onDropOn(id);
+        if (id && draggedPinned === isPinned) onDropOn(id, before);
+        cancelHold();
         onDragPlaylist(null);
         onDragTarget(null);
       }}
       onClick={onSelect}
-      className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left cursor-pointer active:cursor-grabbing transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${
-        draggingPlaylistId === playlist.id ? 'opacity-40 cursor-grabbing' : ''
-      } ${
-        dropTargetPlaylistId === playlist.id
+      className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left cursor-pointer transition-all duration-100 ease-in-out outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer active:cursor-pointer'
+        } ${draggingPlaylistId === playlist.id ? 'opacity-40 cursor-grabbing' : ''
+        } ${dropTargetPlaylistId === playlist.id && insertBefore
           ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]'
-          : ''
-      } ${
-        isPlaying
-          ? 'border border-[#00F2FE]/25 bg-[#00F2FE]/10 text-[#00F2FE] hover:bg-[#00F2FE]/15'
+          : dropTargetPlaylistId === playlist.id && !insertBefore
+            ? 'after:absolute after:-bottom-px after:left-2 after:right-2 after:z-10 after:h-0.5 after:rounded-full after:bg-[#00F2FE] after:shadow-[0_0_8px_rgba(0,242,254,0.9)]'
+            : ''
+        } ${isPlaying && !isGlowDimmed
+          ? 'border border-[#00F2FE]/25 bg-[#00F2FE]/10 text-[#00F2FE] shadow-[0_0_12px_rgba(0,242,254,0.15)] hover:bg-[#00F2FE]/15'
           : active
             ? 'border border-white/5 bg-white/[0.05] text-white hover:bg-white/[0.12]'
             : 'border border-transparent text-white/75 hover:bg-white/[0.12] hover:text-white'
-      }`}
+        }`}
     >
       <div className="h-9 w-9 rounded-xl relative shrink-0 overflow-hidden bg-white/5 shadow-sm group/art">
         {playlist.thumbnailUrl ? (
@@ -450,11 +507,11 @@ function PlaylistNavItem({
             <Music2 className="w-4 h-4 text-white" />
           </div>
         )}
-        <button 
+        <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={(event) => { event.stopPropagation(); onPlay(); }} 
-          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]" 
+          onClick={(event) => { event.stopPropagation(); onPlay(); }}
+          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
           aria-label={`Play ${playlist.title}`}
         >
           <Play className="h-5 w-5 fill-current" />
@@ -477,9 +534,8 @@ function PlaylistNavItem({
           e.stopPropagation();
           onTogglePin();
         }}
-        className={`p-1.5 rounded-xl text-white hover:text-[#00F2FE] transition-all duration-200 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent] ${
-          isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        }`}
+        className={`p-1.5 rounded-xl text-white hover:text-[#00F2FE] transition-all duration-200 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent] ${isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
         title={isPinned ? 'Unpin playlist' : 'Pin playlist'}
       >
         <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />

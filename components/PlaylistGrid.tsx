@@ -103,7 +103,7 @@ function PlaylistCard({
   return (
     <div
       onClick={onSelect}
-      className="group text-left cursor-pointer relative flex flex-col p-3 rounded-3xl bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 transition-all duration-200"
+      className="music-card group text-left cursor-pointer relative flex flex-col p-3 rounded-3xl bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 transition-all duration-200"
     >
       <div className="aspect-square rounded-2xl overflow-hidden bg-white/5 mb-3 relative shadow-lg border border-white/5">
         {playlist.thumbnailUrl ? (

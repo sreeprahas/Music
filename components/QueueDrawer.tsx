@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
 import { SongContextMenu } from './SongContextMenu';
@@ -12,12 +12,13 @@ interface Props {
   onPlayTrack: (track: Track) => void;
   onRemoveFromQueue: (videoId: string) => void;
   onClearQueue: () => void;
-  onReorderQueue: (fromVideoId: string, toVideoId: string) => void;
+  onReorderQueue: (fromVideoId: string, toVideoId: string, insertBefore: boolean) => void;
   onPlayNext: (track: Track) => void;
   onAddToQueue: (track: Track) => void;
   onAddToPlaylist: (track: Track, playlistId: string) => void;
   onSetSleepTimer: (minutes: number) => void;
   onOpenSleepTimer: () => void;
+  isHardwareOffline?: boolean;
 }
 
 export function QueueDrawer({
@@ -34,9 +35,12 @@ export function QueueDrawer({
   onAddToPlaylist,
   onSetSleepTimer,
   onOpenSleepTimer,
+  isHardwareOffline = false,
 }: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [insertBefore, setInsertBefore] = useState<boolean>(true);
+  const justDroppedRef = useRef<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
   const visibleQueue = queue.filter((track) => track.videoId !== currentTrack?.videoId);
 
@@ -79,15 +83,27 @@ export function QueueDrawer({
                   key={track.videoId}
                   draggable
                   data-song-context="true"
-                  onDragStart={() => setDraggingId(track.videoId)}
+                  onDragStart={() => {
+                    justDroppedRef.current = false;
+                    setDraggingId(track.videoId);
+                  }}
                   onDragEnd={() => { setDraggingId(null); setDropTargetId(null); }}
                   onDragOver={(event) => {
                     event.preventDefault();
-                    if (draggingId !== track.videoId) setDropTargetId(track.videoId);
+                    if (draggingId !== track.videoId) {
+                      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                      setInsertBefore(event.clientY < rect.top + rect.height / 2);
+                      setDropTargetId(track.videoId);
+                    }
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
-                    if (draggingId) onReorderQueue(draggingId, track.videoId);
+                    if (draggingId) {
+                      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                      const before = event.clientY < rect.top + rect.height / 2;
+                      justDroppedRef.current = true;
+                      onReorderQueue(draggingId, track.videoId, before);
+                    }
                     setDraggingId(null);
                     setDropTargetId(null);
                   }}
@@ -96,8 +112,14 @@ export function QueueDrawer({
                     event.stopPropagation();
                     setContextMenu({ track, x: event.clientX, y: event.clientY });
                   }}
-                  className={`group relative flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-white/5 cursor-grab ${draggingId === track.videoId ? 'opacity-40' : ''} ${dropTargetId === track.videoId ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : ''}`}
-                  onClick={() => onPlayTrack(track)}
+                  className={`group relative flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-white/5 cursor-grab ${draggingId === track.videoId ? 'opacity-40' : ''} ${dropTargetId === track.videoId && insertBefore ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : dropTargetId === track.videoId && !insertBefore ? 'after:absolute after:-bottom-px after:left-2 after:right-2 after:z-10 after:h-0.5 after:rounded-full after:bg-[#00F2FE] after:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : ''}`}
+                  onClick={() => {
+                    if (justDroppedRef.current) {
+                      justDroppedRef.current = false;
+                      return;
+                    }
+                    onPlayTrack(track);
+                  }}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <GripVertical className="h-4 w-4 shrink-0 text-white/20 group-hover:text-white/50" />
@@ -131,6 +153,7 @@ export function QueueDrawer({
           onAddToPlaylist={onAddToPlaylist}
           onSetSleepTimer={onSetSleepTimer}
           onOpenSleepTimer={onOpenSleepTimer}
+          isHardwareOffline={isHardwareOffline}
           onClose={() => setContextMenu(null)}
         />
       )}

@@ -16,15 +16,20 @@ interface LrclibResult {
 
 interface MusixmatchResult {
   message?: {
-    header?: {
-      status_code?: number;
-    };
-    body?: {
-      lyrics?: {
-        lyrics_body?: string;
-      };
-    };
+    header?: { status_code?: number };
+    body?: { lyrics?: { lyrics_body?: string } };
   };
+}
+
+// Shared timeout for all external fetch calls — 5 seconds max
+const FETCH_TIMEOUT_MS = 5000;
+
+function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(id)
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -40,11 +45,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing title' }, { status: 400 });
   }
 
-  // 1. Check local cache first
+  // 1. Check local cache first — no network needed
   const cached = getSavedLyrics(artist, title);
   if (cached) return NextResponse.json(cached);
 
-  // 2. Fetch from external APIs
+  // 2. Fetch from external APIs with abort timeouts
   const lrclibResult = await fetchFromLrclib(title, artist);
   if (lrclibResult && (lrclibResult.syncedLyrics || lrclibResult.plainLyrics)) {
     saveLyrics(artist, title, lrclibResult);
@@ -70,22 +75,15 @@ async function fetchFromLyrica(title: string, artist: string) {
   const baseUrl = process.env.LYRICA_API_URL || 'https://lyrica-api.vercel.app';
   try {
     const url = `${baseUrl.replace(/\/$/, '')}/api/lyrics?track=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&synced=true`;
-    const res = await fetch(url, {
+    const res = await timedFetch(url, {
       headers: { 'User-Agent': 'YTMusicPersonal/1.0.0' },
-      next: { revalidate: 3600 },
     });
     if (!res.ok) return null;
     const data = await res.json();
 
     const synced = data.syncedLyrics || data.lrc || data.lyrics || null;
-    // Strictly filter to ensure it is timestamped LRC content [mm:ss.xx]
     if (typeof synced === 'string' && /\[\d{2}:\d{2}/.test(synced)) {
-      return {
-        syncedLyrics: synced,
-        plainLyrics: null,
-        trackName: title,
-        artistName: artist,
-      };
+      return { syncedLyrics: synced, plainLyrics: null, trackName: title, artistName: artist };
     }
     return null;
   } catch {
@@ -95,11 +93,9 @@ async function fetchFromLyrica(title: string, artist: string) {
 
 async function fetchFromLrclib(title: string, artist: string) {
   try {
+    const headers = { 'Lrclib-Client': 'YTMusicPersonal/1.0.0' };
     const directUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`;
-    const directRes = await fetch(directUrl, {
-      headers: { 'Lrclib-Client': 'YTMusicPersonal/1.0.0 (https://github.com/user/ytmusic)' },
-      next: { revalidate: 3600 },
-    });
+    const directRes = await timedFetch(directUrl, { headers });
 
     if (directRes.ok) {
       const data: LrclibResult = await directRes.json();
@@ -114,11 +110,7 @@ async function fetchFromLrclib(title: string, artist: string) {
     }
 
     const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`;
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'Lrclib-Client': 'YTMusicPersonal/1.0.0 (https://github.com/user/ytmusic)' },
-      next: { revalidate: 3600 },
-    });
-
+    const searchRes = await timedFetch(searchUrl, { headers });
     if (!searchRes.ok) return null;
 
     const results: LrclibResult[] = await searchRes.json();
@@ -146,7 +138,7 @@ async function fetchFromMusixmatch(title: string, artist: string) {
     url.searchParams.set('q_track', title);
     url.searchParams.set('q_artist', artist);
 
-    const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+    const res = await timedFetch(url.toString());
     if (!res.ok) return null;
 
     const data = (await res.json()) as MusixmatchResult;
