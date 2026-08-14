@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
-import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check } from 'lucide-react';
+import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, Plus } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
 
@@ -85,6 +85,11 @@ interface Props {
   restoredTrack?: { track: Track; playlistId: string; timestamp: number } | null;
   currentVideoId?: string;
   activePlaylistId?: string | null;
+  scrollToTrackRequest?: number;
+  isHardwareOffline?: boolean;
+  onEditOrderChange?: (isEditing: boolean) => void;
+  recommendations?: Track[];
+  playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
 }
 
 export function PlaylistView({
@@ -110,6 +115,11 @@ export function PlaylistView({
   restoredTrack,
   currentVideoId,
   activePlaylistId,
+  scrollToTrackRequest = 0,
+  isHardwareOffline = false,
+  onEditOrderChange,
+  recommendations = [],
+  playlistMutation,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,25 +127,40 @@ export function PlaylistView({
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
+  const lastSelectedIndexRef = useRef<number | null>(null);
+  const [visibleRecommendations, setVisibleRecommendations] = useState<Track[]>(recommendations);
   // Track which videoIds are currently being downloaded (spinner shown)
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const trackListRef = useRef<HTMLDivElement>(null);
   const callbackRef = useRef(onTracksLoaded);
   callbackRef.current = onTracksLoaded;
 
+  useEffect(() => setVisibleRecommendations(recommendations), [recommendations]);
+
   // Edit Order (Spotify-style drag mode)
   const [isEditOrder, setIsEditOrder] = useState(false);
+
+  useEffect(() => {
+    onEditOrderChange?.(isEditOrder);
+  }, [isEditOrder, onEditOrderChange]);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [hasReordered, setHasReordered] = useState(false);
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dragOverBefore, setDragOverBefore] = useState<boolean>(true); // true = insert before, false = insert after
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Ref to suppress click that fires on the row immediately after a drag drop
+  const justDroppedRef = useRef(false);
+  // Snapshot of track order when edit mode was entered, to detect no-op reorders
+  const originalTrackOrderRef = useRef<string[]>([]);
 
   const handleDragStart = useCallback((e: React.DragEvent, idx: number, videoId: string) => {
     dragIndexRef.current = idx;
     setDraggingId(videoId);
+    justDroppedRef.current = false;
     e.dataTransfer.effectAllowed = 'move';
-    // Transparent drag ghost
+    // Transparent drag ghost so cursor stays clean
     const ghost = document.createElement('div');
     ghost.style.position = 'absolute';
     ghost.style.top = '-9999px';
@@ -147,49 +172,66 @@ export function PlaylistView({
   const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    // Determine insert-before vs insert-after from cursor Y relative to the row midpoint
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const insertBefore = e.clientY < rect.top + rect.height / 2;
     setDragOverIndex(idx);
+    setDragOverBefore(insertBefore);
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent, dropIdx: number) => {
     e.preventDefault();
     const fromIdx = dragIndexRef.current;
-    if (fromIdx === null || fromIdx === dropIdx) {
-      setDragOverIndex(null);
-      setDraggingId(null);
-      dragIndexRef.current = null;
-      return;
-    }
-    setTracks((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIdx, 1);
-      next.splice(dropIdx, 0, moved);
-      return next;
-    });
-    setHasReordered(true);
     dragIndexRef.current = null;
     setDragOverIndex(null);
     setDraggingId(null);
+
+    if (fromIdx === null) return;
+
+    // Determine final insert position based on cursor side
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const insertBefore = e.clientY < rect.top + rect.height / 2;
+    // Compute the target index in the ORIGINAL array (before splice)
+    let targetIdx = insertBefore ? dropIdx : dropIdx + 1;
+    // Adjust for the gap left by removing the dragged item
+    if (fromIdx < targetIdx) targetIdx -= 1;
+    if (fromIdx === targetIdx) return; // no change
+
+    justDroppedRef.current = true;
+    setTracks((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+    setHasReordered(true);
   }, []);
 
   const handleToggleEditOrder = useCallback(() => {
     if (isEditOrder) {
-      // Exiting edit mode ("Done" clicked)
+      // Exiting edit mode ("Done" clicked) — only sync if order actually changed
       setIsEditOrder(false);
-      if (hasReordered) {
+      const currentOrder = tracks.map((t) => t.videoId);
+      const unchanged = originalTrackOrderRef.current.length === currentOrder.length &&
+        originalTrackOrderRef.current.every((id, i) => id === currentOrder[i]);
+      if (hasReordered && !unchanged) {
         setIsSavingOrder(true);
-        const videoIds = tracks.map((t) => t.videoId);
         fetch('/api/playlist/reorder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playlistId: playlist.id, videoIds }),
+          body: JSON.stringify({ playlistId: playlist.id, videoIds: currentOrder }),
         })
           .catch((e) => console.error('Failed to sync reordered playlist with YouTube:', e))
           .finally(() => {
             setIsSavingOrder(false);
             setHasReordered(false);
           });
+      } else {
+        setHasReordered(false);
       }
     } else {
+      // Entering edit mode — snapshot the current order
+      originalTrackOrderRef.current = tracks.map((t) => t.videoId);
       setIsEditOrder(true);
       setHasReordered(false);
     }
@@ -198,6 +240,7 @@ export function PlaylistView({
   const handleDragEnd = useCallback(() => {
     dragIndexRef.current = null;
     setDragOverIndex(null);
+    setDragOverBefore(true);
     setDraggingId(null);
   }, []);
 
@@ -205,10 +248,17 @@ export function PlaylistView({
   const handleDownloadTrack = useCallback(async (track: Track) => {
     if (!onDownloadTrack) return;
     setDownloadingIds((prev) => new Set([...prev, track.videoId]));
-    await onDownloadTrack(track);
-    setDownloadingIds((prev) => { const n = new Set(prev); n.delete(track.videoId); return n; });
-    // Mark track as downloaded in local state (no page reload)
-    setTracks((prev) => prev.map((t) => t.videoId === track.videoId ? { ...t, downloaded: true } : t));
+    try {
+      await onDownloadTrack(track);
+      // Mark track as downloaded in local state (no page reload)
+      setTracks((prev) => prev.map((t) => (t.videoId === track.videoId ? { ...t, downloaded: true } : t)));
+    } finally {
+      setDownloadingIds((prev) => {
+        const n = new Set(prev);
+        n.delete(track.videoId);
+        return n;
+      });
+    }
   }, [onDownloadTrack]);
 
   // Local wrapper: shows spinner, calls parent handler, updates track state optimistically
@@ -237,6 +287,44 @@ export function PlaylistView({
       onRemoveFromPlaylist(track, targetPlaylistId);
     }
   }, [onRemoveFromPlaylist]);
+
+  const handleAddTrackLocal = useCallback(async (track: Track, targetPlaylistId: string) => {
+    if (targetPlaylistId === playlist.id) {
+      setTracks((prev) => {
+        if (prev.some((item) => item.videoId === track.videoId)) return prev;
+        return [...prev, { ...track, playlistId: targetPlaylistId, position: prev.length }];
+      });
+    }
+    await onAddToPlaylist?.(track, targetPlaylistId);
+  }, [onAddToPlaylist, playlist.id]);
+
+  useEffect(() => {
+    if (!playlistMutation || playlistMutation.playlistId !== playlist.id) return;
+    if (playlistMutation.type === 'remove') {
+      setTracks((prev) => prev.some((item) => item.videoId === playlistMutation.track.videoId)
+        ? prev.filter((item) => item.videoId !== playlistMutation.track.videoId)
+        : prev);
+      return;
+    }
+    setTracks((prev) => prev.some((item) => item.videoId === playlistMutation.track.videoId)
+      ? prev
+      : [...prev, { ...playlistMutation.track, playlistId: playlist.id, position: prev.length }]);
+  }, [playlist.id, playlistMutation, tracks]);
+
+  useEffect(() => {
+    const handlePlaylistKeyDown = (event: KeyboardEvent) => {
+      if (isEditOrder || selectedTrackIds.size === 0 || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      event.preventDefault();
+      tracks.filter((track) => selectedTrackIds.has(track.videoId)).forEach((track) => {
+        handleRemoveTrackLocal(track, playlist.id);
+      });
+      setSelectedTrackIds(new Set());
+      lastSelectedIndexRef.current = null;
+    };
+    window.addEventListener('keydown', handlePlaylistKeyDown);
+    return () => window.removeEventListener('keydown', handlePlaylistKeyDown);
+  }, [handleRemoveTrackLocal, isEditOrder, playlist.id, selectedTrackIds, tracks]);
 
   // Real-time track download updates: remove spinner and mark track as downloaded
   useEffect(() => {
@@ -271,7 +359,9 @@ export function PlaylistView({
     setError('');
 
     const load = async () => {
-      const qs = navigator.onLine
+      const manualOffline = localStorage.getItem('yt_offline_mode') === 'true';
+      const canRefresh = navigator.onLine && !isHardwareOffline && !manualOffline;
+      const qs = canRefresh
         ? `playlistId=${encodeURIComponent(playlist.id)}&forceRefresh=1`
         : `playlistId=${encodeURIComponent(playlist.id)}`;
       try {
@@ -280,7 +370,7 @@ export function PlaylistView({
         if (cancelled) return;
         if (!res.ok) {
           // forceRefresh failed (no internet) → try cache
-          if (navigator.onLine) {
+          if (canRefresh) {
             const r2 = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}`);
             const d2 = await r2.json().catch(() => ({ tracks: [] }));
             if (!cancelled) {
@@ -315,7 +405,7 @@ export function PlaylistView({
 
     load();
     return () => { cancelled = true; };
-  }, [playlist.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playlist.id, isHardwareOffline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -326,6 +416,14 @@ export function PlaylistView({
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [loading]);
+
+  useEffect(() => {
+    if (!scrollToTrackRequest || loading || !currentVideoId) return;
+    if (activePlaylistId !== playlist.id) return;
+    const row = Array.from(trackListRef.current?.querySelectorAll<HTMLElement>('[data-video-id]') ?? [])
+      .find((element) => element.dataset.videoId === currentVideoId);
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [scrollToTrackRequest, loading, currentVideoId, tracks, activePlaylistId, playlist.id]);
 
   const filteredTracks = useMemo(() => {
     if (!trackSearchQuery.trim()) return tracks;
@@ -442,7 +540,19 @@ export function PlaylistView({
                 )}
                 {downloadedCount < tracks.length && !loading && (
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
+                      if (isManualOffline || isHardwareOffline) {
+                        alert('You are in offline mode. Please reconnect to download tracks.');
+                        return;
+                      }
+                      try {
+                        const pingRes = await fetch('/api/ping', { method: 'HEAD', cache: 'no-store' });
+                        if (!pingRes.ok) throw new Error();
+                      } catch {
+                        alert('No internet connection. Please check your network.');
+                        return;
+                      }
                       const unDownloadedIds = tracks.filter((t) => !t.downloaded).map((t) => t.videoId);
                       setDownloadingIds((prev) => new Set([...prev, ...unDownloadedIds]));
                       onDownload(playlist.id);
@@ -554,9 +664,13 @@ export function PlaylistView({
                   const artist = cleanArtistName(track.artist);
                   const isDragOver = isEditOrder && dragOverIndex === idx && draggingId !== track.videoId;
                   const isDraggingThis = draggingId === track.videoId;
+                  // Drop indicator: show line above or below the hovered row
+                  const showIndicatorBefore = isDragOver && dragOverBefore;
+                  const showIndicatorAfter = isDragOver && !dragOverBefore;
                   return (
                     <tr
-                      key={track.videoId}
+                      key={`${track.videoId}-${track.playlistItemId || idx}`}
+                      data-video-id={track.videoId}
                       draggable={isEditOrder}
                       onDragStart={isEditOrder ? (e) => handleDragStart(e, idx, track.videoId) : undefined}
                       onDragOver={isEditOrder ? (e) => handleDragOver(e, idx) : undefined}
@@ -568,7 +682,27 @@ export function PlaylistView({
                         event.stopPropagation();
                         setContextMenu({ track, x: event.clientX, y: event.clientY });
                       } : undefined}
-                      onClick={() => {
+                      onClick={(event) => {
+                        // Block all clicks in edit mode, and suppress the ghost click right after a drop
+                        if (isEditOrder) return;
+                        if (justDroppedRef.current) {
+                          justDroppedRef.current = false;
+                          return;
+                        }
+                        if (event.shiftKey || event.ctrlKey || event.metaKey) {
+                          const rangeStart = lastSelectedIndexRef.current ?? idx;
+                          const start = Math.min(rangeStart, idx);
+                          const end = Math.max(rangeStart, idx);
+                          setSelectedTrackIds((prev) => {
+                            const next = event.shiftKey ? new Set(prev) : new Set<string>();
+                            for (let i = start; i <= end; i++) next.add(filteredTracks[i].videoId);
+                            return next;
+                          });
+                          lastSelectedIndexRef.current = idx;
+                          return;
+                        }
+                        setSelectedTrackIds(new Set());
+                        lastSelectedIndexRef.current = idx;
                         if (!canPlay) return;
                         const trackIndex = downloadedTracks.findIndex((t) => t.videoId === track.videoId);
                         const queueFromHere = trackIndex !== -1 ? downloadedTracks.slice(trackIndex) : [track];
@@ -582,8 +716,9 @@ export function PlaylistView({
                           : canPlay
                             ? 'cursor-pointer hover:bg-white/[0.09]'
                             : 'cursor-default opacity-50'
-                      } ${isActive && !isEditOrder ? 'bg-white/[0.08]' : ''} ${
-                        isDragOver ? 'border-t-[2.5px] border-[#00F2FE] rounded-none' : ''
+                      } ${selectedTrackIds.has(track.videoId) ? 'bg-[#00F2FE]/10 ring-1 ring-inset ring-[#00F2FE]/30' : ''} ${isActive && !isEditOrder ? 'bg-white/[0.08]' : ''} ${
+                        showIndicatorBefore ? 'border-t-[2.5px] border-[#00F2FE] rounded-none' :
+                        showIndicatorAfter ? 'border-b-[2.5px] border-[#00F2FE] rounded-none' : ''
                       }`}
                     >
                       <td className="py-2.5 px-3 text-center w-10 relative">
@@ -655,6 +790,44 @@ export function PlaylistView({
               </tbody>
             </table>
           )}
+
+          {!loading && !error && visibleRecommendations.length > 0 && !trackSearchQuery && (
+            <section className="mt-10 border-t border-white/10 pt-6 pb-8">
+              <div className="mb-3 flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#00F2FE]">Enhance this playlist</p>
+                  <h2 className="mt-1 text-lg font-bold text-white">Add more like this</h2>
+                </div>
+                <span className="text-xs text-white/35">From your library</span>
+              </div>
+              <div className="space-y-1">
+                {visibleRecommendations.map((track) => (
+                  <div key={track.videoId} className="group flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.06]">
+                    <img
+                      src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                      alt={track.title}
+                      className="h-10 w-10 rounded-lg object-cover"
+                      loading="lazy"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">{track.title}</p>
+                      <p className="truncate text-xs text-white/40">{cleanArtistName(track.artist)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVisibleRecommendations((prev) => prev.filter((item) => item.videoId !== track.videoId));
+                        void handleAddTrackLocal(track, playlist.id);
+                      }}
+                      className="flex shrink-0 items-center gap-1.5 rounded-full border border-[#00F2FE]/40 px-3 py-1.5 text-xs font-semibold text-[#00F2FE] opacity-70 transition-opacity hover:bg-[#00F2FE]/10 hover:opacity-100"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
       {contextMenu && onPlayNext && onAddToPlaylist && onRemoveFromPlaylist && onSetSleepTimer && onOpenSleepTimer && (
@@ -665,13 +838,14 @@ export function PlaylistView({
           y={contextMenu.y}
           onPlayNext={onPlayNext}
           onAddToQueue={onAddToQueue ?? (() => {})}
-          onAddToPlaylist={onAddToPlaylist}
+          onAddToPlaylist={handleAddTrackLocal}
           onRemoveFromPlaylist={handleRemoveTrackLocal}
           playlistId={playlist.id}
           onSetSleepTimer={onSetSleepTimer}
           onOpenSleepTimer={onOpenSleepTimer}
           onDownloadTrack={onDownloadTrack ? handleDownloadTrack : undefined}
           onDeleteTrack={onDeleteTrack ? handleDeleteTrack : undefined}
+          isHardwareOffline={isHardwareOffline}
           isDownloading={downloadingIds.has(contextMenu.track.videoId)}
           onClose={() => setContextMenu(null)}
         />

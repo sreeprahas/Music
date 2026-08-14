@@ -6,6 +6,32 @@ import { getCachedTracks, setCachedTracks } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+function uniqueTracks(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
+  const seen = new Set<string>();
+  return tracks.filter((track) => {
+    if (!track.videoId || seen.has(track.videoId)) return false;
+    seen.add(track.videoId);
+    return true;
+  });
+}
+
+async function removeDuplicateItems(accessToken: string, tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
+  const seen = new Set<string>();
+  const duplicateItemIds = tracks
+    .filter((track) => {
+      if (!track.videoId || !track.playlistItemId) return false;
+      if (seen.has(track.videoId)) return true;
+      seen.add(track.videoId);
+      return false;
+    })
+    .map((track) => track.playlistItemId as string);
+
+  await Promise.all(duplicateItemIds.map((itemId) => fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?id=${encodeURIComponent(itemId)}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+  ).catch(() => null)));
+}
+
 export async function GET(request: Request): Promise<NextResponse | Response> {
   if (process.env.IS_NATIVE_BUILD === 'true') {
     return NextResponse.json({ tracks: [] });
@@ -26,7 +52,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!forceRefresh) {
     const cached = getCachedTracks(playlistId);
     if (cached && cached.length > 0) {
-      const tracksWithStatus = cached.slice(0, limit || undefined).map((t) => ({
+      const tracksWithStatus = uniqueTracks(cached).slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
@@ -38,7 +64,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!session) {
     const cached = getCachedTracks(playlistId);
     if (cached && cached.length > 0) {
-      const tracksWithStatus = cached.slice(0, limit || undefined).map((t) => ({
+      const tracksWithStatus = uniqueTracks(cached).slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
@@ -54,7 +80,9 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   }
 
   try {
-    const tracks = await getPlaylistTracks(accessToken, playlistId);
+    const fetchedTracks = await getPlaylistTracks(accessToken, playlistId);
+    await removeDuplicateItems(accessToken, fetchedTracks);
+    const tracks = uniqueTracks(fetchedTracks);
     const tracksWithStatus = tracks.slice(0, limit || undefined).map((t) => ({
       ...t,
       downloaded: isDownloaded(t.videoId),
@@ -65,7 +93,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
     console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);
     const cached = getCachedTracks(playlistId);
     if (cached) {
-      const tracksWithStatus = cached.slice(0, limit || undefined).map((t) => ({
+      const tracksWithStatus = uniqueTracks(cached).slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));

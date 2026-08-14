@@ -135,11 +135,42 @@ export function setCachedTracks(playlistId: string, tracks: Track[]) {
     artist: cleanArtistName(t.artist),
   }));
   cache.playlistTracks[playlistId] = cleanedTracks;
+  const pl = cache.playlists.find((p) => p.id === playlistId);
+  if (pl) {
+    pl.trackCount = cleanedTracks.length;
+  }
   cache.lastUpdated = Date.now();
   saveCache(cache);
 
   // Background prefetch thumbnails and lyrics for all tracks
   prefetchTrackMetadata(cleanedTracks);
+}
+
+export function addCachedTrack(playlistId: string, track: Track) {
+  const cache = getCache();
+  const cleanedTrack = { ...track, artist: cleanArtistName(track.artist) };
+  const existingTracks = cache.playlistTracks[playlistId] || [];
+  if (!existingTracks.some((t) => t.videoId === track.videoId)) {
+    cache.playlistTracks[playlistId] = [...existingTracks, cleanedTrack];
+  }
+  const pl = cache.playlists.find((p) => p.id === playlistId);
+  if (pl) {
+    pl.trackCount = cache.playlistTracks[playlistId].length;
+  }
+  cache.lastUpdated = Date.now();
+  saveCache(cache);
+}
+
+export function removeCachedTrack(playlistId: string, videoId: string) {
+  const cache = getCache();
+  const existingTracks = cache.playlistTracks[playlistId] || [];
+  cache.playlistTracks[playlistId] = existingTracks.filter((t) => t.videoId !== videoId);
+  const pl = cache.playlists.find((p) => p.id === playlistId);
+  if (pl) {
+    pl.trackCount = cache.playlistTracks[playlistId].length;
+  }
+  cache.lastUpdated = Date.now();
+  saveCache(cache);
 }
 
 // Lyrics persistence

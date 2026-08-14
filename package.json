@@ -2,32 +2,32 @@
   "name": "music",
   "private": true,
   "version": "1.0.0",
+  "main": "electron.js",
+  "homepage": "./",
   "scripts": {
     "dev": "next dev -p 3000",
+    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "next build",
-    "build:native": "node -e \"process.env.IS_NATIVE_BUILD='true'; const { spawnSync } = require('child_process'); const { resolve, join } = require('path'); const nextBin = resolve(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'next.cmd' : 'next'); const res = spawnSync(nextBin, ['build'], { stdio: 'inherit', env: process.env, shell: process.platform === 'win32' }); process.exit(res.status ?? 1);\"",
+    "build:electron": "npm run build && tsc -p tsconfig.electron.json",
     "start": "next start -p 3000",
-    "neutralino:clean": "node -e \"const fs=require('fs'), path=require('path'); ['dist/neu','dist/neu-release-extracted','dist/neu-release.zip'].forEach(rel => { const p=path.resolve(process.cwd(), rel); if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true }); });\"",
-    "neutralino:dev": "concurrently \"npm run dev\" \"npx @neutralinojs/neu run\"",
-    "neutralino:run": "concurrently \"npm run start\" \"npx @neutralinojs/neu run\"",
-    "neutralino:build": "npm run neutralino:clean && npx @neutralinojs/neu build",
-    "neutralino:prepare": "node scripts/prepare-neutralino.js",
-    "neutralino:build:full": "npm run build:native && npm run neutralino:prepare && npm run neutralino:build",
+    "electron": "electron .",
+    "electron:dev": "npm run dev:electron",
+    "electron:build": "npm run build:electron && electron-builder",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@neutralinojs/lib": "^6.9.0",
+    "@types/hls.js": "^0.13.3",
     "cookie": "^1.0.2",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.7",
     "express": "^4.18.2",
+    "hls.js": "^1.6.17",
     "lucide-react": "^0.475.0",
     "next": "^15.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@neutralinojs/neu": "^11.7.2",
     "@types/cookie-parser": "^1.4.3",
     "@types/express": "^4.17.19",
     "@types/node": "^22.13.4",
@@ -36,10 +36,50 @@
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
     "concurrently": "^8.2.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "electron-is-dev": "^3.0.1",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.8.1",
     "typescript": "^5.7.3",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.musicapp",
+    "productName": "Music",
+    "files": [
+      "dist/**/*",
+      "public/**/*",
+      "node_modules/**/*",
+      ".next/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "public"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   }
 }

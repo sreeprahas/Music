@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { DownloadJob, UserProfile } from '@/types';
-import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff } from 'lucide-react';
+import type { DownloadJob, UserProfile, Track } from '@/types';
+import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home } from 'lucide-react';
+import { cleanArtistName } from '@/lib/ytmusicApi';
 
 interface HeaderProps {
   user: UserProfile;
@@ -12,6 +13,9 @@ interface HeaderProps {
   onHomeClick?: () => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
+  onCommitSearch?: (query: string) => void;
+  searchResults?: Track[];
+  onResultClick?: (track: Track) => void;
   searchMode?: 'name' | 'artist';
   onSearchModeChange?: (mode: 'name' | 'artist') => void;
   onUndo?: () => void;
@@ -31,6 +35,9 @@ export function Header({
   onHomeClick,
   searchQuery = '',
   onSearchChange,
+  onCommitSearch,
+  searchResults = [],
+  onResultClick,
   searchMode = 'name',
   onSearchModeChange,
   onUndo,
@@ -43,8 +50,17 @@ export function Header({
 }: HeaderProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [localInput, setLocalInput] = useState(searchQuery);
+  const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
+  const [activeResultIdx, setActiveResultIdx] = useState(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLocalInput(searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -54,10 +70,28 @@ export function Header({
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
         setIsAccountMenuOpen(false);
       }
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setSearchDropdownOpen(false);
+        setActiveResultIdx(-1);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Open dropdown whenever local input is non-empty
+  useEffect(() => {
+    setSearchDropdownOpen(localInput.trim().length > 0);
+    setActiveResultIdx(-1);
+  }, [localInput]);
+
+  const visibleResults = searchResults.slice(0, 8);
+
+  const commitResult = (track: Track) => {
+    onResultClick?.(track);
+    setSearchDropdownOpen(false);
+    setActiveResultIdx(-1);
+  };
 
   const handleLogoClick = () => {
     if (onHomeClick) onHomeClick();
@@ -73,14 +107,14 @@ export function Header({
         <button
           onClick={handleLogoClick}
           className="flex items-center gap-3 cursor-pointer group"
-          title="Home"
+          title="Music"
         >
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-all duration-300 ease-out bg-[#0A0A0A] border border-white/10 group-hover:border-[#00F2FE]/30 group-hover:shadow-[0_0_18px_rgba(0,242,254,0.18)]">
-          <img src="/music-icon.png" alt="" className="w-8 h-8 object-cover" />
-        </div>
-        <span className="text-white font-black text-lg tracking-tight group-hover:text-[#00F2FE] transition-colors">
-          Music
-        </span>
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-all duration-300 ease-out bg-[#0A0A0A] border border-white/10 group-hover:border-[#00F2FE]/30 group-hover:shadow-[0_0_18px_rgba(0,242,254,0.18)]">
+            <img src="/music-icon.png" alt="" className="w-8 h-8 object-cover" />
+          </div>
+          <span className="text-white font-black text-lg tracking-tight group-hover:text-[#00F2FE] transition-colors">
+            Music
+          </span>
         </button>
         <div className="flex items-center gap-1 ml-1">
           <button
@@ -102,43 +136,126 @@ export function Header({
         </div>
       </div>
 
-      {/* Center Search Bar */}
-      <div className="flex-1 max-w-2xl mx-6 hidden md:flex items-center gap-3">
-        <div className="flex-1 relative">
-          <Search className="w-4 h-4 text-white absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange?.(e.target.value)}
-            placeholder="Search playlists, songs, artists..."
-            className="w-full bg-white/5 border border-white/10 rounded-2xl pl-10 pr-9 py-2 text-xs text-white placeholder-white outline-none focus:outline-none focus:border-[#00F2FE]/50 caret-[#00F2FE] transition-all duration-500 ease-out hover:shadow-[0_0_0_1px_rgba(0,242,254,0.18),0_0_18px_rgba(0,242,254,0.16)]"
-          />
-          {searchQuery && (
+      {/* Center: Home + Search */}
+      <div className="flex-1 max-w-2xl mx-6 hidden md:flex items-center gap-2">
+        {/* Home Button — left of search bar, Spotify-style */}
+        <button
+          onClick={onHomeClick}
+          title="Home"
+          className="shrink-0 p-2.5 rounded-full bg-white/5 border border-white/10 text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] hover:border-[#00F2FE]/30 hover:shadow-[0_0_16px_rgba(0,242,254,0.18)] transition-all duration-300"
+        >
+          <Home className="w-4 h-4" />
+        </button>
+
+        {/* Search bar + dropdown */}
+        <div ref={searchContainerRef} className="flex-1 flex items-center gap-2 relative">
+          <div className="flex-1 relative">
+            <Search className="w-4 h-4 text-white/50 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={localInput}
+              onChange={(e) => {
+                const val = e.target.value;
+                setLocalInput(val);
+                onSearchChange?.(val);
+              }}
+              onFocus={() => localInput.trim() && setSearchDropdownOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setActiveResultIdx((i) => Math.min(i + 1, visibleResults.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setActiveResultIdx((i) => Math.max(i - 1, -1));
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (activeResultIdx >= 0 && visibleResults[activeResultIdx]) {
+                    commitResult(visibleResults[activeResultIdx]);
+                  } else {
+                    onCommitSearch?.(localInput);
+                    setSearchDropdownOpen(false);
+                  }
+                } else if (e.key === 'Escape') {
+                  setSearchDropdownOpen(false);
+                  setActiveResultIdx(-1);
+                  inputRef.current?.blur();
+                }
+              }}
+              placeholder="What do you want to listen to?"
+              className="w-full bg-white/5 border border-white/10 rounded-full pl-10 pr-9 py-2.5 text-sm text-white placeholder-white/40 outline-none focus:outline-none focus:border-[#00F2FE]/50 focus:bg-white/8 caret-[#00F2FE] transition-all duration-300"
+            />
+            {localInput && (
+              <button
+                onClick={() => {
+                  setLocalInput('');
+                  onSearchChange?.('');
+                  onCommitSearch?.('');
+                  setSearchDropdownOpen(false);
+                  inputRef.current?.focus();
+                }}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-0.5 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Live search dropdown */}
+            {searchDropdownOpen && visibleResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50">
+                <div className="py-1.5">
+                  {visibleResults.map((track, idx) => (
+                    <button
+                      key={`${track.videoId}-${idx}`}
+                      onMouseDown={(e) => { e.preventDefault(); commitResult(track); }}
+                      onMouseEnter={() => setActiveResultIdx(idx)}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 ${
+                        idx === activeResultIdx ? 'bg-white/8 text-white' : 'hover:bg-white/5 text-white/80'
+                      }`}
+                    >
+                      <img
+                        src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                        alt=""
+                        className="w-9 h-9 rounded-lg object-cover shrink-0 bg-white/5"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold truncate">{track.title}</p>
+                        <p className="text-[11px] text-white/40 truncate">{cleanArtistName(track.artist)}</p>
+                      </div>
+                      {track.downloaded && (
+                        <span className="shrink-0 text-[10px] font-bold text-[#00F2FE]/70 bg-[#00F2FE]/10 px-2 py-0.5 rounded-full">Downloaded</span>
+                      )}
+                    </button>
+                  ))}
+                  {localInput.trim() && (
+                    <button
+                      onMouseDown={(e) => { e.preventDefault(); onCommitSearch?.(localInput); setSearchDropdownOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 border-t border-white/5 mt-1 text-white/60 hover:text-white transition-colors"
+                    >
+                      <Search className="w-3.5 h-3.5 shrink-0" />
+                      <span className="text-xs">Search all results for <strong className="text-white">&ldquo;{localInput}&rdquo;</strong></span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Name / Artist toggle */}
+          <div className="flex items-center rounded-2xl border border-white/10 bg-white/5 p-1 text-[11px] font-semibold shrink-0">
             <button
-              onClick={() => onSearchChange?.('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white hover:text-[#00F2FE] p-0.5 transition-colors duration-300"
+              onClick={() => onSearchModeChange?.('name')}
+              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'name' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
             >
-              <X className="w-3.5 h-3.5" />
+              Name
             </button>
-          )}
-        </div>
-        <div className="flex items-center rounded-2xl border border-white/10 bg-white/5 p-1 text-[11px] font-semibold">
-          <button
-            onClick={() => onSearchModeChange?.('name')}
-            className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${
-              searchMode === 'name' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'
-            }`}
-          >
-            Name
-          </button>
-          <button
-            onClick={() => onSearchModeChange?.('artist')}
-            className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${
-              searchMode === 'artist' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'
-            }`}
-          >
-            Artist
-          </button>
+            <button
+              onClick={() => onSearchModeChange?.('artist')}
+              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'artist' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
+            >
+              Artist
+            </button>
+          </div>
         </div>
       </div>
 
@@ -148,17 +265,16 @@ export function Header({
         <button
           onClick={isHardwareOffline ? undefined : onToggleOfflineMode}
           disabled={isHardwareOffline}
-          className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-semibold transition-all duration-300 border ${
-            isOfflineMode
+          className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-semibold transition-all duration-300 border ${isOfflineMode
               ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.2)]'
               : 'bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10'
-          } ${isHardwareOffline ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'}`}
+            } ${isHardwareOffline ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'}`}
           title={
             isHardwareOffline
               ? 'No physical internet connection detected (Locked in Offline Mode)'
               : isOfflineMode
-              ? 'Offline Mode Active (Manual setting stored in browser)'
-              : 'Online Mode Active (Click to switch to Offline Mode)'
+                ? 'Offline Mode Active (Manual setting stored in browser)'
+                : 'Online Mode Active (Click to switch to Offline Mode)'
           }
         >
           {isOfflineMode ? (
@@ -178,11 +294,10 @@ export function Header({
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setIsDownloadOpen((prev) => !prev)}
-            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-500 ease-out border hover:shadow-[0_0_18px_rgba(0,242,254,0.15)] ${
-              isDownloadOpen
+            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-500 ease-out border hover:shadow-[0_0_18px_rgba(0,242,254,0.15)] ${isDownloadOpen
                 ? 'bg-white/10 text-white border-white/20'
                 : 'bg-white/5 text-white hover:bg-[#1A1A1A] hover:text-[#00F2FE] border-white/10'
-            }`}
+              }`}
             title="Download Center"
           >
             <div className="relative shrink-0 flex items-center justify-center">

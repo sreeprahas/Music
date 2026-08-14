@@ -46,23 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             `,
           }}
         />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function(){
-                try {
-                  var nl = window.Neutralino || window.__Neutralino || null;
-                  if (nl && nl.os && typeof nl.os.getPath === 'function') {
-                    nl.os.getPath('data').then(function(p){
-                      try { fetch('/api/native/data-dir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) }); } catch(e){}
-                    }).catch(function(){/*ignore*/});
-                  }
-                } catch(e) {}
-              })();
-            `,
-          }}
-        />
-      </body>
+        </body>
     </html>
   );
 }

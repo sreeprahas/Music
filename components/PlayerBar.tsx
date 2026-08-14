@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import type { Track, RepeatMode, SleepTimer } from '@/types';
+import Hls from 'hls.js';
+import type { Playlist, Track, RepeatMode, SleepTimer } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
 import {
   Play,
@@ -16,18 +17,29 @@ import {
   Volume2,
   VolumeX,
   Maximize2,
+  Library,
   Timer,
   X,
+  PlusCircle,
+  CheckCircle2,
 } from 'lucide-react';
+import { AddToPlaylistDropdown, getCachedPlaylistMemberships, primePlaylistMemberships } from './AddToPlaylistDropdown';
 
 interface Props {
   track: Track | null;
   queue: Track[];
+  playlists?: Playlist[];
+  activePlaylistId?: string | null;
+  selectedPlaylistId?: string | null;
+  isPlaylistEditOrder?: boolean;
   onNext: () => void;
   onPrev: () => void;
   onTrackEnd: () => void;
   onToggleQueue: () => void;
   onToggleLyrics: () => void;
+  onOpenPlaylist?: () => void;
+  onAddToPlaylist?: (track: Track, playlistId: string) => void;
+  onRemoveFromPlaylist?: (track: Track, playlistId: string) => void;
   onToggleFullscreen: () => void;
   onTimeUpdate?: (currentTime: number) => void;
   resumeTime?: number;
@@ -42,16 +54,29 @@ interface Props {
   sleepTimerTarget: Track | null;
   sleepTimerRequest?: { type: 'open' | 'set'; minutes?: number; id: number } | null;
   isFullscreenOpen?: boolean;
+  volume?: number;
+  isMuted?: boolean;
+  onVolumeChange?: (volume: number) => void;
+  onMuteChange?: (isMuted: boolean) => void;
+  isOffline?: boolean;
+  playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
 }
 
 export function PlayerBar({
   track,
   queue,
+  playlists = [],
+  activePlaylistId,
+  selectedPlaylistId,
+  isPlaylistEditOrder = false,
   onNext,
   onPrev,
   onTrackEnd,
   onToggleQueue,
   onToggleLyrics,
+  onOpenPlaylist,
+  onAddToPlaylist,
+  onRemoveFromPlaylist,
   onToggleFullscreen,
   onTimeUpdate,
   resumeTime = 0,
@@ -66,31 +91,117 @@ export function PlayerBar({
   sleepTimerTarget,
   sleepTimerRequest,
   isFullscreenOpen,
+  volume: volumeProp = 1,
+  isMuted: isMutedProp = false,
+  onVolumeChange,
+  onMuteChange,
+  isOffline = false,
+  playlistMutation,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlayingState] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(() => {
-    try {
-      const saved = localStorage.getItem('yt_playback_volume');
-      return saved ? parseFloat(saved) : 1;
-    } catch { return 1; }
-  });
-  const [isMuted, setIsMuted] = useState(() => {
-    try {
-      const saved = localStorage.getItem('yt_playback_muted');
-      return saved ? JSON.parse(saved) : false;
-    } catch { return false; }
-  });
+  const volume = volumeProp;
+  const isMuted = isMutedProp;
   const [isSeeking, setIsSeeking] = useState(false);
   const [sleepTimer, setSleepTimer] = useState<SleepTimer>({ isActive: false, endTime: null, remainingTime: 0 });
   const [timerMenuOpen, setTimerMenuOpen] = useState(false);
+  const [addPlaylistMenuOpen, setAddPlaylistMenuOpen] = useState(false);
+  const addPlaylistMenuRef = useRef<HTMLDivElement>(null);
   const [customHours, setCustomHours] = useState('');
   const [customMinutes, setCustomMinutes] = useState('');
+  const [playlistFeedback, setPlaylistFeedback] = useState(false);
+  const [trackPlaylistIds, setTrackPlaylistIds] = useState<Set<string>>(new Set());
+  const playlistFeedbackTimeoutRef = useRef<number | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const sessionRef = useRef<{ sessionId: string; token: string; expiresAt: number } | null>(null);
+  const renewalTimerRef = useRef<number | null>(null);
 
   const setIsPlaying = useCallback((val: boolean | ((p: boolean) => boolean)) => {
     setIsPlayingState(val);
+  }, []);
+
+  // ── Token renewal: keep session alive while playback is active ──
+  const scheduleRenewal = useCallback((sessionId: string, token: string) => {
+    if (renewalTimerRef.current) window.clearInterval(renewalTimerRef.current);
+    renewalTimerRef.current = window.setInterval(async () => {
+      try {
+        const res = await fetch('/api/stream/session', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, token: sessionRef.current?.token ?? token }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (sessionRef.current) sessionRef.current.token = data.token;
+        }
+      } catch { /* network blip — keep playing, next tick will retry */ }
+    }, 15000);
+  }, []);
+
+  const destroyHls = useCallback(() => {
+    if (renewalTimerRef.current) { window.clearInterval(renewalTimerRef.current); renewalTimerRef.current = null; }
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    sessionRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!track) {
+      setTrackPlaylistIds(new Set());
+      return;
+    }
+    const knownIds = getCachedPlaylistMemberships(track.videoId);
+    if (track.playlistId) knownIds.add(track.playlistId);
+    primePlaylistMemberships(track.videoId, knownIds);
+    setTrackPlaylistIds(knownIds);
+    if (isOffline) return;
+    fetch(`/api/playlist/memberships?videoId=${encodeURIComponent(track.videoId)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.playlistIds)) {
+          const memberships = new Set([...knownIds, ...data.playlistIds]);
+          primePlaylistMemberships(track.videoId, memberships);
+          setTrackPlaylistIds(memberships);
+        }
+      })
+      .catch(() => { });
+    return () => { cancelled = true; };
+  }, [isOffline, track]);
+
+  useEffect(() => {
+    if (!track || !playlistMutation || playlistMutation.track.videoId !== track.videoId) return;
+    setTrackPlaylistIds((previous) => {
+      const next = new Set(previous);
+      if (playlistMutation.type === 'add') next.add(playlistMutation.playlistId);
+      else next.delete(playlistMutation.playlistId);
+      return next;
+    });
+  }, [playlistMutation, track]);
+
+  // Close Add to Playlist popover on click outside
+  useEffect(() => {
+    if (!addPlaylistMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addPlaylistMenuRef.current && !addPlaylistMenuRef.current.contains(e.target as Node)) {
+        setAddPlaylistMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [addPlaylistMenuOpen]);
+
+  const handleOpenPlaylist = useCallback(() => {
+    if (!onOpenPlaylist) return;
+    onOpenPlaylist();
+    setPlaylistFeedback(true);
+    if (playlistFeedbackTimeoutRef.current) window.clearTimeout(playlistFeedbackTimeoutRef.current);
+    playlistFeedbackTimeoutRef.current = window.setTimeout(() => setPlaylistFeedback(false), 100);
+  }, [onOpenPlaylist]);
+
+  useEffect(() => () => {
+    if (playlistFeedbackTimeoutRef.current) window.clearTimeout(playlistFeedbackTimeoutRef.current);
   }, []);
 
   // Track position persistence across abrupt refreshes
@@ -155,15 +266,13 @@ export function PlayerBar({
     }
   }, [sleepTimerRequest, startSleepTimer]);
 
-  // Dynamic Loudness AGC (Automatic Gain Control) Pipeline
+  // Web Audio pipeline: Source → Compressor → User Volume GainNode → Destination
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
+  const userGainRef = useRef<GainNode | null>(null);  // user volume slider
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
-    let animFrameId: number;
 
     const setupAudioPipeline = () => {
       if (audioCtxRef.current) return;
@@ -171,55 +280,31 @@ export function PlayerBar({
         const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new AudioCtx();
 
-        // Nodes: Source -> Analyser -> DynamicsCompressor -> Auto-Gain -> Destination
         const source = ctx.createMediaElementSource(audio);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
 
+        // DynamicsCompressor to tame peaks cleanly without pumping
         const compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.setValueAtTime(-20, ctx.currentTime);
-        compressor.knee.setValueAtTime(20, ctx.currentTime);
-        compressor.ratio.setValueAtTime(8, ctx.currentTime);
-        compressor.attack.setValueAtTime(0.005, ctx.currentTime);
-        compressor.release.setValueAtTime(0.1, ctx.currentTime);
+        compressor.threshold.setValueAtTime(-24, ctx.currentTime);
+        compressor.knee.setValueAtTime(12, ctx.currentTime);
+        compressor.ratio.setValueAtTime(6, ctx.currentTime);
+        compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+        compressor.release.setValueAtTime(0.25, ctx.currentTime);
 
-        const gainNode = ctx.createGain();
-        gainNode.gain.setValueAtTime(1.0, ctx.currentTime);
+        // User Volume GainNode: responds to slider, smoothly ramped
+        const userGain = ctx.createGain();
+        const initialVol = isMuted ? 0 : Math.pow(volume, 2);
+        userGain.gain.setValueAtTime(initialVol, ctx.currentTime);
 
-        source.connect(analyser);
-        analyser.connect(compressor);
-        compressor.connect(gainNode);
-        gainNode.connect(ctx.destination);
+        // Keep audio element at full volume — all level control via GainNodes
+        audio.volume = 1;
+
+        source.connect(compressor);
+        compressor.connect(userGain);
+        userGain.connect(ctx.destination);
 
         audioCtxRef.current = ctx;
-        gainNodeRef.current = gainNode;
+        userGainRef.current = userGain;
 
-        // Real-time RMS Loudness measurement and automatic gain correction loop
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        const targetLoudnessRms = 0.18; // Desired calibrated playback RMS level
-
-        const autoLevelLoop = () => {
-          if (audio && !audio.paused && audio.readyState >= 2) {
-            analyser.getByteTimeDomainData(dataArray);
-            let sumSquares = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-              const norm = (dataArray[i] - 128) / 128;
-              sumSquares += norm * norm;
-            }
-            const currentRms = Math.sqrt(sumSquares / dataArray.length);
-
-            // Dynamically adjust gain if song is louder or softer than target
-            if (currentRms > 0.02) {
-              const delta = targetLoudnessRms / currentRms;
-              const clampedGain = Math.min(Math.max(delta, 0.4), 2.5); // Smooth safety gain bounds
-              // Smooth exponential ramp to prevent audio artifacts or clicks
-              gainNode.gain.setTargetAtTime(clampedGain, ctx.currentTime, 0.15);
-            }
-          }
-          animFrameId = requestAnimationFrame(autoLevelLoop);
-        };
-
-        autoLevelLoop();
       } catch { }
     };
 
@@ -233,16 +318,28 @@ export function PlayerBar({
     window.addEventListener('click', handleUserGesture, { once: true });
     window.addEventListener('keydown', handleUserGesture, { once: true });
     return () => {
-      if (animFrameId) cancelAnimationFrame(animFrameId);
       window.removeEventListener('click', handleUserGesture);
       window.removeEventListener('keydown', handleUserGesture);
     };
   }, []);
 
-  // Load track when changed
+  // Destroy HLS + sessions on unmount
+  useEffect(() => () => destroyHls(), [destroyHls]);
+
+  // ── Secure HLS track loading ──
+  // Flow: POST /api/stream/session → get sessionId+token → load
+  //       /api/stream/hls/manifest?s=...&t=... via hls.js
+  // Each 4s segment is served from /api/stream/hls/segment?s=...&t=...&seq=N
+  // Token auto-renews every 15s. IDM/FDM cannot scrape segments because:
+  //   (1) No static file URL exists anywhere in DOM or network
+  //   (2) Segment URLs are ephemeral & session-bound
+  //   (3) Burst-downloading > 15 segs/2s immediately revokes the session
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    destroyHls();
+
     if (!track) {
       audio.pause();
       audio.src = '';
@@ -252,56 +349,155 @@ export function PlayerBar({
       return;
     }
 
-    const srcUrl = `/api/mp3?videoId=${track.videoId}`;
-    if (audio.src !== window.location.origin + srcUrl) {
-      audio.src = srcUrl;
-    }
-    audio.volume = isMuted ? 0 : volume;
+    let cancelled = false;
 
-    if (!hasRestoredInitialTime.current) {
-      hasRestoredInitialTime.current = true;
-      if (resumeTime > 0) {
-        audio.currentTime = resumeTime;
-        setCurrentTime(resumeTime);
-      }
-    }
+    const initHlsStream = async () => {
+      try {
+        // Step 1: Acquire playback session
+        const sessRes = await fetch('/api/stream/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoId: track.videoId }),
+        });
+        if (!sessRes.ok) throw new Error('Failed to create playback session');
+        const sessData = await sessRes.json();
+        if (cancelled) return;
 
-    if (autoPlay) {
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => setIsPlaying(true))
-          .catch(() => {
-            setIsPlaying(false);
-            const resumeOnInteraction = () => {
-              audio.play().then(() => setIsPlaying(true)).catch(() => {});
-              window.removeEventListener('click', resumeOnInteraction);
-              window.removeEventListener('keydown', resumeOnInteraction);
-            };
-            window.addEventListener('click', resumeOnInteraction, { once: true });
-            window.addEventListener('keydown', resumeOnInteraction, { once: true });
+        const { sessionId, token, expiresAt } = sessData;
+        sessionRef.current = { sessionId, token, expiresAt };
+        scheduleRenewal(sessionId, token);
+
+        const manifestUrl = `/api/stream/hls/manifest?s=${encodeURIComponent(sessionId)}&t=${encodeURIComponent(token)}`;
+
+        if (Hls.isSupported()) {
+          const hls = new Hls({
+            enableWorker: false,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            fragLoadingTimeOut: 20000,
+            manifestLoadingTimeOut: 10000,
+            xhrSetup: (xhr) => {
+              xhr.withCredentials = true;
+            },
           });
+          hlsRef.current = hls;
+          hls.loadSource(manifestUrl);
+          hls.attachMedia(audio);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (cancelled) { hls.destroy(); return; }
+            audio.volume = 1;
+            if (!hasRestoredInitialTime.current) {
+              hasRestoredInitialTime.current = true;
+              if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
+            }
+            if (autoPlay) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+          });
+          hls.on(Hls.Events.ERROR, (_evt, data) => {
+            if (data.fatal) {
+              console.error('[HLS] Fatal error:', data.type, data.details);
+              hls.destroy();
+              setIsPlaying(false);
+            }
+          });
+        } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari native HLS
+          audio.src = manifestUrl;
+          audio.volume = 1;
+          if (!hasRestoredInitialTime.current) {
+            hasRestoredInitialTime.current = true;
+            if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
+          }
+          if (autoPlay) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        } else {
+          // Fallback: direct /api/mp3 (still session-token gated on backend)
+          const mp3Res = await fetch(`/api/mp3?videoId=${encodeURIComponent(track.videoId)}&s=${encodeURIComponent(sessionId)}&t=${encodeURIComponent(token)}`);
+          if (!mp3Res.ok || cancelled) return;
+          const blob = await mp3Res.blob();
+          if (cancelled) return;
+          const blobUrl = URL.createObjectURL(blob);
+          audio.src = blobUrl;
+          audio.volume = 1;
+          audio.load();
+          if (autoPlay) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        }
+      } catch (err) {
+        if (!cancelled) { console.error('[HLS Stream Error]:', err); setIsPlaying(false); }
       }
-    } else {
-      audio.pause();
-      setIsPlaying(false);
-    }
+    };
+
+    void initHlsStream();
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track?.videoId]);
 
-  // Sync volume
+  // OS Lockscreen & Hardware Media Controls (MediaSession API)
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : volume;
+    if (typeof window === 'undefined' || !('mediaSession' in navigator) || !track) return;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.title,
+      artist: track.artist,
+      album: 'YouTube Music',
+      artwork: track.thumbnailUrl ? [{ src: track.thumbnailUrl, sizes: '512x512', type: 'image/png' }] : [],
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      const audio = audioRef.current;
+      if (audio) {
+        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        setIsPlaying(false);
+      }
+    });
+
+    if (onPrev) {
+      navigator.mediaSession.setActionHandler('previoustrack', onPrev);
+    } else {
+      navigator.mediaSession.setActionHandler('previoustrack', null);
     }
+
+    if (onNext) {
+      navigator.mediaSession.setActionHandler('nexttrack', onNext);
+    } else {
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+    }
+
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      const audio = audioRef.current;
+      if (audio && details.seekTime !== undefined && details.seekTime !== null) {
+        audio.currentTime = details.seekTime;
+        setCurrentTime(details.seekTime);
+      }
+    });
+  }, [track, onNext, onPrev]);
+
+  // Sync user volume: write to userGainNode with a 15ms linear ramp (no creak/zipper noise)
+  useEffect(() => {
+    const ctx = audioCtxRef.current;
+    const userGain = userGainRef.current;
+    if (!ctx || !userGain) {
+      // Fallback: if pipeline not yet initialised, set audio.volume directly
+      if (audioRef.current) audioRef.current.volume = isMuted ? 0 : Math.pow(volume, 2);
+      return;
+    }
+    const targetGain = isMuted ? 0 : Math.pow(volume, 2);
+    // Linear ramp over 15ms — smooth, no zipper clicks
+    userGain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 0.015);
   }, [volume, isMuted]);
 
-  // The fullscreen player shares this audio element, so its controls must see every update.
+  // Sync playing state and duration up to parent
   useEffect(() => {
     if (onStateChange) {
       onStateChange({ isPlaying, duration, volume, isMuted });
     }
-  }, [volume, isMuted, isPlaying, duration, onStateChange]);
+  }, [isPlaying, duration, onStateChange]);
 
 
 
@@ -346,11 +542,8 @@ export function PlayerBar({
     <>
       <audio
         ref={audioRef}
-        onVolumeChange={() => {
-          if (!audioRef.current) return;
-          setVolume(audioRef.current.volume);
-          setIsMuted(audioRef.current.volume === 0);
-        }}
+        preload="auto"
+        autoPlay={autoPlay}
         onTimeUpdate={() => {
           if (!isSeeking && audioRef.current) {
             const t = audioRef.current.currentTime;
@@ -392,6 +585,60 @@ export function PlayerBar({
             <p className="text-xs text-white truncate hover:text-[#00F2FE] transition-colors hover:underline cursor-pointer">
               {cleanArtistName(track.artist)}
             </p>
+          </div>
+          {/* Playlist & Add-To-Playlist Buttons */}
+          <div className="flex items-center gap-1 shrink-0 relative">
+            {/* Library / Playlist button — reverted to icon, tooltip = "Playlist" */}
+            <button
+              onClick={handleOpenPlaylist}
+              disabled={!onOpenPlaylist}
+              className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-white/25 disabled:hover:bg-transparent ${
+                playlistFeedback
+                  ? 'text-white/40 bg-transparent'
+                  : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+              }`}
+              title="Show Playlist"
+              aria-label="Show Playlist"
+            >
+              <Library className="w-4 h-4" />
+            </button>
+
+            {/* Add to Playlist button reflects whether the track is already saved */}
+            <button
+              onClick={() => setAddPlaylistMenuOpen((prev) => !prev)}
+              disabled={!track}
+              className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-white/25 disabled:hover:bg-transparent ${
+                addPlaylistMenuOpen
+                  ? 'text-[#00F2FE] bg-[#00F2FE]/10'
+                  : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+              }`}
+              title="Add to Playlist"
+              aria-label="Add to Playlist"
+            >
+              {trackPlaylistIds.size > 0 ? (
+                <CheckCircle2 className="w-4 h-4 text-[#00F2FE]" strokeWidth={2.5} />
+              ) : (
+                <PlusCircle className="w-4 h-4" />
+              )}
+            </button>
+
+            {/* Add to Playlist Dropdown */}
+            {addPlaylistMenuOpen && track && (
+              <div ref={addPlaylistMenuRef} className="absolute bottom-12 left-0">
+                <AddToPlaylistDropdown
+                  track={track}
+                  playlists={playlists}
+                  onAdd={(t, pid) => {
+                    onAddToPlaylist?.(t, pid);
+                  }}
+                  onRemove={(t, pid) => {
+                    onRemoveFromPlaylist?.(t, pid);
+                  }}
+                  isOffline={isOffline}
+                  onClose={() => setAddPlaylistMenuOpen(false)}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -523,17 +770,19 @@ export function PlayerBar({
           {/* Volume */}
           <div className="flex items-center gap-2 w-[140px] group relative">
             <button
-              onClick={() => setIsMuted((m: boolean) => !m)}
+              onClick={() => {
+                if (onMuteChange) onMuteChange(!isMuted);
+              }}
               className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300 p-1 rounded-lg shrink-0"
               title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted || volume === 0 ? (
-                <VolumeX className="w-4 h-4 text-[#00F2FE]" />
+                <VolumeX className="w-4 h-4 text-red-400" />
               ) : (
                 <Volume2 className="w-4 h-4" />
               )}
             </button>
-            <div className="relative flex-1 h-1 flex items-center">
+            <div className="relative flex-1 h-1.5 flex items-center group">
               <input
                 type="range"
                 min={0}
@@ -542,20 +791,18 @@ export function PlayerBar({
                 value={isMuted ? 0 : Math.round(volume * 100)}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value) / 100;
-                  setIsMuted(false);
-                  setVolume(val);
+                  if (isMuted && onMuteChange) onMuteChange(false);
+                  if (onVolumeChange) onVolumeChange(val);
                 }}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
+                className="absolute inset-0 w-full opacity-0 cursor-pointer z-20 h-full"
                 aria-label="Volume"
               />
-              <div className="h-1 w-full bg-white/15 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
+              {/* Background Track */}
+              <div className="relative w-full h-1 bg-white/20 rounded-full overflow-hidden group-hover:h-1.5 transition-all duration-200">
+                {/* Active Volume Fill */}
                 <div
-                  className={`h-full group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-colors ${
-                    !isMuted && volume * 100 > 90
-                      ? 'bg-amber-400'
-                      : 'bg-[#00F2FE]'
-                  }`}
-                  style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
+                  className="h-full bg-[#00F2FE] rounded-full transition-all duration-75 group-hover:shadow-[0_0_10px_rgba(0,242,254,0.6)]"
+                  style={{ width: `${isMuted ? 0 : volume * 100}%` }}
                 />
               </div>
             </div>
@@ -640,6 +887,7 @@ export function PlayerBar({
           </div>
         </div>
       </div>
+
     </>
   );
 }

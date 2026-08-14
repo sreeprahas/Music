@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getSession, refreshAccessToken } from '@/lib/auth';
+import { getSession } from '@/lib/auth';
 import { deleteCachedPlaylist } from '@/lib/db';
+import { enqueueOperation } from '@/lib/operationEngine';
 
 export async function DELETE(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
@@ -10,30 +11,25 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
   }
 
-  // Remove from local cache
+  // Remove from local cache immediately
   deleteCachedPlaylist(playlistId);
 
-  // If user is authenticated, attempt YouTube API delete
+  // If user is authenticated, enqueue durable operation to delete from YouTube API
   const session = await getSession();
-  if (session) {
-    let { accessToken, refreshToken, expiresAt } = session;
-    if (Date.now() > expiresAt - 60_000) {
-      const refreshed = await refreshAccessToken(refreshToken);
-      if (refreshed) accessToken = refreshed.accessToken;
-    }
+  let operationId: string | undefined;
 
-    try {
-      const ytRes = await fetch(`https://www.googleapis.com/youtube/v3/playlists?id=${encodeURIComponent(playlistId)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!ytRes.ok) {
-        console.warn(`[api/playlist/delete] YouTube API delete failed for ${playlistId}: status ${ytRes.status}`);
-      }
-    } catch (e) {
-      console.warn(`[api/playlist/delete] Network error deleting playlist ${playlistId}:`, e);
-    }
+  if (session) {
+    const targetResource = `playlist:${playlistId}`;
+    const idempotencyKey = `op_delete_${playlistId}`;
+    const op = enqueueOperation({
+      type: 'playlist:delete',
+      targetResource,
+      payload: { playlistId },
+      session,
+      idempotencyKey,
+    });
+    operationId = op.id;
   }
 
-  return NextResponse.json({ success: true, playlistId });
+  return NextResponse.json({ success: true, playlistId, operationId });
 }

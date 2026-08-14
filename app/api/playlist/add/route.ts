@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getSession, refreshAccessToken } from '@/lib/auth';
+import { getSession } from '@/lib/auth';
+import { enqueueOperation } from '@/lib/operationEngine';
+import { addCachedTrack } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    const { playlistId, videoId } = await request.json();
+    const { playlistId, videoId, track } = await request.json();
     if (!playlistId || !videoId) {
       return NextResponse.json({ error: 'Missing playlistId or videoId' }, { status: 400 });
     }
@@ -13,35 +15,32 @@ export async function POST(request: Request) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    let { accessToken, refreshToken, expiresAt } = session;
-    if (Date.now() > expiresAt - 60_000) {
-      const refreshed = await refreshAccessToken(refreshToken);
-      if (refreshed) accessToken = refreshed.accessToken;
+    if (track) {
+      addCachedTrack(playlistId, track);
     }
 
-    const response = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        snippet: {
-          playlistId,
-          resourceId: { kind: 'youtube#video', videoId },
-        },
-      }),
+    const targetResource = `playlist:${playlistId}`;
+    const idempotencyKey = `op_add_${playlistId}_${videoId}`;
+
+    const op = enqueueOperation({
+      type: 'playlist:add',
+      targetResource,
+      payload: { playlistId, videoId, track },
+      session,
+      idempotencyKey,
     });
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      return NextResponse.json(
-        { error: data?.error?.message || 'Failed to add song to playlist' },
-        { status: response.status }
-      );
-    }
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      queued: true,
+      operationId: op.id,
+      status: op.status,
+      commandId: op.id,
+    });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to add song to playlist' }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to add song to playlist' },
+      { status: 500 }
+    );
   }
 }
