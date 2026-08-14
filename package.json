@@ -2,17 +2,11 @@
   "name": "music",
   "private": true,
   "version": "1.0.0",
-  "main": "electron.js",
   "homepage": "./",
   "scripts": {
     "dev": "next dev -p 3000",
-    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "next build",
-    "build:electron": "npm run build && tsc -p tsconfig.electron.json",
     "start": "next start -p 3000",
-    "electron": "electron .",
-    "electron:dev": "npm run dev:electron",
-    "electron:build": "npm run build:electron && electron-builder",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -28,58 +22,16 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@types/cookie-parser": "^1.4.3",
     "@types/express": "^4.17.19",
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
-    "concurrently": "^8.2.0",
-    "electron": "^43.4.0",
-    "electron-builder": "^26.15.3",
-    "electron-is-dev": "^3.0.1",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.8.1",
     "typescript": "^5.7.3",
-    "vite": "^6.2.3",
-    "wait-on": "^9.1.0"
-  },
-  "build": {
-    "appId": "com.musicapp",
-    "productName": "Music",
-    "files": [
-      "dist/**/*",
-      "public/**/*",
-      "node_modules/**/*",
-      ".next/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "buildResources": "public"
-    },
-    "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ]
-    }
+    "vite": "^6.2.3"
   }
 }

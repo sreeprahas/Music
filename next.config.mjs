@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   trailingSlash: false,
-  output: process.env.IS_NATIVE_BUILD === 'true' ? 'standalone' : undefined,
   reactStrictMode: false,
   images: {
     unoptimized: true,
