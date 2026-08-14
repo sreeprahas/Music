@@ -10,7 +10,8 @@
     "start": "next start -p 3000",
     "lint": "tsc --noEmit",
     "electron:build": "npm run build",
-    "electron": "concurrently \"npm run start\" \"wait-on http://localhost:3000 && electron .\""
+    "electron:run": "concurrently \"npm run start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron": "npm run build && concurrently \"npm run start\" \"wait-on http://localhost:3000 && electron .\""
   },
   "dependencies": {
     "cookie": "^1.0.2",

@@ -470,7 +470,7 @@ export function PlayerBar({
         onPause={() => setIsPlaying(false)}
       />
 
-      <div className="relative w-full h-[92px] bg-[#0A0A0A] border-t border-[#00F2FE]/25 flex items-center px-5 justify-between z-30 select-none shrink-0">
+      <div className="music-player relative w-full h-[96px] bg-[#0A0A0A] border-t border-[#00F2FE]/25 flex items-center px-5 justify-between z-30 select-none shrink-0">
         {/* Left Section: Track Info & Heart */}
         <div className="flex items-center gap-3 w-64 min-w-0">
           <div

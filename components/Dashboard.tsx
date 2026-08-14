@@ -1419,7 +1419,7 @@ export function Dashboard({ user }: Props) {
   ]);
 
   return (
-    <div className="h-screen w-screen bg-black flex flex-col overflow-hidden">
+    <div className="music-shell h-screen w-screen flex flex-col overflow-hidden">
       <Header
         user={user}
         activeDownloadCount={activeDownloadCount}
@@ -1468,8 +1468,8 @@ export function Dashboard({ user }: Props) {
         }}
       />
 
-      <div className="flex-1 flex overflow-hidden min-h-0 relative">
-        <aside className="h-full shrink-0 border-r border-white/5 overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]" style={{ width: sidebarExpanded ? `${SIDEBAR_EXPANDED_WIDTH}%` : '85px' }}>
+      <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
+        <aside className="music-sidebar h-full shrink-0 border-r overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]" style={{ width: sidebarExpanded ? `${SIDEBAR_EXPANDED_WIDTH}%` : '85px' }}>
           <Sidebar
             playlists={playlists}
             selectedId={selectedPlaylist ? selectedPlaylist.id : showHiddenFolder ? '__hidden__' : null}

@@ -16,9 +16,14 @@ export default function Home() {
     const err = params.get('error');
     if (err) setError(err);
 
-    // Check for session info via API
-    // In native mode, C# intercepts this and returns the "Offline Player" profile
-    fetch('/api/auth')
+    // Electron refreshes secure storage and syncs its HTTP-only cookie first.
+    const electronSession = window.electron?.auth?.getSession
+      ? window.electron.auth.getSession()
+      : Promise.resolve(null);
+
+    electronSession
+      .catch(() => null)
+      .then(() => fetch('/api/auth'))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.user) setSession({ user: data.user });

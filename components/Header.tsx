@@ -53,6 +53,10 @@ export function Header({
   const [localInput, setLocalInput] = useState(searchQuery);
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const [activeResultIdx, setActiveResultIdx] = useState(-1);
+  const [cachedProfilePicture, setCachedProfilePicture] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    try { return window.localStorage.getItem('music_profile_photo') || ''; } catch { return ''; }
+  });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +65,22 @@ export function Header({
   useEffect(() => {
     setLocalInput(searchQuery);
   }, [searchQuery]);
+
+  // Keep the account avatar available for the cached/offline app shell.
+  useEffect(() => {
+    const picture = user.picture || user.image || '';
+    if (!picture) return;
+    setCachedProfilePicture(picture);
+    try { window.localStorage.setItem('music_profile_photo', picture); } catch { /* storage may be disabled */ }
+    if ('caches' in window) {
+      fetch(picture, { mode: 'cors' })
+        .then((response) => {
+          if (!response.ok) return;
+          return caches.open('music-profile-v1').then((cache) => cache.put(picture, response.clone()));
+        })
+        .catch(() => { /* the remote avatar remains a valid fallback */ });
+    }
+  }, [user.picture, user.image]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -101,7 +121,7 @@ export function Header({
   const finishedJobs = downloadJobs.filter((j) => j.status === 'done' || j.status === 'error');
 
   return (
-    <header className="w-full h-16 bg-[#0A0A0A] border-b border-white/5 px-6 flex items-center justify-between select-none shrink-0 z-30 relative">
+    <header className="music-header w-full h-[72px] bg-[#0A0A0A] border-b border-white/5 px-6 flex items-center justify-between select-none shrink-0 z-30 relative">
       {/* Left branding */}
       <div className="flex items-center gap-2 shrink-0">
         <button
@@ -399,9 +419,9 @@ export function Header({
             onClick={() => setIsAccountMenuOpen((prev) => !prev)}
             className="flex items-center gap-2.5 p-1.5 pl-2 pr-3 rounded-2xl bg-white/5 hover:bg-[#1A1A1A] border border-white/10 transition-all duration-500 ease-out cursor-pointer hover:shadow-[0_0_18px_rgba(0,242,254,0.15)]"
           >
-            {(user.picture || user.image) ? (
+            {(cachedProfilePicture || user.picture || user.image) ? (
               <img
-                src={user.picture || user.image}
+                src={cachedProfilePicture || user.picture || user.image}
                 alt={user.name}
                 className="w-7 h-7 rounded-xl object-cover shrink-0"
               />
@@ -425,13 +445,17 @@ export function Header({
                 <p className="text-[11px] text-white/40 truncate">{user.email}</p>
               </div>
 
-              <a
-                href="/api/auth/logout"
+              <button
+                type="button"
+                onClick={async () => {
+                  if (window.electron?.auth) await window.electron.auth.logout();
+                  window.location.href = '/api/auth/logout';
+                }}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-white hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] transition-all duration-300 w-full font-semibold"
               >
                 <LogOut className="w-4 h-4" />
                 Sign Out
-              </a>
+              </button>
             </div>
           )}
         </div>
