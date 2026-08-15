@@ -1,13 +1,15 @@
-const { app, BrowserWindow, Menu, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, safeStorage, shell, utilityProcess } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
-const isDev = require('electron-is-dev');
-const { spawn } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '.env.local') });
 const musicIconDataUri = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, 'public', 'music-icon.png')).toString('base64')}`;
+const musicIconPath = path.join(__dirname, 'public', 'music-icon.png');
+
+app.setName('Music');
+app.setAppUserModelId('com.prahas.music');
 
 const OAUTH_CONFIG = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -76,9 +78,9 @@ async function fetchProfile(accessToken) {
 function makeSession(tokens, profile) { return { email: profile.email, name: profile.name || profile.email, picture: profile.picture || '', image: profile.picture || '', accessToken: tokens.accessToken, refreshToken: tokens.refreshToken || '', expiresAt: tokens.expiresAt || Date.now() + 3600 * 1000 }; }
 async function syncSessionCookie(tokens, profile) {
   if (!mainWindow) return;
-  await mainWindow.webContents.session.cookies.set({ url: 'http://localhost:3000', name: SESSION_COOKIE, value: Buffer.from(JSON.stringify(makeSession(tokens, profile))).toString('base64'), httpOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 });
+  await mainWindow.webContents.session.cookies.set({ url: 'http://127.0.0.1:3000', name: SESSION_COOKIE, value: Buffer.from(JSON.stringify(makeSession(tokens, profile))).toString('base64'), httpOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 });
 }
-const clearSessionCookie = () => mainWindow ? mainWindow.webContents.session.cookies.remove('http://localhost:3000', SESSION_COOKIE) : Promise.resolve();
+const clearSessionCookie = () => mainWindow ? mainWindow.webContents.session.cookies.remove('http://127.0.0.1:3000', SESSION_COOKIE) : Promise.resolve();
 const notify = (channel, payload) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload); };
 function closeOAuthServer() {
   return oauthServer ? new Promise((resolve) => oauthServer.close(resolve)) : Promise.resolve();
@@ -93,10 +95,29 @@ async function handleAuthCallback(callbackUrl) {
   catch (error) { console.error('[auth] Callback failed:', error); notify('auth:login-error', { message: error.message || 'Authentication failed.' }); }
 }
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1200, height: 800, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
+  mainWindow = new BrowserWindow({ width: 1200, height: 800, title: 'Music', icon: musicIconPath, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
   Menu.setApplicationMenu(null);
-  if (isDev) mainWindow.loadURL('http://localhost:3000'); else { nextProcess = spawn('npm', ['run', 'start'], { cwd: __dirname, stdio: 'inherit', shell: process.platform === 'win32' }); setTimeout(() => mainWindow && mainWindow.loadURL('http://localhost:3000'), 3000); }
+  mainWindow.loadURL('http://127.0.0.1:3000');
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+function startNextServer() {
+  return new Promise((resolve, reject) => {
+    nextProcess = utilityProcess.fork(path.join(__dirname, 'electron-next-server.js'), [], {
+      serviceName: 'Music',
+      stdio: 'pipe',
+      env: { ...process.env, DATA_DIR: path.join(app.getPath('userData'), 'data') },
+    });
+    nextProcess.on('message', (message) => {
+      if (message?.type === 'ready') resolve();
+      if (message?.type === 'error') reject(new Error(message.message));
+    });
+    nextProcess.on('exit', (code) => {
+      if (code && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.executeJavaScript(`console.error('Music server exited with code ${code}')`);
+      }
+    });
+  });
+  return nextServerReady;
 }
 function startLoopbackServer(state, codeVerifier) {
   return new Promise((resolve, reject) => {
@@ -184,6 +205,11 @@ ipcMain.handle('auth:get-session', async () => {
 });
 ipcMain.handle('auth:logout', async () => { clearTokensFromDisk(); pendingAuthRequests.clear(); await clearSessionCookie(); return { success: true }; });
 if (!app.requestSingleInstanceLock()) app.quit(); else {
-  app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (!mainWindow) createWindow(); }); });
+  app.whenReady().then(async () => {
+    try { await startNextServer(); createWindow(); }
+    catch (error) { console.error('[server] Failed to start Music server:', error); app.quit(); }
+    app.on('activate', () => { if (!mainWindow) createWindow(); });
+  });
   app.on('window-all-closed', () => { closeOAuthServer(); if (nextProcess) nextProcess.kill(); if (process.platform !== 'darwin') app.quit(); });
+  app.on('will-quit', () => { closeOAuthServer(); if (nextProcess) nextProcess.kill(); });
 }

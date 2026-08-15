@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  outputFileTracingExcludes: {
+    '/*': ['./data/**/*'],
+  },
   trailingSlash: false,
   reactStrictMode: false,
   images: {
