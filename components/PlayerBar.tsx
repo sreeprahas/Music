@@ -33,6 +33,8 @@ interface Props {
   isPlaylistEditOrder?: boolean;
   onNext: () => void;
   onPrev: () => void;
+  canPrev?: boolean;
+  canNext?: boolean;
   onTrackEnd: () => void;
   onToggleQueue: () => void;
   onToggleLyrics: () => void;
@@ -70,6 +72,8 @@ export function PlayerBar({
   isPlaylistEditOrder = false,
   onNext,
   onPrev,
+  canPrev,
+  canNext,
   onTrackEnd,
   onToggleQueue,
   onToggleLyrics,
@@ -442,8 +446,8 @@ export function PlayerBar({
   }, [repeatMode, onTrackEnd]);
 
   const currentIdx = track ? queue.findIndex((t) => t.videoId === track.videoId) : -1;
-  const canPrev = currentIdx > 0;
-  const canNext = currentIdx >= 0 && currentIdx < queue.length - 1;
+  const computedCanPrev = canPrev ?? (currentIdx > 0);
+  const computedCanNext = canNext ?? (currentIdx >= 0 && currentIdx < queue.length - 1);
 
   if (!track) {
     return null;
@@ -575,7 +579,7 @@ export function PlayerBar({
             {/* Prev */}
             <button
               onClick={onPrev}
-              disabled={!canPrev}
+              disabled={!computedCanPrev}
               className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] disabled:text-white/25 transition-all duration-300 p-1 rounded-lg"
               title="Previous"
             >
@@ -598,7 +602,7 @@ export function PlayerBar({
             {/* Next */}
             <button
               onClick={onNext}
-              disabled={!canNext}
+              disabled={!computedCanNext}
               className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] disabled:text-white/25 transition-all duration-300 p-1 rounded-lg"
               title="Next"
             >

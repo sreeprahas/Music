@@ -116,6 +116,7 @@ export function Dashboard({ user }: Props) {
 
   const [currentTrack, setCurrentTrack] = useState<Track | null>(savedSession?.track ?? null);
   const [queue, setQueue] = useState<Track[]>(savedSession?.queue ?? []);
+  const [playbackHistory, setPlaybackHistory] = useState<Array<{ track: Track; queue: Track[]; activePlaylistId: string | null }>>([]);
   const [activePlaylistId, setActivePlaylistId] = useState<string | null>(() =>
     savedSession?.activePlaylistId ?? (() => {
       try {
@@ -663,20 +664,27 @@ export function Dashboard({ user }: Props) {
 
   const handlePlay = useCallback((track: Track, newQueue: Track[], sourcePlaylistId?: string) => {
     const nextPlaylistId = sourcePlaylistId ?? track.sourcePlaylistId ?? track.playlistId ?? selectedPlaylist?.id ?? null;
+    const queuedTracks = newQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined }));
+
+    setPlaybackHistory((prev) => {
+      if (!currentTrack || currentTrack.videoId === track.videoId) return prev;
+      return [...prev, { track: currentTrack, queue: queue.length > 0 ? queue : [currentTrack], activePlaylistId: activePlaylistId }];
+    });
+
     const trackWithSource = {
       ...track,
       sourcePlaylistId: nextPlaylistId || undefined,
       playlistId: track.playlistId ?? (nextPlaylistId || undefined),
     };
     setCurrentTrack(trackWithSource);
-    setQueue(newQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined })));
+    setQueue(queuedTracks);
     setActivePlaylistId(nextPlaylistId);
     try {
       if (nextPlaylistId) localStorage.setItem('yt_active_playlist_id', nextPlaylistId);
       else localStorage.removeItem('yt_active_playlist_id');
     } catch { }
     setShouldAutoplay(true);
-  }, [selectedPlaylist?.id]);
+  }, [activePlaylistId, currentTrack, queue, selectedPlaylist?.id]);
 
   const handlePlayPlaylist = useCallback((playlistId: string) => {
     const tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId && track.downloaded);
@@ -688,6 +696,13 @@ export function Dashboard({ user }: Props) {
   }, [allTracks, handlePlay, handleSelectPlaylist]);
 
   const playingPlaylistId = activePlaylistId;
+  const canGoToPrevious = Boolean(
+    currentTrack &&
+    (
+      playbackHistory.length > 0 ||
+      (queue.findIndex((t) => t.videoId === currentTrack.videoId) > 0)
+    )
+  );
 
   const handleNext = useCallback(() => {
     if (!currentTrack || queue.length === 0) return;
@@ -728,19 +743,39 @@ export function Dashboard({ user }: Props) {
   }, [activePlaylistId, allTracks, currentTrack, queue, isShuffle, repeatMode]);
 
   const handlePrev = useCallback(() => {
-    if (!currentTrack || queue.length === 0) return;
+    if (!currentTrack) return;
     const audio = document.querySelector('audio') as HTMLAudioElement | null;
     if (audio && audio.currentTime > 3) {
       audio.currentTime = 0;
       return;
     }
+
+    const historyEntry = playbackHistory[playbackHistory.length - 1];
+    if (historyEntry) {
+      setShouldAutoplay(true);
+      setPlaybackHistory((prev) => prev.slice(0, -1));
+      const previousTrack = {
+        ...historyEntry.track,
+        sourcePlaylistId: historyEntry.activePlaylistId || (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined,
+      };
+      setCurrentTrack(previousTrack);
+      setQueue(historyEntry.queue.length > 0 ? historyEntry.queue : [historyEntry.track]);
+      setActivePlaylistId(historyEntry.activePlaylistId ?? activePlaylistId ?? null);
+      if (historyEntry.activePlaylistId) {
+        try {
+          localStorage.setItem('yt_active_playlist_id', historyEntry.activePlaylistId);
+        } catch { }
+      }
+      return;
+    }
+
     const currentIndex = queue.findIndex((t) => t.videoId === currentTrack.videoId);
     if (currentIndex > 0) {
       setShouldAutoplay(true);
       const prevTrack = queue[currentIndex - 1];
       setCurrentTrack({ ...prevTrack, sourcePlaylistId: (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined });
     }
-  }, [activePlaylistId, currentTrack, queue]);
+  }, [activePlaylistId, currentTrack, playbackHistory, queue]);
 
   const handleToggleShuffle = useCallback(() => setIsShuffle((prev) => !prev), []);
   const handleToggleRepeat = useCallback(() => {
@@ -1442,8 +1477,7 @@ export function Dashboard({ user }: Props) {
               const tracksInPlaylist = Object.values(allTracks)
                 .filter((t) => t.playlistId === playlistId && t.downloaded)
                 .sort((a, b) => a.position - b.position);
-              const idx = tracksInPlaylist.findIndex((t) => t.videoId === track.videoId);
-              const queue = idx !== -1 ? tracksInPlaylist.slice(idx) : [track];
+              const queue = tracksInPlaylist.length > 0 ? tracksInPlaylist : [track];
               handlePlay(track, queue, playlistId ?? undefined);
             } else {
               handlePlay(track, [track]);
@@ -1610,6 +1644,8 @@ export function Dashboard({ user }: Props) {
         queue={queue}
         onNext={handleNext}
         onPrev={handlePrev}
+        canPrev={canGoToPrevious}
+        canNext={queue.length > 0 && currentTrack ? queue.findIndex((t) => t.videoId === currentTrack.videoId) >= 0 && queue.findIndex((t) => t.videoId === currentTrack.videoId) < queue.length - 1 : false}
         onTrackEnd={handleNext}
         onToggleQueue={handleToggleQueue}
         onToggleLyrics={handleToggleLyrics}

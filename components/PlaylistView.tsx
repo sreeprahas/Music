@@ -704,9 +704,8 @@ export function PlaylistView({
                         setSelectedTrackIds(new Set());
                         lastSelectedIndexRef.current = idx;
                         if (!canPlay) return;
-                        const trackIndex = downloadedTracks.findIndex((t) => t.videoId === track.videoId);
-                        const queueFromHere = trackIndex !== -1 ? downloadedTracks.slice(trackIndex) : [track];
-                        onPlay(track, queueFromHere);
+                        const queueForTrack = downloadedTracks.length > 0 ? downloadedTracks : [track];
+                        onPlay(track, queueForTrack);
                       }}
                       className={`group transition-all duration-150 rounded-xl ${
                         isEditOrder
