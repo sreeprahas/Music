@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import type { Playlist } from '@/types';
 import { Pin, FolderLock, Music2, Play, Plus, PanelLeftClose, PanelLeftOpen, Volume2 } from 'lucide-react';
+import { PlaylistArtwork } from './PlaylistArtwork';
 
 interface SidebarProps {
   playlists: Playlist[];
@@ -147,7 +148,7 @@ export function Sidebar({
     return (
       <div className="relative h-full w-[72px] flex flex-col select-none overflow-hidden bg-[#161513] transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
         {/* Collapsed Header */}
-        <div className="z-10 shrink-0 flex flex-col items-center justify-start gap-2 pt-1 pb-1 bg-[#161513]">
+        <div className="z-10 shrink-0 flex flex-col items-center justify-start gap-2 pt-3 pb-1 bg-[#161513]">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -168,10 +169,9 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <div className="h-full overflow-hidden">
-            <nav className="h-full w-full overflow-y-auto sidebar-scrollbar">
-              <div className="w-full min-h-full flex flex-col items-center justify-start gap-3 px-2 py-4">
+        <div className="flex-1min-h-0 overflow-hidden">
+          <div className="h-full overflow-hidden flex items-center justify-center">
+            <nav className="h-full w-full overflow-y-auto sidebar-scrollbar flex flex-col items-center justify-start gap-3 px-3 py-4">
                 {allPlaylists.map((pl) => (
                   <CollapsedNavItem
                     key={pl.id}
@@ -205,7 +205,6 @@ export function Sidebar({
                     <FolderLock className="h-4 w-4 text-[#00F2FE]" />
                   </div>
                 </button>
-              </div>
             </nav>
           </div>
         </div>
@@ -363,20 +362,10 @@ function CollapsedNavItem({
       onClick={onSelect}
       onMouseEnter={(e) => onHover(playlist, isPinned, e.currentTarget.getBoundingClientRect())}
       onMouseLeave={onLeave}
-      className="group flex h-12 w-12 mx-auto shrink-0 items-center justify-center rounded-xl p-1 transition-all duration-200 bg-transparent hover:bg-white/10 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent [webkit-tap-highlight-color:transparent]"
+      className="group flex h-12 w-12 mx-auto shrink-0 items-center justify-center p-0 transition-all duration-200 bg-transparent hover:bg-white/10 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent [webkit-tap-highlight-color:transparent]"
     >
-      <div className="relative h-full w-full overflow-hidden rounded-lg bg-white/5">
-        {playlist.thumbnailUrl ? (
-          <img
-            src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`}
-            alt={playlist.title}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#00F2FE]/30 to-[#1A1A1A]/30">
-            <Music2 className="h-4 w-4 text-white" />
-          </div>
-        )}
+      <div className="relative h-full w-full aspect-square overflow-hidden rounded-[4px] bg-white/5 transition-all duration-200 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_2px_rgba(0,242,254,0.24),0_4px_14px_rgba(0,242,254,0.3)]">
+        <PlaylistArtwork playlist={playlist} />
       </div>
     </button>
   );
@@ -499,19 +488,13 @@ function PlaylistNavItem({
             : 'border border-transparent text-white/75 hover:bg-white/[0.12] hover:text-white'
         }`}
     >
-      <div className="h-9 w-9 rounded-xl relative shrink-0 overflow-hidden bg-white/5 shadow-sm group/art">
-        {playlist.thumbnailUrl ? (
-          <img src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`} alt={playlist.title} className="h-full w-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#00F2FE]/30 to-[#1A1A1A]/30">
-            <Music2 className="w-4 h-4 text-white" />
-          </div>
-        )}
+      <div className="h-9 w-9 aspect-square rounded-[4px] relative shrink-0 overflow-hidden bg-white/5 shadow-sm group/art">
+        <PlaylistArtwork playlist={playlist} />
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(event) => { event.stopPropagation(); onPlay(); }}
-          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-[#00F2FE]/60 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
           aria-label={`Play ${playlist.title}`}
         >
           <Play className="h-5 w-5 fill-current" />

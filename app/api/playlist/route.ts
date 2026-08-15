@@ -41,6 +41,9 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   const playlistId = searchParams.get('playlistId');
   const limitParam = Number(searchParams.get('limit') || 0);
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 0;
+  const offsetParam = Number(searchParams.get('offset') || 0);
+  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : 0;
+  const end = limit > 0 ? offset + limit : undefined;
   // When ?forceRefresh=1, always fetch from network; otherwise serve cache first
   const forceRefresh = searchParams.get('forceRefresh') === '1';
 
@@ -51,24 +54,24 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   // Serve from cache immediately unless a force-refresh is requested
   if (!forceRefresh) {
     const cached = getCachedTracks(playlistId);
-    if (cached && cached.length > 0) {
-      const tracksWithStatus = uniqueTracks(cached).slice(0, limit || undefined).map((t) => ({
+    if (cached && cached.length > offset) {
+      const tracksWithStatus = uniqueTracks(cached).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
-      return NextResponse.json({ tracks: tracksWithStatus, fromCache: true });
+      return NextResponse.json({ tracks: tracksWithStatus.slice(offset, end), hasMore: end !== undefined && end < tracksWithStatus.length, fromCache: true });
     }
   }
 
   const session = await getSession();
   if (!session) {
     const cached = getCachedTracks(playlistId);
-    if (cached && cached.length > 0) {
-      const tracksWithStatus = uniqueTracks(cached).slice(0, limit || undefined).map((t) => ({
+    if (cached && cached.length > offset) {
+      const tracksWithStatus = uniqueTracks(cached).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
-      return NextResponse.json({ tracks: tracksWithStatus, offline: true });
+      return NextResponse.json({ tracks: tracksWithStatus.slice(offset, end), hasMore: end !== undefined && end < tracksWithStatus.length, offline: true });
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -80,15 +83,15 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   }
 
   try {
-    const fetchedTracks = await getPlaylistTracks(accessToken, playlistId);
+    const fetchedTracks = await getPlaylistTracks(accessToken, playlistId, offset + limit);
     await removeDuplicateItems(accessToken, fetchedTracks);
     const tracks = uniqueTracks(fetchedTracks);
-    const tracksWithStatus = tracks.slice(0, limit || undefined).map((t) => ({
+    const tracksWithStatus = tracks.slice(offset, end).map((t) => ({
       ...t,
       downloaded: isDownloaded(t.videoId),
     }));
     setCachedTracks(playlistId, tracksWithStatus);
-    return NextResponse.json({ tracks: tracksWithStatus });
+    return NextResponse.json({ tracks: tracksWithStatus, hasMore: limit > 0 && tracks.length >= offset + limit });
   } catch (err: unknown) {
     console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);
     const cached = getCachedTracks(playlistId);

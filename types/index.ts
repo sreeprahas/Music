@@ -18,6 +18,7 @@ export interface Playlist {
   description: string;
   thumbnailUrl: string;
   thumbnailUrls?: string[];
+  thumbnailVideoIds?: string[];
   trackCount: number;
   hidden?: boolean;
 }

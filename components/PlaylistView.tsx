@@ -3,9 +3,10 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
-import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, Plus } from 'lucide-react';
+import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, Plus, Loader2 } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
+import { PlaylistArtwork } from './PlaylistArtwork';
 
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -123,6 +124,9 @@ export function PlaylistView({
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreTracks, setHasMoreTracks] = useState(true);
+  const prefetchNextPageRef = useRef(false);
   const [error, setError] = useState('');
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -138,7 +142,7 @@ export function PlaylistView({
 
   useEffect(() => setVisibleRecommendations(recommendations), [recommendations]);
 
-  // Edit Order (Spotify-style drag mode)
+  // Edit order drag mode
   const [isEditOrder, setIsEditOrder] = useState(false);
 
   useEffect(() => {
@@ -356,48 +360,43 @@ export function PlaylistView({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    prefetchNextPageRef.current = false;
     setError('');
 
     const load = async () => {
       const manualOffline = localStorage.getItem('yt_offline_mode') === 'true';
       const canRefresh = navigator.onLine && !isHardwareOffline && !manualOffline;
-      const qs = canRefresh
-        ? `playlistId=${encodeURIComponent(playlist.id)}&forceRefresh=1`
-        : `playlistId=${encodeURIComponent(playlist.id)}`;
-      try {
-        const res = await fetch(`/api/playlist?${qs}`);
-        const data = await res.json().catch(() => ({ tracks: [] }));
-        if (cancelled) return;
-        if (!res.ok) {
-          // forceRefresh failed (no internet) → try cache
-          if (canRefresh) {
-            const r2 = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}`);
-            const d2 = await r2.json().catch(() => ({ tracks: [] }));
-            if (!cancelled) {
-              setTracks((d2.tracks || []) as Track[]);
-              callbackRef.current?.(playlist, (d2.tracks || []) as Track[]);
-            }
-          } else {
-            setError(data.error || 'Failed to load tracks');
-          }
-          return;
-        }
-        const loaded = (data.tracks || []) as Track[];
-        setTracks(loaded);
-        callbackRef.current?.(playlist, loaded);
-      } catch (err) {
-        if (cancelled) return;
-        // Network error → try cache
+      
+      // If we can refresh online, fetch the full playlist immediately without showing partial results
+      if (canRefresh) {
         try {
-          const r2 = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}`);
-          const d2 = await r2.json().catch(() => ({ tracks: [] }));
-          if (!cancelled) {
-            setTracks((d2.tracks || []) as Track[]);
-            callbackRef.current?.(playlist, (d2.tracks || []) as Track[]);
+          const res = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0&forceRefresh=1`);
+          const data = await res.json().catch(() => ({ tracks: [] }));
+          if (cancelled) return;
+          if (res.ok) {
+            const loaded = (data.tracks || []) as Track[];
+            setTracks(loaded);
+            setHasMoreTracks(Boolean(data.hasMore));
+            callbackRef.current?.(playlist, loaded);
+            setLoading(false);
+            return;
           }
-        } catch {
-          if (!cancelled) setError('Failed to load tracks');
+        } catch (err) {
+          // Network error, fall through to offline
         }
+      }
+      
+      // Offline or online failed → use cache
+      try {
+        const r2 = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
+        const d2 = await r2.json().catch(() => ({ tracks: [] }));
+        if (!cancelled) {
+          setTracks((d2.tracks || []) as Track[]);
+          setHasMoreTracks(Boolean(d2.hasMore));
+          callbackRef.current?.(playlist, (d2.tracks || []) as Track[]);
+        }
+      } catch (err) {
+        if (!cancelled) setError('Failed to load tracks');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -415,7 +414,34 @@ export function PlaylistView({
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [loading]);
+  }, [loading, tracks.length, hasMoreTracks, playlist.id]);
+
+  useEffect(() => {
+    const el = trackListRef.current;
+    if (!el || loading || !hasMoreTracks || loadingMore) return;
+    const onScroll = async () => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > 700) return;
+      setLoadingMore(true);
+      try {
+        const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=24&offset=${tracks.length}`);
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && Array.isArray(data.tracks)) {
+          setTracks((prev) => [...prev, ...(data.tracks as Track[]).filter((next: Track) => !prev.some((current) => current.videoId === next.videoId))]);
+          setHasMoreTracks(Boolean(data.hasMore));
+        }
+      } finally {
+        setLoadingMore(false);
+      }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [loading, loadingMore, hasMoreTracks, playlist.id, tracks.length]);
+
+  // Load the remainder immediately in the background. The first page is
+  // Removed prefetch logic - now loading full playlist on initial load
+  useEffect(() => {
+    // Placeholder for removed prefetch logic
+  }, []);
 
   useEffect(() => {
     if (!scrollToTrackRequest || loading || !currentVideoId) return;
@@ -451,22 +477,12 @@ export function PlaylistView({
         }`}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 shrink-0 border border-white/10">
-            {playlist.thumbnailUrl ? (
-              <img
-                src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`}
-                alt={playlist.title}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#00F2FE]/20 to-[#1a1a2e]">
-                <Music className="w-4 h-4 text-white/20" />
-              </div>
-            )}
+          <div className="w-8 h-8 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 border border-white/10">
+            <PlaylistArtwork playlist={playlist} />
           </div>
           <div className="min-w-0 flex items-baseline gap-2.5">
             <h2 className="font-bold text-white text-base truncate">{playlist.title}</h2>
-            <span className="text-xs text-white/40 shrink-0 font-medium">{tracks.length} tracks</span>
+            <span className="text-xs text-white/40 shrink-0 font-medium">{playlist.trackCount || tracks.length} tracks</span>
           </div>
         </div>
 
@@ -492,18 +508,8 @@ export function PlaylistView({
 
       <div ref={trackListRef} className="pb-36 flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
         <div className="px-6 select-none shrink-0 pt-6 pb-4 flex items-center gap-4 overflow-hidden">
-          <div className="w-28 h-28 rounded-2xl overflow-hidden bg-white/5 shrink-0 shadow-2xl relative border border-white/10">
-            {playlist.thumbnailUrl ? (
-              <img
-                src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`}
-                alt={playlist.title}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#00F2FE]/20 to-[#1a1a2e]">
-                <Music className="w-8 h-8 text-white/20" />
-              </div>
-            )}
+          <div className="w-28 h-28 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 shadow-2xl relative border border-white/10">
+            <PlaylistArtwork playlist={playlist} />
           </div>
 
           <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
@@ -518,12 +524,12 @@ export function PlaylistView({
                 <p className="text-xs text-white/40 mt-1 line-clamp-1">{playlist.description}</p>
               )}
               <div className="flex items-center gap-3 mt-2">
-                <span className="text-xs text-white/50">{loading ? '…' : `${tracks.length} tracks`}</span>
+                <span className="flex items-center gap-1.5 text-xs text-white/50">{playlist.trackCount} tracks</span>
                 {!loading && (
                   <span className="text-xs text-white/40">
                     {downloadedCount === 0
                       ? 'Not downloaded'
-                      : `${downloadedCount} / ${tracks.length} downloaded`}
+                      : `${downloadedCount} / ${playlist.trackCount} downloaded`}
                   </span>
                 )}
               </div>
@@ -538,7 +544,7 @@ export function PlaylistView({
                     Play
                   </button>
                 )}
-                {downloadedCount < tracks.length && !loading && (
+                {downloadedCount < playlist.trackCount && !loading && (
                   <button
                     onClick={async () => {
                       const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
@@ -738,7 +744,7 @@ export function PlaylistView({
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 aspect-square rounded-xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
+                          <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 border border-white/5">
                             <img
                               src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
                               alt={track.title}
@@ -805,7 +811,7 @@ export function PlaylistView({
                     <img
                       src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
                       alt={track.title}
-                      className="h-10 w-10 rounded-lg object-cover"
+                      className="h-10 w-10 aspect-square rounded-[4px] object-cover"
                       loading="lazy"
                     />
                     <div className="min-w-0 flex-1">

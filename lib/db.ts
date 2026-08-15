@@ -1,11 +1,15 @@
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import type { Playlist, Track } from '@/types';
 import { cleanArtistName } from './ytmusicApi';
 import { getDataDir } from './nativeData';
 
+const croppedPlaylistIds = new Set<string>();
+const croppedTrackIds = new Set<string>();
+
 function getPaths() {
-  const DATA_DIR = path.resolve(getDataDir());
+const DATA_DIR = path.resolve(getDataDir());
   return {
     DATA_DIR,
     METADATA_PATH: path.join(DATA_DIR, 'metadata_cache.json'),
@@ -110,6 +114,14 @@ export function getCachedPlaylists(): Playlist[] {
 
 export function setCachedPlaylists(playlists: Playlist[]) {
   const cache = getCache();
+  // Remove stale artwork when the upstream source changes (for example when
+  // replacing a first-track thumbnail with YouTube Music's playlist artwork).
+  for (const playlist of playlists) {
+    const previous = cache.playlists.find((item) => item.id === playlist.id);
+    if (previous && previous.thumbnailUrl !== playlist.thumbnailUrl) {
+      try { fs.unlinkSync(getLocalPlaylistThumbnailPath(playlist.id)); } catch { /* already absent */ }
+    }
+  }
   cache.playlists = playlists;
   cache.lastUpdated = Date.now();
   saveCache(cache);
@@ -219,12 +231,25 @@ export function getLocalPlaylistThumbnailPath(playlistId: string): string {
 export async function downloadAndCachePlaylistThumbnail(playlist: Playlist): Promise<void> {
   if (!playlist.id || !playlist.thumbnailUrl) return;
   const localPath = getLocalPlaylistThumbnailPath(playlist.id);
-  if (fs.existsSync(localPath)) return;
+  if (croppedPlaylistIds.has(playlist.id)) return;
   try {
     const response = await fetch(playlist.thumbnailUrl);
     if (!response.ok) return;
     ensureDirs();
-    fs.writeFileSync(localPath, Buffer.from(await response.arrayBuffer()));
+    const source = Buffer.from(await response.arrayBuffer());
+    const trimmed = await sharp(source).trim({ background: '#000000', threshold: 12 }).toBuffer();
+    const prepared = sharp(trimmed);
+    const metadata = await prepared.metadata();
+    const size = Math.min(metadata.width || 0, metadata.height || 0);
+    if (!size) return;
+    const cropped = await prepared.extract({
+      left: Math.floor(((metadata.width || size) - size) / 2),
+      top: Math.floor(((metadata.height || size) - size) / 2),
+      width: size,
+      height: size,
+    }).toBuffer();
+    fs.writeFileSync(localPath, cropped);
+    croppedPlaylistIds.add(playlist.id);
   } catch {
     // Keep the remote URL available as a fallback when offline caching is unavailable.
   }
@@ -240,15 +265,27 @@ async function prefetchPlaylistThumbnails(playlists: Playlist[]): Promise<void> 
 export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: string): Promise<void> {
   if (!videoId) return;
   const localPath = getLocalThumbnailPath(videoId);
-  if (fs.existsSync(localPath)) return;
+  if (croppedTrackIds.has(videoId)) return;
 
   const url = remoteUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
   try {
     const res = await fetch(url);
     if (res.ok) {
-      const buffer = Buffer.from(await res.arrayBuffer());
+      const source = Buffer.from(await res.arrayBuffer());
+      const trimmed = await sharp(source).trim({ background: '#000000', threshold: 12 }).toBuffer();
+      const prepared = sharp(trimmed);
+      const metadata = await prepared.metadata();
+      const size = Math.min(metadata.width || 0, metadata.height || 0);
+      if (!size) return;
+      const buffer = await prepared.extract({
+        left: Math.floor(((metadata.width || size) - size) / 2),
+        top: Math.floor(((metadata.height || size) - size) / 2),
+        width: size,
+        height: size,
+      }).toBuffer();
       ensureDirs();
       fs.writeFileSync(localPath, buffer);
+      croppedTrackIds.add(videoId);
     }
   } catch (e) {
     // Non-blocking catch

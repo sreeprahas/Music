@@ -98,7 +98,7 @@ export function LoginScreen({ error }: Props) {
   const displayError = loginError || error;
 
   return (
-    <div className="h-screen w-screen bg-[#0a0a0a] flex items-center justify-center">
+    <div className="h-screen w-screen bg-[#0a0a0a] flex items-center justify-center select-none">
       <div className="flex flex-col items-center gap-10">
         {/* Wordmark */}
         <div className="flex flex-col items-center gap-4">

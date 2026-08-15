@@ -1,9 +1,20 @@
 import { NextResponse } from 'next/server';
 import { getSession, refreshAccessToken } from '@/lib/auth';
 import { getPlaylists } from '@/lib/ytmusicApi';
-import { getCachedPlaylists, setCachedPlaylists } from '@/lib/db';
+import { getCachedPlaylists, getCachedTracks, setCachedPlaylists } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+
+function withLocalArtwork(playlists: Awaited<ReturnType<typeof getCachedPlaylists>>) {
+  return playlists.map((playlist) => {
+    const tracks = getCachedTracks(playlist.id)?.slice(0, 4) || [];
+    return {
+      ...playlist,
+      thumbnailUrls: tracks.map((track) => track.thumbnailUrl).filter(Boolean),
+      thumbnailVideoIds: tracks.map((track) => track.videoId),
+    };
+  });
+}
 
 export async function GET(request: Request): Promise<NextResponse | Response> {
   if (process.env.IS_NATIVE_BUILD === 'true') {
@@ -18,7 +29,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!forceRefresh) {
     const cached = getCachedPlaylists();
     if (cached.length > 0) {
-      return NextResponse.json({ playlists: cached, fromCache: true });
+      return NextResponse.json({ playlists: withLocalArtwork(cached), fromCache: true });
     }
   }
 
@@ -26,7 +37,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!session) {
     const cached = getCachedPlaylists();
     if (cached.length > 0) {
-      return NextResponse.json({ playlists: cached, offline: true });
+      return NextResponse.json({ playlists: withLocalArtwork(cached), offline: true });
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -43,12 +54,12 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   try {
     const playlists = await getPlaylists(accessToken);
     setCachedPlaylists(playlists);
-    return NextResponse.json({ playlists });
+    return NextResponse.json({ playlists: withLocalArtwork(playlists) });
   } catch (err: unknown) {
     console.error('[api/playlists] Remote fetch failed, using cache:', err);
     const cached = getCachedPlaylists();
     if (cached.length > 0) {
-      return NextResponse.json({ playlists: cached, offline: true });
+      return NextResponse.json({ playlists: withLocalArtwork(cached), offline: true });
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

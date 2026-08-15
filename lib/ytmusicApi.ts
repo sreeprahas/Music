@@ -30,7 +30,9 @@ export async function getPlaylists(accessToken: string): Promise<Playlist[]> {
     getYTMusicLibraryPlaylists(accessToken),
   ]);
 
-  // Merge: LL first, then owned, then YT Music library — dedup by id
+  // Prefer YouTube Music's playlist renderer artwork. The standard YouTube
+  // playlist endpoint often returns the first track thumbnail instead of the
+  // playlist collage shown in Music.
   const seen = new Set<string>(['LL']);
   const result: Playlist[] = [
     {
@@ -42,10 +44,16 @@ export async function getPlaylists(accessToken: string): Promise<Playlist[]> {
     },
   ];
 
-  for (const pl of [...owned, ...ytmLibrary]) {
+  for (const pl of [...ytmLibrary, ...owned]) {
     if (!seen.has(pl.id)) {
       seen.add(pl.id);
       result.push(pl);
+    } else {
+      const existing = result.find((item) => item.id === pl.id);
+      if (existing) {
+        existing.trackCount = existing.trackCount || pl.trackCount;
+        if (!existing.thumbnailUrl && pl.thumbnailUrl) existing.thumbnailUrl = pl.thumbnailUrl;
+      }
     }
   }
 
@@ -75,6 +83,7 @@ async function getOwnedPlaylists(accessToken: string): Promise<Playlist[]> {
         title: item.snippet.title as string,
         description: (item.snippet.description as string) || '',
         thumbnailUrl:
+          (item.snippet.thumbnails?.maxres?.url as string) ||
           (item.snippet.thumbnails?.high?.url as string) ||
           (item.snippet.thumbnails?.default?.url as string) ||
           '',
@@ -182,7 +191,8 @@ function findAllByKey(obj: unknown, target: string): any[] {
 
 export async function getPlaylistTracks(
   accessToken: string,
-  playlistId: string
+  playlistId: string,
+  maxTracks = 0
 ): Promise<Track[]> {
   const tracks: Track[] = [];
   let pageToken = '';
@@ -230,9 +240,11 @@ export async function getPlaylistTracks(
           duration: 0,
           position: position++,
         });
+        if (maxTracks > 0 && tracks.length >= maxTracks) break;
       }
+      if (maxTracks > 0 && tracks.length >= maxTracks) break;
       pageToken = (data.nextPageToken as string) || '';
-    } while (pageToken);
+    } while (pageToken && (maxTracks <= 0 || tracks.length < maxTracks));
 
   } else {
     // Regular playlist via playlistItems
@@ -272,9 +284,11 @@ export async function getPlaylistTracks(
           duration: 0,
           position: position++,
         });
+        if (maxTracks > 0 && tracks.length >= maxTracks) break;
       }
+      if (maxTracks > 0 && tracks.length >= maxTracks) break;
       pageToken = (data.nextPageToken as string) || '';
-    } while (pageToken);
+    } while (pageToken && (maxTracks <= 0 || tracks.length < maxTracks));
   }
 
   // Populate durations in batches of 50 via YouTube videos API

@@ -1,14 +1,16 @@
 const http = require('http');
 const next = require('next');
 
-const port = Number(process.env.PORT || 3000);
+// Use an ephemeral loopback port; Electron passes the actual port to its
+// renderer, so the app is not exposed at the conventional localhost:3000.
+const port = Number(process.env.PORT || 0);
 const nextApp = next({ dev: false, dir: __dirname });
 const handle = nextApp.getRequestHandler();
 
 nextApp.prepare().then(() => {
   const server = http.createServer((request, response) => handle(request, response));
   server.listen(port, '127.0.0.1', () => {
-    process.parentPort?.postMessage({ type: 'ready', port });
+    process.parentPort?.postMessage({ type: 'ready', port: server.address().port });
   });
   process.parentPort?.on('message', (message) => {
     if (message === 'shutdown') server.close(() => process.exit(0));

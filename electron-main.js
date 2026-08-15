@@ -22,9 +22,11 @@ const SESSION_COOKIE = 'ytm_session';
 const AUTH_REQUEST_TTL_MS = 5 * 60 * 1000;
 let mainWindow = null;
 let nextProcess = null;
+let nextServerPort = null;
 let oauthServer = null;
 let oauthCancelled = false;
 const pendingAuthRequests = new Map();
+const appOrigin = () => `http://127.0.0.1:${nextServerPort}`;
 
 const tokenFilePath = () => path.join(app.getPath('userData'), 'auth_tokens.enc');
 const base64Url = (value) => value.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -78,9 +80,9 @@ async function fetchProfile(accessToken) {
 function makeSession(tokens, profile) { return { email: profile.email, name: profile.name || profile.email, picture: profile.picture || '', image: profile.picture || '', accessToken: tokens.accessToken, refreshToken: tokens.refreshToken || '', expiresAt: tokens.expiresAt || Date.now() + 3600 * 1000 }; }
 async function syncSessionCookie(tokens, profile) {
   if (!mainWindow) return;
-  await mainWindow.webContents.session.cookies.set({ url: 'http://127.0.0.1:3000', name: SESSION_COOKIE, value: Buffer.from(JSON.stringify(makeSession(tokens, profile))).toString('base64'), httpOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 });
+  await mainWindow.webContents.session.cookies.set({ url: appOrigin(), name: SESSION_COOKIE, value: Buffer.from(JSON.stringify(makeSession(tokens, profile))).toString('base64'), httpOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 });
 }
-const clearSessionCookie = () => mainWindow ? mainWindow.webContents.session.cookies.remove('http://127.0.0.1:3000', SESSION_COOKIE) : Promise.resolve();
+const clearSessionCookie = () => mainWindow && nextServerPort ? mainWindow.webContents.session.cookies.remove(appOrigin(), SESSION_COOKIE) : Promise.resolve();
 const notify = (channel, payload) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload); };
 function closeOAuthServer() {
   return oauthServer ? new Promise((resolve) => oauthServer.close(resolve)) : Promise.resolve();
@@ -97,7 +99,7 @@ async function handleAuthCallback(callbackUrl) {
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1200, height: 800, title: 'Music', icon: musicIconPath, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
   Menu.setApplicationMenu(null);
-  mainWindow.loadURL('http://127.0.0.1:3000');
+  mainWindow.loadURL(appOrigin());
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 function startNextServer() {
@@ -105,10 +107,10 @@ function startNextServer() {
     nextProcess = utilityProcess.fork(path.join(__dirname, 'electron-next-server.js'), [], {
       serviceName: 'Music',
       stdio: 'pipe',
-      env: { ...process.env, DATA_DIR: path.join(app.getPath('userData'), 'data') },
+      env: { ...process.env, PORT: '0', DATA_DIR: path.join(app.getPath('userData'), 'data') },
     });
     nextProcess.on('message', (message) => {
-      if (message?.type === 'ready') resolve();
+      if (message?.type === 'ready') { nextServerPort = message.port; resolve(); }
       if (message?.type === 'error') reject(new Error(message.message));
     });
     nextProcess.on('exit', (code) => {
@@ -155,15 +157,15 @@ function startLoopbackServer(state, codeVerifier) {
     <div class="check">✓</div>
     <div class="logo"><img src="${musicIconDataUri}" alt="Music" /></div>
     <h1>Music sign-in complete</h1>
-    <p>You’re signed in successfully.<br />You can close this window and return to Music.</p>
+    <p>You’re signed in successfully.<br />You can return to Music.</p>
     <div class="brand">Your library · Downloaded · Yours</div>
   </main>
 </body>
 </html>`);
-      if (callbackState !== state) { notify('auth:login-error', { message: 'Invalid OAuth state received.' }); return; }
-      if (oauthCancelled) return;
-      if (error || !code) { notify('auth:login-error', { message: requestUrl.searchParams.get('error_description') || error || 'Authentication failed.' }); return; }
       try {
+        if (callbackState !== state) { notify('auth:login-error', { message: 'Invalid OAuth state received.' }); return; }
+        if (server.cancelled || oauthCancelled) return;
+        if (error || !code) { notify('auth:login-error', { message: requestUrl.searchParams.get('error_description') || error || 'Authentication failed.' }); return; }
         const redirectUri = `http://127.0.0.1:${server.address().port}/oauth2redirect`;
         const tokens = await exchangeCodeForTokens(code, codeVerifier, redirectUri);
         const profile = await fetchProfile(tokens.accessToken);
@@ -174,7 +176,9 @@ function startLoopbackServer(state, codeVerifier) {
         console.error('[auth] Callback failed:', callbackError);
         notify('auth:login-error', { message: callbackError.message || 'Authentication failed.' });
       } finally {
-        server.close(); oauthServer = null;
+        // Always release the loopback listener, including cancelled/error callbacks.
+        if (!server.listening) { if (oauthServer === server) oauthServer = null; }
+        else server.close(() => { if (oauthServer === server) oauthServer = null; });
       }
     });
     server.once('error', reject);
@@ -194,6 +198,7 @@ ipcMain.handle('auth:login', async () => {
 ipcMain.handle('auth:cancel-login', async () => {
   oauthCancelled = true;
   pendingAuthRequests.clear();
+  if (oauthServer) oauthServer.cancelled = true;
   await closeOAuthServer();
   oauthServer = null;
   return { cancelled: true };

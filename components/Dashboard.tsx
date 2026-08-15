@@ -686,14 +686,18 @@ export function Dashboard({ user }: Props) {
     setShouldAutoplay(true);
   }, [activePlaylistId, currentTrack, queue, selectedPlaylist?.id]);
 
-  const handlePlayPlaylist = useCallback((playlistId: string) => {
-    const tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId && track.downloaded);
-    if (tracks.length > 0) {
-      handlePlay(tracks[0], tracks, playlistId);
-    } else {
-      handleSelectPlaylist(playlistId);
+  const handlePlayPlaylist = useCallback(async (playlistId: string) => {
+    let tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId);
+    if (tracks.length === 0) {
+      const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlistId)}`);
+      const data = await response.json().catch(() => ({}));
+      tracks = Array.isArray(data.tracks) ? data.tracks : [];
+      if (tracks.length > 0) {
+        setAllTracks((prev) => ({ ...prev, ...Object.fromEntries(tracks.map((track: Track) => [track.videoId, { ...track, playlistId, playlistTitle: playlists.find((playlist) => playlist.id === playlistId)?.title || '' }])) }));
+      }
     }
-  }, [allTracks, handlePlay, handleSelectPlaylist]);
+    if (tracks.length > 0) handlePlay(tracks[0], tracks, playlistId);
+  }, [allTracks, handlePlay, playlists]);
 
   const playingPlaylistId = activePlaylistId;
   const canGoToPrevious = Boolean(
@@ -794,18 +798,14 @@ export function Dashboard({ user }: Props) {
   }, []);
 
   const handleFullscreenVolumeChange = useCallback((nextVolume: number) => {
-    const audio = document.querySelector('audio') as HTMLAudioElement | null;
     if (nextVolume > 0) lastAudibleVolumeRef.current = nextVolume;
-    if (audio) audio.volume = nextVolume;
     setVolume(nextVolume);
     setIsMuted(nextVolume === 0);
   }, []);
 
   const handleFullscreenMuteToggle = useCallback(() => {
-    const audio = document.querySelector('audio') as HTMLAudioElement | null;
     const nextMuted = !isMuted;
     const nextVolume = nextMuted ? 0 : lastAudibleVolumeRef.current;
-    if (audio) audio.volume = nextVolume;
     setIsMuted(nextMuted);
     setVolume(nextVolume);
   }, [isMuted]);
@@ -1179,8 +1179,10 @@ export function Dashboard({ user }: Props) {
       }
       return next;
     });
-    const thumbnailUrls = tracks.slice(0, 4).map((track) => track.thumbnailUrl).filter(Boolean);
-    setPlaylists((prev) => prev.map((item) => item.id === playlist.id ? { ...item, trackCount: tracks.length, thumbnailUrls } : item));
+    const artworkTracks = tracks.slice(0, 4);
+    const thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl).filter(Boolean);
+    const thumbnailVideoIds = artworkTracks.map((track) => track.videoId);
+    setPlaylists((prev) => prev.map((item) => item.id === playlist.id ? { ...item, trackCount: tracks.length, thumbnailUrls, thumbnailVideoIds } : item));
   }, []);
 
   const prefetchedPlaylistIds = useRef(new Set<string>());
@@ -1191,25 +1193,30 @@ export function Dashboard({ user }: Props) {
     let cancelled = false;
     const loadPlaylistArtwork = async () => {
       const pending = playlists.filter((playlist) => !playlist.thumbnailUrls || playlist.thumbnailUrls.length < 4);
-      for (const playlist of pending) {
-        if (cancelled || artworkPrefetchIds.current.has(playlist.id)) continue;
+      await Promise.all(pending.map(async (playlist) => {
+        if (cancelled || artworkPrefetchIds.current.has(playlist.id)) return;
         artworkPrefetchIds.current.add(playlist.id);
         try {
           const response = await apiFetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=4`);
           const data = await response.json().catch(() => ({}));
           if (!cancelled && response.ok && Array.isArray(data.tracks)) {
             // Only update artwork thumbnails — do NOT overwrite trackCount with a partial result.
-            const thumbnailUrls = (data.tracks as Track[]).slice(0, 4).map((t) => t.thumbnailUrl).filter(Boolean);
+            const artworkTracks = (data.tracks as Track[]).slice(0, 4);
+            const thumbnailUrls = artworkTracks.map((t) => t.thumbnailUrl).filter(Boolean);
+            const thumbnailVideoIds = artworkTracks.map((t) => t.videoId);
+            // Force the server to download/cache each local artwork even when
+            // the playlist itself is never opened.
+            await Promise.all(artworkTracks.map((track) => fetch(`/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}&crop=2`).catch(() => null)));
             setPlaylists((prev) => prev.map((item) =>
               item.id === playlist.id && (!item.thumbnailUrls || item.thumbnailUrls.length < 4)
-                ? { ...item, thumbnailUrls }
+                ? { ...item, thumbnailUrls, thumbnailVideoIds }
                 : item
             ));
           }
         } catch {
           artworkPrefetchIds.current.delete(playlist.id);
         }
-      }
+      }));
     };
     void loadPlaylistArtwork();
     return () => { cancelled = true; };
@@ -1503,7 +1510,7 @@ export function Dashboard({ user }: Props) {
       />
 
       <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
-        <aside className="music-sidebar h-full shrink-0 border-r overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]" style={{ width: sidebarExpanded ? `${SIDEBAR_EXPANDED_WIDTH}%` : '85px' }}>
+        <aside className="music-sidebar h-full shrink-0 overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]" style={{ width: sidebarExpanded ? `${SIDEBAR_EXPANDED_WIDTH}%` : '85px' }}>
           <Sidebar
             playlists={playlists}
             selectedId={selectedPlaylist ? selectedPlaylist.id : showHiddenFolder ? '__hidden__' : null}
@@ -1584,6 +1591,7 @@ export function Dashboard({ user }: Props) {
                 hiddenIds={hiddenIds}
                 onSelect={handleSelectPlaylist}
                 onTogglePin={handleTogglePin}
+                onPlay={handlePlayPlaylist}
               />
             )}
           </div>

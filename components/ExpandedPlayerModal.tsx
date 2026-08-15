@@ -68,7 +68,7 @@ export function ExpandedPlayerModal({
       {/* Blurred album art background */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <img
-          src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+          src={track.thumbnailUrl}
           alt=""
           className="w-full h-full object-cover scale-125 blur-3xl opacity-20"
         />
@@ -95,11 +95,11 @@ export function ExpandedPlayerModal({
         <div className="w-full lg:w-1/2 flex flex-col justify-between min-h-0 overflow-hidden pr-0 lg:pr-6">
           {/* Album art */}
           <div className="flex-1 min-h-0 flex items-center justify-center py-4">
-            <div className="rounded-2xl overflow-hidden shadow-2xl bg-white/5 aspect-square max-h-[min(45vw,320px)] w-full">
+            <div className="rounded-[4px] overflow-hidden shadow-2xl bg-transparent aspect-square w-full max-w-[min(45vw,320px)] shrink-0">
               <img
-                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}&crop=2`}
                 alt={track.title}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover object-center scale-[1.18]"
               />
             </div>
           </div>
@@ -199,11 +199,7 @@ export function ExpandedPlayerModal({
                 />
                 <div className="h-1 w-full bg-white/15 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
                   <div
-                    className={`h-full group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-colors ${
-                      !isMuted && volume * 100 > 90
-                        ? 'bg-amber-400'
-                        : 'bg-[#00F2FE]'
-                    }`}
+                    className="h-full bg-[#00F2FE] group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-colors"
                     style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
                   />
                 </div>

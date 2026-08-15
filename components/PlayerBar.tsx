@@ -405,7 +405,7 @@ export function PlayerBar({
     const targetGain = isMuted ? 0 : Math.pow(volume, 2);
     // Linear ramp over 15ms — smooth, no zipper clicks
     userGain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 0.015);
-  }, [volume, isMuted]);
+  }, [volume, isMuted, track?.videoId]);
 
   // Sync playing state and duration up to parent
   useEffect(() => {
@@ -479,7 +479,7 @@ export function PlayerBar({
         <div className="flex items-center gap-3 w-64 min-w-0">
           <div
             onClick={onToggleFullscreen}
-            className="w-14 h-14 rounded-xl overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
+            className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
           >
             <img
               src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ backgroundColor: '#000000' }}>
       <head>
         <link rel="icon" href="/music-icon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body>
+      <body style={{ backgroundColor: '#000000' }}>
         {children}
         <script
           dangerouslySetInnerHTML={{

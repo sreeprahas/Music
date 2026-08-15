@@ -158,7 +158,7 @@ export function Header({
 
       {/* Center: Home + Search */}
       <div className="flex-1 max-w-2xl mx-6 hidden md:flex items-center gap-2">
-        {/* Home Button — left of search bar, Spotify-style */}
+        {/* Home button — left of the search bar */}
         <button
           onClick={onHomeClick}
           title="Home"
@@ -448,8 +448,12 @@ export function Header({
               <button
                 type="button"
                 onClick={async () => {
-                  if (window.electron?.auth) await window.electron.auth.logout();
-                  window.location.href = '/api/auth/logout';
+                  if (window.electron?.auth) {
+                    await window.electron.auth.logout();
+                    window.location.reload();
+                  } else {
+                    window.location.href = '/api/auth/logout';
+                  }
                 }}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-white hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] transition-all duration-300 w-full font-semibold"
               >

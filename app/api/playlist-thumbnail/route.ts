@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   if (!playlistId) return new Response('Missing playlistId', { status: 400 });
 
   const localPath = getLocalPlaylistThumbnailPath(playlistId);
-  if (!fs.existsSync(localPath) && thumbnailUrl) {
+  if (thumbnailUrl) {
     await downloadAndCachePlaylistThumbnail({
       id: playlistId,
       thumbnailUrl,

@@ -20,6 +20,12 @@ export async function GET(request: NextRequest) {
 
   const localPath = getLocalThumbnailPath(videoId);
 
+  // The first request in a process refreshes the cache with a center crop;
+  // subsequent requests are served from the original filename unchanged.
+  if (remoteUrl) {
+    try { await downloadAndCacheThumbnail(videoId, remoteUrl); } catch { /* use cached/remote fallback */ }
+  }
+
   if (fs.existsSync(localPath)) {
     const fileBuffer = fs.readFileSync(localPath);
     return new Response(fileBuffer, {
@@ -32,18 +38,6 @@ export async function GET(request: NextRequest) {
 
   // Attempt to download & cache thumbnail locally
   if (remoteUrl) {
-    try {
-      await downloadAndCacheThumbnail(videoId, remoteUrl);
-      if (fs.existsSync(localPath)) {
-        const fileBuffer = fs.readFileSync(localPath);
-        return new Response(fileBuffer, {
-          headers: {
-            'Content-Type': 'image/webp',
-            'Cache-Control': 'public, max-age=31536000, immutable',
-          },
-        });
-      }
-    } catch {}
     // Fallback to remote URL redirect if download fails
     return NextResponse.redirect(remoteUrl);
   }
