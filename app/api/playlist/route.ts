@@ -16,9 +16,9 @@ function uniqueTracks(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
   });
 }
 
-function applyPendingMutations(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>, playlistId: string) {
+function applyPendingMutations(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>, playlistId: string, accountId = '') {
   const effective = [...tracks];
-  for (const mutation of getPendingPlaylistMutations(playlistId)) {
+  for (const mutation of getPendingPlaylistMutations(playlistId, accountId)) {
     const index = effective.findIndex((track) => track.videoId === mutation.videoId);
     if (mutation.operation === 'remove') {
       if (index >= 0) effective.splice(index, 1);
@@ -29,28 +29,7 @@ function applyPendingMutations(tracks: Awaited<ReturnType<typeof getPlaylistTrac
   return effective.map((track, index) => ({ ...track, position: index }));
 }
 
-async function removeDuplicateItems(accessToken: string, tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
-  const seen = new Set<string>();
-  const duplicateItemIds = tracks
-    .filter((track) => {
-      if (!track.videoId || !track.playlistItemId) return false;
-      if (seen.has(track.videoId)) return true;
-      seen.add(track.videoId);
-      return false;
-    })
-    .map((track) => track.playlistItemId as string);
-
-  await Promise.all(duplicateItemIds.map((itemId) => fetch(
-    `https://www.googleapis.com/youtube/v3/playlistItems?id=${encodeURIComponent(itemId)}`,
-    { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
-  ).catch(() => null)));
-}
-
 export async function GET(request: Request): Promise<NextResponse | Response> {
-  if (process.env.IS_NATIVE_BUILD === 'true') {
-    return NextResponse.json({ tracks: [] });
-  }
-
   const { searchParams } = new URL(request.url);
   const playlistId = searchParams.get('playlistId');
   const limitParam = Number(searchParams.get('limit') || 0);
@@ -65,55 +44,38 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!playlistId) {
     return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
   }
-
-  // Serve from cache immediately unless a force-refresh is requested
-  if (!forceRefresh) {
-    const cached = getCachedTracks(playlistId);
-    if (cached && cached.length > offset) {
-      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId).map((t) => ({
-        ...t,
-        downloaded: isDownloaded(t.videoId),
-      }));
-      return NextResponse.json({ tracks: tracksWithStatus.slice(offset, end), hasMore: end !== undefined && end < tracksWithStatus.length, fromCache: true });
-    }
+  if (playlistId === 'LL' || playlistId === 'LM') {
+    return NextResponse.json({ error: 'Liked Songs is not supported' }, { status: 404 });
   }
 
   const session = await getSession();
   if (!session) {
-    const cached = getCachedTracks(playlistId);
-    if (cached && cached.length > offset) {
-      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId).map((t) => ({
-        ...t,
-        downloaded: isDownloaded(t.videoId),
-      }));
-      return NextResponse.json({ tracks: tracksWithStatus.slice(offset, end), hasMore: end !== undefined && end < tracksWithStatus.length, offline: true });
-    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   let { accessToken, refreshToken, expiresAt } = session;
+  const accountId = session.email;
   if (Date.now() > expiresAt - 60_000) {
     const refreshed = await refreshAccessToken(refreshToken);
     if (refreshed) accessToken = refreshed.accessToken;
   }
 
   try {
-    const fetchedTracks = await getPlaylistTracks(accessToken, playlistId, offset + limit);
-    if (!previewOnly) await removeDuplicateItems(accessToken, fetchedTracks);
-    const tracks = applyPendingMutations(uniqueTracks(fetchedTracks), playlistId);
+    const fetchedTracks = await getPlaylistTracks({ accessToken, refreshToken, expiresAt }, playlistId, offset + limit);
+    const tracks = applyPendingMutations(uniqueTracks(fetchedTracks), playlistId, accountId);
     const tracksWithStatus = tracks.slice(offset, end).map((t) => ({
       ...t,
       downloaded: isDownloaded(t.videoId),
     }));
     // Cache the effective state, never the stale remote snapshot, while work
     // is still pending. This prevents a reload from resurrecting a mutation.
-    if (!previewOnly) setCachedTracks(playlistId, tracks);
+    if (!previewOnly) setCachedTracks(playlistId, tracks, accountId);
     return NextResponse.json({ tracks: tracksWithStatus, hasMore: limit > 0 && tracks.length >= offset + limit });
   } catch (err: unknown) {
     console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);
-    const cached = getCachedTracks(playlistId);
+    const cached = getCachedTracks(playlistId, accountId);
     if (cached) {
-      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId).slice(0, limit || undefined).map((t) => ({
+      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId, accountId).slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));

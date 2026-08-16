@@ -24,11 +24,13 @@ export function PlaylistManagementView({
 
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewTracks, setPreviewTracks] = useState<Track[]>([]);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   const previewPlaylist = playlists.find((playlist) => playlist.id === previewId) || null;
   React.useEffect(() => {
-    if (!previewId) { setPreviewTracks([]); return; }
+    if (!previewId) { setPreviewTracks([]); setPreviewLoaded(false); return; }
+    setPreviewLoaded(false);
     let cancelled = false;
-    fetch(`/api/playlist?playlistId=${encodeURIComponent(previewId)}&limit=10&preview=1`, { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).then((data) => { if (!cancelled) setPreviewTracks(Array.isArray(data?.tracks) ? data.tracks.slice(0, 10) : []); }).catch(() => { if (!cancelled) setPreviewTracks([]); });
+    fetch(`/api/playlist?playlistId=${encodeURIComponent(previewId)}&limit=10&preview=1`, { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).then((data) => { if (!cancelled) { setPreviewTracks(Array.isArray(data?.tracks) ? data.tracks.slice(0, 10) : []); setPreviewLoaded(true); } }).catch(() => { if (!cancelled) { setPreviewTracks([]); setPreviewLoaded(true); } });
     return () => { cancelled = true; };
   }, [previewId]);
   React.useEffect(() => {
@@ -77,7 +79,7 @@ export function PlaylistManagementView({
                   </button>
 
                 </div>
-                {previewPlaylist?.id === playlist.id && (
+                {previewPlaylist?.id === playlist.id && previewLoaded && (
                   <div className="playlist-preview-expand order-3 w-full rounded-xl border-t border-white/10 pt-3">
                     <div className="mb-2 flex items-center gap-2"><span className="font-semibold text-white">Preview</span><span className="text-xs text-white/35">{previewTracks.length} songs</span></div>
                     <div className="space-y-1">{previewTracks.map((track, index) => <div key={`${track.videoId}-${index}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5"><span className="w-5 text-xs text-white/30">{index + 1}</span><img src={`/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`} alt="" className="h-8 w-8 rounded object-cover" /><span className="truncate text-sm text-white/80">{track.title}</span></div>)}</div>

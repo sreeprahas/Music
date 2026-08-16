@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { DownloadJob, UserProfile, Track } from '@/types';
 import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home } from 'lucide-react';
-import { cleanArtistName } from '@/lib/ytmusicApi';
+import { cleanArtistName } from '@/lib/ytmusicFormat';
 
 interface HeaderProps {
   user: UserProfile;
@@ -49,9 +49,12 @@ export function Header({
   onToggleOfflineMode,
 }: HeaderProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const [isDownloadClosing, setIsDownloadClosing] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isAccountMenuClosing, setIsAccountMenuClosing] = useState(false);
   const [localInput, setLocalInput] = useState(searchQuery);
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
+  const [isSearchClosing, setIsSearchClosing] = useState(false);
   const [activeResultIdx, setActiveResultIdx] = useState(-1);
   const [cachedProfilePicture, setCachedProfilePicture] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -61,6 +64,55 @@ export function Header({
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelPopoverClose = () => {
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    closeTimeoutRef.current = null;
+    setIsDownloadClosing(false);
+    setIsAccountMenuClosing(false);
+  };
+
+  const schedulePopoverClose = (type: 'download' | 'account') => {
+    if (type === 'download' && !isDownloadOpen) return;
+    if (type === 'account' && !isAccountMenuOpen) return;
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    if (type === 'download') setIsDownloadClosing(true);
+    else setIsAccountMenuClosing(true);
+    closeTimeoutRef.current = setTimeout(() => {
+      closeTimeoutRef.current = null;
+      if (type === 'download') {
+        setIsDownloadOpen(false);
+        setIsDownloadClosing(false);
+      } else {
+        setIsAccountMenuOpen(false);
+        setIsAccountMenuClosing(false);
+      }
+    }, 160);
+  };
+
+  useEffect(() => () => {
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    if (searchCloseTimeoutRef.current) clearTimeout(searchCloseTimeoutRef.current);
+  }, []);
+
+  const cancelSearchClose = () => {
+    if (searchCloseTimeoutRef.current) clearTimeout(searchCloseTimeoutRef.current);
+    searchCloseTimeoutRef.current = null;
+    setIsSearchClosing(false);
+  };
+
+  const scheduleSearchClose = () => {
+    if (!searchDropdownOpen) return;
+    if (searchCloseTimeoutRef.current) clearTimeout(searchCloseTimeoutRef.current);
+    setIsSearchClosing(true);
+    searchCloseTimeoutRef.current = setTimeout(() => {
+      searchCloseTimeoutRef.current = null;
+      setSearchDropdownOpen(false);
+      setIsSearchClosing(false);
+    }, 160);
+  };
 
   useEffect(() => {
     setLocalInput(searchQuery);
@@ -94,9 +146,11 @@ export function Header({
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsDownloadOpen(false);
+        setIsDownloadClosing(false);
       }
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
         setIsAccountMenuOpen(false);
+        setIsAccountMenuClosing(false);
       }
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
         setSearchDropdownOpen(false);
@@ -137,7 +191,7 @@ export function Header({
           className="flex items-center gap-3 cursor-pointer group"
           title="Music"
         >
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-all duration-300 ease-out bg-[#0A0A0A] border border-white/10 group-hover:border-[#00F2FE]/30 group-hover:shadow-[0_0_18px_rgba(0,242,254,0.18)]">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-all duration-500 ease-out bg-[#0A0A0A] border border-transparent group-hover:border-[#00F2FE]/30 group-hover:bg-[#00F2FE]/10 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] group-active:border-transparent group-active:bg-[#0A0A0A] group-active:shadow-none">
             <img src="/music-icon.png" alt="" className="w-8 h-8 object-cover" />
           </div>
           <span className="text-white font-black text-lg tracking-tight group-hover:text-[#00F2FE] transition-colors">
@@ -170,13 +224,13 @@ export function Header({
         <button
           onClick={onHomeClick}
           title="Home"
-          className="shrink-0 p-2.5 rounded-full bg-white/5 border border-white/10 text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] hover:border-[#00F2FE]/30 hover:shadow-[0_0_16px_rgba(0,242,254,0.18)] transition-all duration-300"
+          className="shrink-0 p-2.5 rounded-full bg-white/5 border border-transparent text-white hover:text-[#00F2FE] hover:bg-[#00F2FE]/10 hover:border-[#00F2FE]/30 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] transition-all duration-500 ease-out"
         >
           <Home className="w-4 h-4" />
         </button>
 
         {/* Search bar + dropdown */}
-        <div ref={searchContainerRef} className="flex-1 flex items-center gap-2 relative">
+        <div ref={searchContainerRef} onMouseEnter={cancelSearchClose} className="flex-1 flex items-center gap-2 relative">
           <div className="flex-1 relative">
             <Search className="w-4 h-4 text-white/50 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -211,7 +265,7 @@ export function Header({
                 }
               }}
               placeholder="What do you want to listen to?"
-              className="w-full bg-white/5 border border-white/10 rounded-full pl-10 pr-9 py-2.5 text-sm text-white placeholder-white/40 outline-none focus:outline-none focus:border-[#00F2FE]/50 focus:bg-white/8 caret-[#00F2FE] transition-all duration-300"
+              className="w-full bg-white/5 border border-transparent rounded-full pl-10 pr-9 py-2.5 text-sm text-white placeholder-white/40 outline-none focus:outline-none hover:border-[#00F2FE]/30 hover:bg-[#00F2FE]/10 hover:shadow-[0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] focus:border-[#00F2FE]/45 focus:bg-[#00F2FE]/14 focus:shadow-[0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)] caret-[#00F2FE] transition-[background-color,box-shadow] duration-500 ease-out"
             />
             {localInput && (
               <button
@@ -230,7 +284,11 @@ export function Header({
 
             {/* Live search dropdown */}
             {searchDropdownOpen && visibleResults.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 animate-fadeIn">
+            <div
+              onMouseEnter={cancelSearchClose}
+              onMouseLeave={scheduleSearchClose}
+              className={`absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 ${isSearchClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+            >
                 <div className="py-1.5">
                   {visibleResults.map((track, idx) => (
                     <button
@@ -292,10 +350,13 @@ export function Header({
         {/* Download Center Button & Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
-            onClick={() => setIsDownloadOpen((prev) => !prev)}
-            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-500 ease-out border hover:shadow-[0_0_18px_rgba(0,242,254,0.15)] ${isDownloadOpen
-                ? 'bg-white/10 text-white border-white/20'
-                : 'bg-white/5 text-white hover:bg-[#1A1A1A] hover:text-[#00F2FE] border-white/10'
+            onClick={() => {
+              cancelPopoverClose();
+              setIsDownloadOpen((prev) => !prev);
+            }}
+            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-500 ease-out border ${isDownloadOpen
+                ? 'bg-[#00F2FE]/14 text-white border-[#00F2FE]/45 shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)]'
+                : 'bg-white/5 text-white border-transparent hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] hover:border-[#00F2FE]/30 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)]'
               }`}
             title="Download Center"
           >
@@ -319,7 +380,11 @@ export function Header({
 
           {/* Download Center Dropdown */}
           {isDownloadOpen && (
-            <div className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-[#181818] border border-white/10 rounded-3xl shadow-2xl overflow-hidden z-50 animate-fadeIn">
+            <div
+              onMouseEnter={cancelPopoverClose}
+              onMouseLeave={() => schedulePopoverClose('download')}
+              className={`absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-[#181818] border border-white/10 rounded-3xl shadow-2xl overflow-hidden z-50 ${isDownloadClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+            >
               {/* Dropdown Header */}
               <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/5 bg-black/20">
                 <div className="flex items-center gap-2.5">
@@ -395,8 +460,14 @@ export function Header({
         {/* Account Menu Button */}
         <div className="relative" ref={accountMenuRef}>
           <button
-            onClick={() => setIsAccountMenuOpen((prev) => !prev)}
-            className="flex items-center gap-2.5 p-1.5 pl-2 pr-3 rounded-2xl bg-white/5 hover:bg-[#1A1A1A] border border-white/10 transition-all duration-500 ease-out cursor-pointer hover:shadow-[0_0_18px_rgba(0,242,254,0.15)]"
+            onClick={() => {
+              cancelPopoverClose();
+              setIsAccountMenuOpen((prev) => !prev);
+            }}
+            className={`flex items-center gap-2.5 p-1.5 pl-2 pr-3 rounded-2xl border transition-all duration-500 ease-out cursor-pointer ${isAccountMenuOpen
+              ? 'bg-[#00F2FE]/14 border-[#00F2FE]/45 shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)]'
+              : 'bg-white/5 border-transparent hover:bg-[#00F2FE]/10 hover:border-[#00F2FE]/30 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)]'
+            }`}
           >
             {(cachedProfilePicture || user.picture || user.image) ? (
               <img
@@ -418,7 +489,11 @@ export function Header({
 
           {/* Account Dropdown */}
           {isAccountMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-[#181818] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 p-2 space-y-1 animate-fadeIn">
+            <div
+              onMouseEnter={cancelPopoverClose}
+              onMouseLeave={() => schedulePopoverClose('account')}
+              className={`absolute right-0 top-full mt-2 w-56 bg-[#181818] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 p-2 space-y-1 ${isAccountMenuClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+            >
               <div className="px-3 py-2 border-b border-white/5 mb-1">
                 <p className="text-xs font-bold text-white truncate">{user.name}</p>
                 <p className="text-[11px] text-white/40 truncate">{user.email}</p>

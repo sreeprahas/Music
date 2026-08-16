@@ -5,9 +5,9 @@ import { getCachedPlaylists, getCachedTracks, setCachedPlaylists } from '@/lib/d
 
 export const dynamic = 'force-dynamic';
 
-function withLocalArtwork(playlists: Awaited<ReturnType<typeof getCachedPlaylists>>) {
-  return playlists.map((playlist) => {
-    const tracks = getCachedTracks(playlist.id)?.slice(0, 4) || [];
+function withLocalArtwork(playlists: Awaited<ReturnType<typeof getCachedPlaylists>>, accountId: string) {
+  return playlists.filter((playlist) => playlist.id !== 'LL' && playlist.id !== 'LM').map((playlist) => {
+    const tracks = getCachedTracks(playlist.id, accountId)?.slice(0, 4) || [];
     return {
       ...playlist,
       thumbnailUrls: tracks.map((track) => track.thumbnailUrl).filter(Boolean),
@@ -17,32 +17,18 @@ function withLocalArtwork(playlists: Awaited<ReturnType<typeof getCachedPlaylist
 }
 
 export async function GET(request: Request): Promise<NextResponse | Response> {
-  if (process.env.IS_NATIVE_BUILD === 'true') {
-    return NextResponse.json({ playlists: [] });
-  }
-
   const { searchParams } = new URL(request.url);
   // When ?forceRefresh=1, always fetch from network; otherwise serve cache first
   const forceRefresh = searchParams.get('forceRefresh') === '1';
 
-  // Serve from cache immediately unless a force-refresh is requested
-  if (!forceRefresh) {
-    const cached = getCachedPlaylists();
-    if (cached.length > 0) {
-      return NextResponse.json({ playlists: withLocalArtwork(cached), fromCache: true });
-    }
-  }
-
   const session = await getSession();
   if (!session) {
-    const cached = getCachedPlaylists();
-    if (cached.length > 0) {
-      return NextResponse.json({ playlists: withLocalArtwork(cached), offline: true });
-    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   let { accessToken, refreshToken, expiresAt } = session;
+  const accountId = session.email;
+  const cachedBeforeRefresh = getCachedPlaylists(accountId);
 
   if (Date.now() > expiresAt - 60_000) {
     const refreshed = await refreshAccessToken(refreshToken);
@@ -52,16 +38,23 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   }
 
   try {
-    const playlists = await getPlaylists(accessToken);
-    setCachedPlaylists(playlists);
-    return NextResponse.json({ playlists: withLocalArtwork(playlists) });
+    const playlists = await getPlaylists({ accessToken, refreshToken, expiresAt });
+    // A transient upstream/auth response can contain only Liked Songs. Never
+    // destroy a larger valid cache with that partial snapshot.
+    if (playlists.length <= 1 && cachedBeforeRefresh.length > playlists.length) {
+      return NextResponse.json({ playlists: withLocalArtwork(cachedBeforeRefresh, accountId), fromCache: true, stale: true });
+    }
+    const supportedPlaylists = playlists.filter((playlist) => playlist.id !== 'LL' && playlist.id !== 'LM');
+    setCachedPlaylists(supportedPlaylists, accountId);
+    return NextResponse.json({ playlists: withLocalArtwork(supportedPlaylists, accountId) });
   } catch (err: unknown) {
     console.error('[api/playlists] Remote fetch failed, using cache:', err);
-    const cached = getCachedPlaylists();
-    if (cached.length > 0) {
-      return NextResponse.json({ playlists: withLocalArtwork(cached), offline: true });
-    }
+    const cached = getCachedPlaylists(accountId);
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const quotaExceeded = /quotaExceeded|dailyLimitExceeded|quota.*exceed/i.test(message);
+    if (cached.length > 0) {
+      return NextResponse.json({ playlists: withLocalArtwork(cached, accountId), offline: true, quotaExceeded });
+    }
+    return NextResponse.json({ error: message, quotaExceeded }, { status: quotaExceeded ? 429 : 500 });
   }
 }

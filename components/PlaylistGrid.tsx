@@ -17,16 +17,20 @@ interface Props {
 
 export function PlaylistGridSkeleton() {
   return (
-    <div className="h-full min-h-0 overflow-hidden px-8 py-8 select-none">
-      <div className="h-full w-full border border-white/5 bg-white/[0.02] p-6">
-        <Skeleton className="mb-8 h-8 w-52" />
-        <div className="grid h-[calc(100%-4rem)] grid-cols-4 gap-6">
-          {Array.from({ length: 8 }, (_, index) => (
-            <div key={index} className="min-w-0">
-              <Skeleton className="h-full min-h-[120px] w-full" />
-            </div>
-          ))}
-        </div>
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 space-y-8 select-none scrollbar-thin">
+        <section aria-label="Loading playlists">
+          <Skeleton className="mb-6 h-9 w-56 rounded-lg" />
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
+            {Array.from({ length: 10 }, (_, index) => (
+              <div key={index} className="w-[180px] min-w-[180px]">
+                <Skeleton className="mb-4 h-[180px] w-[180px] rounded-[10px]" />
+                <Skeleton className="mx-1 h-5 w-[148px] rounded-md" />
+                <Skeleton className="mx-1 mt-2 h-4 w-[124px] rounded-md" />
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -75,22 +79,24 @@ export function PlaylistGrid({
         )}
 
         {/* Main Library Grid */}
-        <div>
-          <h2 className="text-3xl font-bold text-white mb-6 tracking-tight">
-            {pinnedPlaylists.length > 0 ? 'All Playlists' : 'From your library'}
-          </h2>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
-            {unpinnedPlaylists.map((pl) => (
-              <PlaylistCard
-                key={pl.id}
-                playlist={pl}
-                isPinned={false}
-                onSelect={() => onSelect(pl.id)}
-                onPlay={() => onPlay(pl.id)}
-              />
-            ))}
+        {unpinnedPlaylists.length > 0 && (
+          <div>
+            <h2 className="text-3xl font-bold text-white mb-6 tracking-tight">
+              {pinnedPlaylists.length > 0 ? 'All Playlists' : 'From your library'}
+            </h2>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
+              {unpinnedPlaylists.map((pl) => (
+                <PlaylistCard
+                  key={pl.id}
+                  playlist={pl}
+                  isPinned={false}
+                  onSelect={() => onSelect(pl.id)}
+                  onPlay={() => onPlay(pl.id)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

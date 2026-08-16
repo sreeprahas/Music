@@ -4,6 +4,7 @@ import fs from 'fs';
 import { getDataDir } from './nativeData';
 import { refreshAccessToken } from './auth';
 import { addCachedTrack, removeCachedTrack } from './db';
+import { addPlaylistItem, deletePlaylist, reorderPlaylist, removePlaylistItem } from './ytmusicApi';
 import type { SessionData } from '@/types';
 
 export type OperationType =
@@ -217,6 +218,7 @@ export function enqueueOperation(options: EnqueueOperationOptions): OperationRec
   const id = `op_${now}_${Math.random().toString(36).slice(2, 8)}`;
   const payloadJson = JSON.stringify({
     ...options.payload,
+    accountId: options.session.email,
     refreshToken: options.session.refreshToken,
     accessToken: options.session.accessToken,
     expiresAt: options.session.expiresAt,
@@ -316,8 +318,8 @@ function classifyError(error: any): { category: ErrorCategory; isRetryable: bool
  */
 async function executeOperationCore(op: OperationRecord): Promise<Record<string, any>> {
   const payload = JSON.parse(op.payload);
-  const { accessToken } = await getValidAccessToken(payload);
-  const headers = { Authorization: `Bearer ${accessToken}` };
+  const valid = await getValidAccessToken(payload);
+  const session = { accessToken: valid.accessToken, refreshToken: payload.refreshToken, expiresAt: valid.refreshedPayload?.expiresAt || payload.expiresAt };
 
   if (op.type === 'playlist:add') {
     const { playlistId, videoId, track } = payload;
@@ -328,53 +330,11 @@ async function executeOperationCore(op: OperationRecord): Promise<Record<string,
     }
 
     if (track) {
-      addCachedTrack(playlistId, track);
+      addCachedTrack(playlistId, track, payload.accountId);
     }
 
-    // Desired-state check: query YTM to see if track is already present in playlist
-    const lookup = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
-    lookup.searchParams.set('part', 'snippet');
-    lookup.searchParams.set('playlistId', playlistId);
-    lookup.searchParams.set('maxResults', '50');
-
-    const checkRes = await fetch(lookup.toString(), { headers });
-    let existingItem: any = null;
-    if (checkRes.ok) {
-      const checkData = await checkRes.json().catch(() => ({}));
-      const items = checkData.items || [];
-      existingItem = items.find((it: any) => it.snippet?.resourceId?.videoId === videoId);
-    } else if (checkRes.status !== 404) {
-      const err = new Error(`Playlist add lookup failed (${checkRes.status})`);
-      (err as any).status = checkRes.status;
-      throw err;
-    }
-
-    if (existingItem) {
-      console.log(`[OperationEngine] Desired state matched: Track ${videoId} already present in ${playlistId}.`);
-      return { reconciled: true, message: 'Track already in playlist', existingItemId: existingItem.id };
-    }
-
-    // Mutate state: Add track
-    const addRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        snippet: {
-          playlistId,
-          resourceId: { kind: 'youtube#video', videoId },
-        },
-      }),
-    });
-
-    if (!addRes.ok) {
-      const errData = await addRes.json().catch(() => ({}));
-      const err = new Error(errData.error?.message || `Playlist add failed (${addRes.status})`);
-      (err as any).status = addRes.status;
-      throw err;
-    }
-
-    const resData = await addRes.json();
-    return { success: true, playlistItemId: resData.id };
+    await addPlaylistItem(session, playlistId, videoId);
+    return { success: true, videoId };
   }
 
   if (op.type === 'playlist:remove') {
@@ -386,52 +346,11 @@ async function executeOperationCore(op: OperationRecord): Promise<Record<string,
     }
 
     if (videoId) {
-      removeCachedTrack(playlistId, videoId);
+      removeCachedTrack(playlistId, videoId, payload.accountId);
     }
 
-    // Desired-state check: lookup items to delete
-    let itemsToDelete: Array<{ id: string }> = [];
-    if (playlistItemId) {
-      itemsToDelete = [{ id: playlistItemId }];
-    } else {
-      const lookup = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
-      lookup.searchParams.set('part', 'id,snippet');
-      lookup.searchParams.set('playlistId', playlistId);
-      lookup.searchParams.set('maxResults', '50');
-
-      const checkRes = await fetch(lookup.toString(), { headers });
-      if (checkRes.ok) {
-        const checkData = await checkRes.json().catch(() => ({}));
-        const items = checkData.items || [];
-        itemsToDelete = items.filter((it: any) => it.snippet?.resourceId?.videoId === videoId);
-      } else if (checkRes.status === 404) {
-        itemsToDelete = [];
-      } else {
-        const err = new Error(`Playlist remove lookup failed (${checkRes.status})`);
-        (err as any).status = checkRes.status;
-        throw err;
-      }
-    }
-
-    if (itemsToDelete.length === 0) {
-      console.log(`[OperationEngine] Desired state matched: Track ${videoId || playlistItemId} already removed from ${playlistId}.`);
-      return { reconciled: true, message: 'Track already removed from playlist' };
-    }
-
-    for (const item of itemsToDelete) {
-      if (!item.id) continue;
-      const delRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?id=${encodeURIComponent(item.id)}`, {
-        method: 'DELETE',
-        headers,
-      });
-      if (!delRes.ok && delRes.status !== 404) {
-        const err = new Error(`Playlist remove failed (${delRes.status})`);
-        (err as any).status = delRes.status;
-        throw err;
-      }
-    }
-
-    return { success: true, removedCount: itemsToDelete.length };
+    await removePlaylistItem(session, playlistId, videoId, playlistItemId);
+    return { success: true, videoId, playlistItemId };
   }
 
   if (op.type === 'playlist:reorder') {
@@ -442,53 +361,8 @@ async function executeOperationCore(op: OperationRecord): Promise<Record<string,
       throw err;
     }
 
-    const listRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/playlistItems?part=id,snippet&playlistId=${encodeURIComponent(playlistId)}&maxResults=50`,
-      { headers }
-    );
-    if (!listRes.ok) {
-      const err = new Error(`Playlist reorder fetch items failed (${listRes.status})`);
-      (err as any).status = listRes.status;
-      throw err;
-    }
-
-    const listData = await listRes.json();
-    const items = listData.items || [];
-    const itemMap = new Map<string, string>();
-    items.forEach((it: any) => {
-      if (it.snippet?.resourceId?.videoId && it.id) {
-        itemMap.set(it.snippet.resourceId.videoId, it.id);
-      }
-    });
-
-    const updatePromises = videoIds.map(async (vId: string, newPosition: number) => {
-      const pItemId = itemMap.get(vId);
-      if (!pItemId) return false;
-      const currentItemIndex = items.findIndex((it: any) => it.snippet?.resourceId?.videoId === vId);
-      if (currentItemIndex === newPosition) return true; // Desired state already matched
-
-      try {
-        const updateRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
-          method: 'PUT',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: pItemId,
-            snippet: {
-              playlistId,
-              resourceId: { kind: 'youtube#video', videoId: vId },
-              position: newPosition,
-            },
-          }),
-        });
-        return updateRes.ok;
-      } catch {
-        return false;
-      }
-    });
-
-    const results = await Promise.all(updatePromises);
-    const updatedCount = results.filter(Boolean).length;
-    return { success: true, updatedCount };
+    const result = await reorderPlaylist(session, playlistId, videoIds);
+    return { success: true, result };
   }
 
   if (op.type === 'playlist:delete') {
@@ -499,16 +373,7 @@ async function executeOperationCore(op: OperationRecord): Promise<Record<string,
       throw err;
     }
 
-    const ytRes = await fetch(`https://www.googleapis.com/youtube/v3/playlists?id=${encodeURIComponent(playlistId)}`, {
-      method: 'DELETE',
-      headers,
-    });
-    if (!ytRes.ok && ytRes.status !== 404) {
-      const err = new Error(`YouTube API playlist delete failed (${ytRes.status})`);
-      (err as any).status = ytRes.status;
-      throw err;
-    }
-
+    await deletePlaylist(session, playlistId);
     return { success: true, playlistId };
   }
 
@@ -657,14 +522,16 @@ export function initOperationEngine(): void {
 /**
  * Public Query Methods
  */
-export function getOperation(id: string): OperationRecord | null {
+export function getOperation(id: string, accountId?: string): OperationRecord | null {
   initOperationEngine();
   const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM operations WHERE id = ?`);
-  return (stmt.get(id) as unknown as OperationRecord) || null;
+  const stmt = accountId
+    ? db.prepare(`SELECT * FROM operations WHERE id = ? AND json_extract(payload, '$.accountId') = ?`)
+    : db.prepare(`SELECT * FROM operations WHERE id = ?`);
+  return (accountId ? stmt.get(id, accountId) : stmt.get(id)) as unknown as OperationRecord || null;
 }
 
-export function getOperations(filter?: { targetResource?: string; status?: OperationStatus; limit?: number }): OperationRecord[] {
+export function getOperations(filter?: { targetResource?: string; status?: OperationStatus; accountId?: string; limit?: number }): OperationRecord[] {
   initOperationEngine();
   const db = getDb();
   let query = `SELECT * FROM operations`;
@@ -679,6 +546,10 @@ export function getOperations(filter?: { targetResource?: string; status?: Opera
     conditions.push(`status = ?`);
     params.push(filter.status);
   }
+  if (filter?.accountId) {
+    conditions.push(`json_extract(payload, '$.accountId') = ?`);
+    params.push(filter.accountId);
+  }
 
   if (conditions.length > 0) {
     query += ` WHERE ` + conditions.join(' AND ');
@@ -692,7 +563,7 @@ export function getOperations(filter?: { targetResource?: string; status?: Opera
 }
 
 /** Pending playlist intent used to overlay slow/stale remote reads. */
-export function getPendingPlaylistMutations(playlistId: string): Array<{
+export function getPendingPlaylistMutations(playlistId: string, accountId?: string): Array<{
   operation: 'add' | 'remove';
   videoId: string;
   track?: any;
@@ -705,8 +576,8 @@ export function getPendingPlaylistMutations(playlistId: string): Array<{
   return operations.flatMap((operation) => {
     if (operation.type !== 'playlist:add' && operation.type !== 'playlist:remove') return [];
     try {
-      const payload = JSON.parse(operation.payload) as { videoId?: string; track?: any; playlistItemId?: string };
-      if (!payload.videoId) return [];
+      const payload = JSON.parse(operation.payload) as { videoId?: string; track?: any; playlistItemId?: string; accountId?: string };
+      if (!payload.videoId || (accountId && payload.accountId !== accountId)) return [];
       return [{
         operation: operation.type === 'playlist:add' ? 'add' as const : 'remove' as const,
         videoId: payload.videoId,
@@ -720,7 +591,7 @@ export function getPendingPlaylistMutations(playlistId: string): Array<{
   });
 }
 
-export function cancelOperation(id: string): boolean {
+export function cancelOperation(id: string, accountId?: string): boolean {
   initOperationEngine();
   const db = getDb();
   const now = Date.now();
@@ -730,8 +601,9 @@ export function cancelOperation(id: string): boolean {
         updated_at = ?,
         result = ?
     WHERE id = ? AND status IN ('PENDING', 'RETRY_WAIT')
+      AND (? IS NULL OR json_extract(payload, '$.accountId') = ?)
   `);
-  const res = stmt.run(now, JSON.stringify({ cancelled: true }), id);
+  const res = stmt.run(now, JSON.stringify({ cancelled: true }), id, accountId || null, accountId || null);
   return res.changes > 0;
 }
 

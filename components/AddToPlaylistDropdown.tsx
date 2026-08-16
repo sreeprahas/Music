@@ -85,7 +85,10 @@ export function AddToPlaylistDropdown({
   // Close on outside click / Escape
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) onClose();
+      const target = e.target as Node;
+      const clickedPopover = containerRef.current?.contains(target);
+      const clickedAnchor = anchorRef?.current?.contains(target);
+      if (!clickedPopover && !clickedAnchor) onClose();
     };
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('pointerdown', handlePointerDown);
@@ -94,7 +97,7 @@ export function AddToPlaylistDropdown({
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [onClose]);
+  }, [anchorRef, onClose]);
 
   const filtered = playlists.filter((pl) =>
     pl.title.toLowerCase().includes(search.toLowerCase())

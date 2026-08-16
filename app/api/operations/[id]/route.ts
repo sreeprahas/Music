@@ -10,7 +10,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const params = await props.params;
-    const op = getOperation(params.id);
+    const op = getOperation(params.id, session.email);
     if (!op) {
       return NextResponse.json({ error: 'Operation not found' }, { status: 404 });
     }

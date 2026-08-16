@@ -4,10 +4,12 @@ import { CirclePlus, ListPlus, SkipForward, Timer, Download, Trash2 } from 'luci
 import { AddToPlaylistDropdown } from './AddToPlaylistDropdown';
 
 const SLEEP_TIMER_PRESETS = [
-  { label: '15 mins', minutes: 15 },
-  { label: '30 mins', minutes: 30 },
+  { label: '5 minutes', minutes: 5 },
+  { label: '10 minutes', minutes: 10 },
+  { label: '15 minutes', minutes: 15 },
+  { label: '30 minutes', minutes: 30 },
+  { label: '45 minutes', minutes: 45 },
   { label: '1 hour', minutes: 60 },
-  { label: '2 hours', minutes: 120 },
 ];
 
 interface Props {
@@ -27,6 +29,8 @@ interface Props {
   isDownloading?: boolean;
   isHardwareOffline?: boolean;
   onClose: () => void;
+  anchorRef?: React.RefObject<HTMLElement | null>;
+  boundaryRef?: React.RefObject<HTMLElement | null>;
 }
 
 export function SongContextMenu({
@@ -46,24 +50,38 @@ export function SongContextMenu({
   isDownloading = false,
   isHardwareOffline = false,
   onClose,
+  anchorRef,
+  boundaryRef,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
   const [openSubmenu, setOpenSubmenu] = useState<'sleep' | 'add' | null>(null);
+  const [closingSubmenu, setClosingSubmenu] = useState<'sleep' | 'add' | null>(null);
+  const [isMenuClosing, setIsMenuClosing] = useState(false);
   const [menuTop, setMenuTop] = useState(y);
   const [submenuOffset, setSubmenuOffset] = useState(0);
   const [addSubmenuOffset, setAddSubmenuOffset] = useState(0);
+  const [addSubmenuHeight, setAddSubmenuHeight] = useState<number | null>(null);
   const addSubmenuRef = useRef<HTMLDivElement>(null);
   const menuWidth = 280;
   const submenuWidth = 224;
   const addSubmenuWidth = 280;
-  const left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth - 8));
-  const rightSpace = window.innerWidth - (left + menuWidth);
+  const boundary = boundaryRef?.current?.getBoundingClientRect();
+  const playerBarTop = typeof document !== 'undefined'
+    ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
+    : undefined;
+  const boundaryLeft = boundary?.left ?? 0;
+  const boundaryRight = boundary?.right ?? window.innerWidth;
+  const boundaryTop = boundary?.top ?? 0;
+  const boundaryBottom = Math.min(boundary?.bottom ?? window.innerHeight, playerBarTop ?? window.innerHeight);
+  const left = Math.min(Math.max(boundaryLeft + 8, x), Math.max(boundaryLeft + 8, boundaryRight - menuWidth - 8));
+  const rightSpace = boundaryRight - (left + menuWidth);
 
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
+      if (anchorRef?.current?.contains(event.target as Node)) return;
       if (modalRef.current?.contains(event.target as Node)) return;
       if (!menuRef.current?.contains(event.target as Node)) onClose();
     };
@@ -79,15 +97,21 @@ export function SongContextMenu({
       document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleViewportChange);
     };
-  }, [onClose]);
+  }, [anchorRef, onClose]);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
     const rect = menu.getBoundingClientRect();
-    const nextTop = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - rect.height - 8));
+    const bounds = boundaryRef?.current?.getBoundingClientRect();
+    const topEdge = (bounds?.top ?? 0) + 8;
+    const playerTop = typeof document !== 'undefined'
+      ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
+      : undefined;
+    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
+    const nextTop = Math.min(Math.max(topEdge, y), Math.max(topEdge, bottomEdge - rect.height));
     if (Math.abs(nextTop - menuTop) > 1) setMenuTop(nextTop);
-  }, [menuTop, openSubmenu, playlists.length, y]);
+  }, [boundaryRef, menuTop, openSubmenu, playlists.length, y]);
 
   useLayoutEffect(() => {
     setSubmenuOffset(0);
@@ -95,20 +119,36 @@ export function SongContextMenu({
     if (!submenu) return;
     const rect = submenu.getBoundingClientRect();
     let offset = 0;
-    if (rect.bottom > window.innerHeight - 8) offset -= rect.bottom - (window.innerHeight - 8);
-    if (rect.top + offset < 8) offset += 8 - (rect.top + offset);
+    const bounds = boundaryRef?.current?.getBoundingClientRect();
+    const topEdge = (bounds?.top ?? 0) + 8;
+    const playerTop = typeof document !== 'undefined'
+      ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
+      : undefined;
+    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
+    if (rect.bottom > bottomEdge) offset -= rect.bottom - bottomEdge;
+    if (rect.top + offset < topEdge) offset += topEdge - (rect.top + offset);
     setSubmenuOffset(offset);
-  }, [openSubmenu, playlists.length, menuTop]);
+  }, [boundaryRef, openSubmenu, playlists.length, menuTop]);
 
   useLayoutEffect(() => {
     setAddSubmenuOffset(0);
+    setAddSubmenuHeight(null);
     if (openSubmenu !== 'add' || !addSubmenuRef.current) return;
     const rect = addSubmenuRef.current.getBoundingClientRect();
     let offset = 0;
-    if (rect.bottom > window.innerHeight - 8) offset -= rect.bottom - (window.innerHeight - 8);
-    if (rect.top + offset < 8) offset += 8 - (rect.top + offset);
+    const bounds = boundaryRef?.current?.getBoundingClientRect();
+    const topEdge = (bounds?.top ?? 0) + 8;
+    const playerTop = typeof document !== 'undefined'
+      ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
+      : undefined;
+    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
+    if (rect.bottom > bottomEdge) offset -= rect.bottom - bottomEdge;
+    if (rect.top + offset < topEdge) offset += topEdge - (rect.top + offset);
     setAddSubmenuOffset(offset);
-  }, [openSubmenu, menuTop, playlists.length]);
+    const visibleTop = Math.max(topEdge, rect.top + offset);
+    const availableHeight = Math.max(140, bottomEdge - visibleTop);
+    if (rect.height > availableHeight) setAddSubmenuHeight(availableHeight);
+  }, [boundaryRef, openSubmenu, menuTop, playlists.length]);
 
   const run = (callback: () => void) => {
     onClose();
@@ -116,19 +156,48 @@ export function SongContextMenu({
   };
 
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const menuCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (menuCloseTimeoutRef.current) clearTimeout(menuCloseTimeoutRef.current);
+    };
+  }, []);
+
+  const cancelMenuClose = () => {
+    if (menuCloseTimeoutRef.current) {
+      clearTimeout(menuCloseTimeoutRef.current);
+      menuCloseTimeoutRef.current = null;
+    }
+    setIsMenuClosing(false);
+  };
+
+  const scheduleMenuClose = () => {
+    if (menuCloseTimeoutRef.current) clearTimeout(menuCloseTimeoutRef.current);
+    setIsMenuClosing(true);
+    menuCloseTimeoutRef.current = setTimeout(() => {
+      menuCloseTimeoutRef.current = null;
+      onClose();
+    }, 160);
+  };
 
   const openMenu = (submenu: 'sleep' | 'add') => {
     if (leaveTimeoutRef.current) {
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
     }
+    setClosingSubmenu(null);
     setOpenSubmenu(submenu);
   };
 
   const scheduleCloseMenu = (submenu: 'sleep' | 'add') => {
     if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
     leaveTimeoutRef.current = setTimeout(() => {
-      setOpenSubmenu((current) => (current === submenu ? null : current));
+      setClosingSubmenu((current) => (openSubmenu === submenu ? submenu : current));
+      leaveTimeoutRef.current = setTimeout(() => {
+        setOpenSubmenu((current) => (current === submenu ? null : current));
+        setClosingSubmenu((current) => (current === submenu ? null : current));
+      }, 160);
     }, 100);
   };
 
@@ -137,6 +206,7 @@ export function SongContextMenu({
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
     }
+    setClosingSubmenu(null);
     setOpenSubmenu((current) => {
       const next = current === submenu ? null : submenu;
       return next;
@@ -148,14 +218,18 @@ export function SongContextMenu({
     ? 'right'
     : leftSpace >= submenuWidth + 8
       ? 'left'
-      : 'below';
+      : boundaryBottom - menuTop >= 250
+        ? 'below'
+        : 'above';
   const addSubmenuPlacement = rightSpace >= addSubmenuWidth + 8 ? 'right' : 'left';
 
   const submenuPosition = submenuPlacement === 'left'
     ? 'right-full mr-1 top-0'
     : submenuPlacement === 'right'
       ? 'left-full ml-1 top-0'
-      : 'left-0 top-full mt-1';
+      : submenuPlacement === 'below'
+        ? 'left-0 top-full mt-1'
+        : 'left-0 bottom-full mb-1';
   const menuAction = 'menu-action h-10 w-full text-[15px]';
 
   const [showOfflineModal, setShowOfflineModal] = useState(false);
@@ -277,8 +351,10 @@ export function SongContextMenu({
       ref={menuRef}
       role="menu"
       aria-label={`Actions for ${track.title}`}
-      className="fixed z-[100] w-[280px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl shadow-black/70 backdrop-blur-sm"
-      style={{ left, top: menuTop }}
+      onMouseEnter={cancelMenuClose}
+      onMouseLeave={scheduleMenuClose}
+      className={`absolute z-[100] w-[280px] overflow-visible rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl shadow-black/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
+      style={{ left: left - boundaryLeft, top: menuTop - boundaryTop }}
     >
       {/* Download / Delete Download */}
       {!isDownloading && (
@@ -297,7 +373,11 @@ export function SongContextMenu({
         )
       )}
 
-      <div className="relative" onMouseEnter={() => openMenu('add')}>
+      <div
+        className="relative"
+        onMouseEnter={() => openMenu('add')}
+        onMouseLeave={() => scheduleCloseMenu('add')}
+      >
         <button
           onClick={() => toggleMenu('add')}
           className={`${menuAction} ${isOffline ? 'text-white/60' : ''}`}
@@ -308,12 +388,18 @@ export function SongContextMenu({
         {openSubmenu === 'add' && (
           <div
             ref={addSubmenuRef}
-            className={`absolute top-0 z-50 ${addSubmenuPlacement === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}
-            style={{ transform: `translateY(${addSubmenuOffset}px)` }}
+            className={`absolute top-0 z-50 ${closingSubmenu === 'add' ? 'animate-dropdown-out' : 'animate-dropdown-in'} ${addSubmenuPlacement === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}
+            style={{
+              transform: `translateY(${addSubmenuOffset}px)`,
+              ...(addSubmenuHeight
+                ? { height: `${addSubmenuHeight}px`, maxHeight: `${addSubmenuHeight}px`, overflow: 'hidden' }
+                : {}),
+            }}
           >
             <AddToPlaylistDropdown
               track={track}
               playlists={playlists}
+              style={addSubmenuHeight ? { height: `${addSubmenuHeight}px`, maxHeight: `${addSubmenuHeight}px` } : undefined}
               checkedIds={playlistId ? [playlistId] : []}
               onAdd={onAddToPlaylist}
               onRemove={(t, pid) => onRemoveFromPlaylist?.(t, pid)}
@@ -342,7 +428,9 @@ export function SongContextMenu({
         {openSubmenu === 'sleep' && (
           <div
             ref={submenuRef}
-            className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl z-50`}
+            onMouseEnter={() => openMenu('sleep')}
+            onMouseLeave={() => scheduleCloseMenu('sleep')}
+            className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl z-50 ${closingSubmenu === 'sleep' ? 'animate-dropdown-out' : 'animate-dropdown-in'}`}
             style={{ transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}
           >
             {SLEEP_TIMER_PRESETS.map((preset) => (
@@ -354,6 +442,12 @@ export function SongContextMenu({
                 {preset.label}
               </button>
             ))}
+            <button
+              onClick={() => run(onOpenSleepTimer)}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"
+            >
+              End of track
+            </button>
             <button
               onClick={() => run(onOpenSleepTimer)}
               className="w-full rounded-lg border-t border-white/[0.08] px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"

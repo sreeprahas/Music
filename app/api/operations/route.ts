@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     const status = (searchParams.get('status') as any) || undefined;
     const limit = Number(searchParams.get('limit')) || 50;
 
-    const operations = getOperations({ targetResource, status, limit });
+    const operations = getOperations({ targetResource, status, limit, accountId: session.email });
 
     return NextResponse.json({
       success: true,

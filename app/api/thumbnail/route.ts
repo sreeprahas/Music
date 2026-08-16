@@ -6,10 +6,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  if (process.env.IS_NATIVE_BUILD === 'true') {
-    return new Response('Static stub');
-  }
-
   const { searchParams } = new URL(request.url);
   const videoId = searchParams.get('videoId');
   const remoteUrl = searchParams.get('url');
@@ -22,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   // Serve the local cache immediately. Never re-download an artwork that is
   // already present; fullscreen artwork must not wait on the network.
-  if (remoteUrl && !fs.existsSync(localPath)) {
+  if (remoteUrl && remoteUrl.includes('googleusercontent.com') && !fs.existsSync(localPath)) {
     try { await downloadAndCacheThumbnail(videoId, remoteUrl); } catch { /* use cached/remote fallback */ }
   }
 
@@ -38,7 +34,9 @@ export async function GET(request: NextRequest) {
 
   // Attempt to download & cache thumbnail locally
   if (remoteUrl) {
-    // Fallback to remote URL redirect if download fails
+    // Keep a real upstream image as the fallback. This avoids showing the
+    // generic placeholder when an older/landscape source cannot be cached as
+    // square Music artwork.
     return NextResponse.redirect(remoteUrl);
   }
 

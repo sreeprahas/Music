@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     if (videoId) {
-      removeCachedTrack(playlistId, videoId);
+      removeCachedTrack(playlistId, videoId, session.email);
     }
 
     const targetResource = `playlist:${playlistId}`;

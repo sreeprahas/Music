@@ -11,3 +11,7 @@ tsconfig.tsbuildinfo
 package-lock.json
 .antigravity/
 .vscode/
+.ytmusic-venv/
+services/.build/
+services/__pycache__/
+services/ytmusic-sidecar.exe

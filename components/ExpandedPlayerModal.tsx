@@ -2,7 +2,7 @@
 
 import React from 'react';
 import type { Track, RepeatMode } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
+import { formatDuration, cleanArtistName } from '@/lib/ytmusicFormat';
 import { LyricsDrawer } from './LyricsDrawer';
 import {
   ChevronDown,

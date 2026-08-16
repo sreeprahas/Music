@@ -14,7 +14,7 @@ import { ExpandedPlayerModal } from './ExpandedPlayerModal';
 import { ResizeDivider } from './ResizeDivider';
 import { isNativeHost, sendNativeDownloadRequest, useNativeDownloadProgress } from '@/lib/webviewBridge';
 import { Search, Play } from 'lucide-react';
-import { cleanArtistName, formatDuration } from '@/lib/ytmusicApi';
+import { cleanArtistName, formatDuration } from '@/lib/ytmusicFormat';
 import { getCachedPlaylistMemberships, primePlaylistMemberships, removePlaylistMembership } from './AddToPlaylistDropdown';
 
 const QUEUE_MIN = 16;
@@ -98,6 +98,7 @@ export function Dashboard({ user }: Props) {
   // Read the initial URL route once synchronously — used to pick the right skeleton before playlists load
   const [initialRoute] = useState<RouteState>(() => (typeof window !== 'undefined' ? readRoute() : { kind: 'home' }));
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const playlistsRef = useRef<Playlist[]>([]);
   const [loadingPlaylists, setLoadingPlaylists] = useState(true);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
@@ -130,6 +131,7 @@ export function Dashboard({ user }: Props) {
   });
   const [navigation, setNavigation] = useState<{ direction: 'next' | 'prev'; tick: number } | null>(null);
   const queueRef = useRef(queue);
+  const unshuffledQueueRef = useRef<Track[]>(queue);
   const queuePositionRef = useRef(queuePosition);
   const currentTrackRef = useRef(currentTrack);
   useEffect(() => { queueRef.current = queue; }, [queue]);
@@ -173,6 +175,8 @@ export function Dashboard({ user }: Props) {
   const [isHardwareOffline, setIsHardwareOffline] = useState(() =>
     typeof window !== 'undefined' ? !navigator.onLine : false
   );
+
+  useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
 
   const setOfflineMode = useCallback((value: boolean) => {
     setIsHardwareOffline(value);
@@ -360,7 +364,9 @@ export function Dashboard({ user }: Props) {
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data?.pinnedPlaylists)) setPinnedIds(data.pinnedPlaylists);
-        if (Array.isArray(data?.playlistOrder)) setPlaylistOrder(data.playlistOrder);
+        if (Array.isArray(data?.playlistOrder)) {
+          setPlaylistOrder(data.playlistOrder);
+        }
         if (Array.isArray(data?.hiddenPlaylists)) setHiddenIds(data.hiddenPlaylists);
         if (Array.isArray(data?.importedPlaylists)) setImportedPlaylistIds(data.importedPlaylists);
       })
@@ -573,17 +579,30 @@ export function Dashboard({ user }: Props) {
           return apiFetch('/api/playlists')
             .then((r) => r.json())
             .then((d) => {
-              if (!cancelled && d?.playlists) setPlaylists(d.playlists);
+              // Do not replace a valid library with a transient empty response.
+              if (!cancelled && Array.isArray(d?.playlists) && d.playlists.length > 0 &&
+                (playlistsRef.current.length === 0 || d.playlists.length >= playlistsRef.current.length)) {
+                setPlaylists(d.playlists);
+                playlistsRef.current = d.playlists;
+              }
             });
         }
-        if (data?.playlists) setPlaylists(data.playlists);
+        if (Array.isArray(data?.playlists) && data.playlists.length > 0 &&
+          (playlistsRef.current.length === 0 || data.playlists.length >= playlistsRef.current.length)) {
+          setPlaylists(data.playlists);
+          playlistsRef.current = data.playlists;
+        }
       })
       .catch(() => {
         if (cancelled) return;
         apiFetch('/api/playlists')
           .then((r) => r.json())
           .then((d) => {
-            if (!cancelled && d?.playlists) setPlaylists(d.playlists);
+            if (!cancelled && Array.isArray(d?.playlists) && d.playlists.length > 0 &&
+              (playlistsRef.current.length === 0 || d.playlists.length >= playlistsRef.current.length)) {
+              setPlaylists(d.playlists);
+              playlistsRef.current = d.playlists;
+            }
           })
           .catch(() => { });
       })
@@ -608,6 +627,31 @@ export function Dashboard({ user }: Props) {
       return next;
     });
   }, []);
+
+  const handlePinnedOrderChange = useCallback((ids: string[]) => {
+    // Keep the pin state visible while persisting its reordered sequence.
+    setPinnedIds(ids);
+    pendingPinnedOrderRef.current = ids;
+  }, []);
+
+  const pendingPinnedOrderRef = useRef<string[] | null>(null);
+  const handlePlaylistOrderChange = useCallback((ids: string[]) => {
+    setPlaylistOrder(ids);
+    const pinnedPlaylists = pendingPinnedOrderRef.current;
+    pendingPinnedOrderRef.current = null;
+    apiFetch('/api/user/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playlistOrder: ids, ...(pinnedPlaylists ? { pinnedPlaylists } : {}) }),
+    }).catch(() => { });
+  }, []);
+
+  const handleUnpinnedOrderChange = useCallback((ids: string[]) => {
+    void apiFetch('/api/user/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hiddenPinnedPlaylists: ids }),
+    }).catch(() => { });
+  }, [apiFetch]);
 
   const handleImportImmediate = useCallback(async (id: string) => {
     const removing = importedPlaylistIds.includes(id);
@@ -688,14 +732,25 @@ export function Dashboard({ user }: Props) {
 
   const handlePlay = useCallback((track: Track, newQueue: Track[], sourcePlaylistId?: string) => {
     const nextPlaylistId = sourcePlaylistId ?? track.sourcePlaylistId ?? track.playlistId ?? selectedPlaylist?.id ?? null;
-    const queuedTracks = newQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined }));
+    const baseQueue = newQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined }));
+    unshuffledQueueRef.current = baseQueue;
+    let queuedTracks = baseQueue;
+    if (isShuffle && baseQueue.length > 1) {
+      const selected = baseQueue.find((item) => item.videoId === track.videoId) || baseQueue[0];
+      const upcoming = baseQueue.filter((item) => item.videoId !== selected.videoId);
+      for (let index = upcoming.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [upcoming[index], upcoming[swapIndex]] = [upcoming[swapIndex], upcoming[index]];
+      }
+      queuedTracks = [selected, ...upcoming];
+    }
 
     const trackWithSource = {
       ...track,
       sourcePlaylistId: nextPlaylistId || undefined,
       playlistId: track.playlistId ?? (nextPlaylistId || undefined),
     };
-    const requestedIndex = Math.max(0, newQueue.indexOf(track), newQueue.findIndex((item) => item.videoId === track.videoId));
+    const requestedIndex = isShuffle ? 0 : Math.max(0, newQueue.indexOf(track), newQueue.findIndex((item) => item.videoId === track.videoId));
     const queueWithCurrent = queuedTracks.length > 0 ? queuedTracks : [trackWithSource];
     const position = Math.min(requestedIndex, queueWithCurrent.length - 1);
     queueWithCurrent[position] = trackWithSource;
@@ -711,7 +766,7 @@ export function Dashboard({ user }: Props) {
       else localStorage.removeItem('yt_active_playlist_id');
     } catch { }
     setShouldAutoplay(true);
-  }, [selectedPlaylist?.id]);
+  }, [isShuffle, selectedPlaylist?.id]);
 
   const handlePlayPlaylist = useCallback(async (playlistId: string) => {
     let tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId);
@@ -796,6 +851,16 @@ export function Dashboard({ user }: Props) {
         const shuffled = [...tracks.slice(0, position + 1), ...upcoming];
         queueRef.current = shuffled;
         setQueue(shuffled);
+      } else {
+        const original = unshuffledQueueRef.current;
+        const currentId = currentTrackRef.current?.videoId;
+        if (original.length > 0 && currentId) {
+          const position = Math.max(0, original.findIndex((item) => item.videoId === currentId));
+          queueRef.current = original;
+          queuePositionRef.current = position;
+          setQueue(original);
+          setQueuePosition(position);
+        }
       }
       return nextEnabled;
     });
@@ -1210,6 +1275,9 @@ export function Dashboard({ user }: Props) {
   const waitingForInitialPlaylist = initialRoute.kind === 'playlist' && !selectedPlaylist && playlists.length > 0;
 
   const handleTracksLoaded = useCallback((playlist: Playlist, tracks: Track[]) => {
+    // A transient empty response must not erase a playlist that is already
+    // hydrated; an actually empty playlist remains valid on first load.
+    if (tracks.length === 0 && playlist.trackCount > 0) return;
     setAllTracks((prev) => {
       const next = { ...prev };
       for (const track of tracks) {
@@ -1218,7 +1286,7 @@ export function Dashboard({ user }: Props) {
       return next;
     });
     const artworkTracks = tracks.slice(0, 4);
-    const thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl).filter(Boolean);
+    const thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`);
     const thumbnailVideoIds = artworkTracks.map((track) => track.videoId);
     setPlaylists((prev) => prev.map((item) => item.id === playlist.id ? { ...item, trackCount: tracks.length, thumbnailUrls, thumbnailVideoIds } : item));
   }, []);
@@ -1237,10 +1305,10 @@ export function Dashboard({ user }: Props) {
         try {
           const response = await apiFetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=4`);
           const data = await response.json().catch(() => ({}));
-          if (!cancelled && response.ok && Array.isArray(data.tracks)) {
+          if (!cancelled && response.ok && Array.isArray(data.tracks) && data.tracks.length > 0) {
             // Only update artwork thumbnails — do NOT overwrite trackCount with a partial result.
             const artworkTracks = (data.tracks as Track[]).slice(0, 4);
-            const thumbnailUrls = artworkTracks.map((t) => t.thumbnailUrl).filter(Boolean);
+            const thumbnailUrls = artworkTracks.map((t) => t.thumbnailUrl || `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`);
             const thumbnailVideoIds = artworkTracks.map((t) => t.videoId);
             // Force the server to download/cache each local artwork even when
             // the playlist itself is never opened.
@@ -1282,7 +1350,7 @@ export function Dashboard({ user }: Props) {
           try {
             const response = await apiFetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}`);
             const data = await response.json().catch(() => ({}));
-            if (!cancelled && response.ok && Array.isArray(data.tracks)) {
+            if (!cancelled && response.ok && Array.isArray(data.tracks) && data.tracks.length > 0) {
               handleTracksLoaded(playlist, data.tracks as Track[]);
             }
           } catch {
@@ -1518,7 +1586,13 @@ export function Dashboard({ user }: Props) {
         downloadJobs={allJobs}
         onOpenPlaylist={handleSelectPlaylist}
         searchQuery={typedSearchInput || searchQuery}
-        onSearchChange={(query) => setTypedSearchInput(query)}
+        onSearchChange={(query) => {
+          setTypedSearchInput(query);
+          if (!query.trim()) {
+            setSearchQuery('');
+            navigateRoute({ kind: 'home' });
+          }
+        }}
         onCommitSearch={(query) => {
           const trimmed = query.trim();
           setTypedSearchInput(trimmed);
@@ -1565,7 +1639,7 @@ export function Dashboard({ user }: Props) {
           style={{ width: sidebarExpanded ? `${sidebarWidth}px` : '72px' }}
         >
           <Sidebar
-            playlists={importedPlaylists}
+            playlists={orderedImportedPlaylists}
             selectedId={selectedPlaylist ? selectedPlaylist.id : showPlaylistManagement ? '__management__' : null}
             pinnedIds={pinnedIds}
             hiddenIds={hiddenIds}
@@ -1575,7 +1649,9 @@ export function Dashboard({ user }: Props) {
             onSelect={handleSelectPlaylist}
             onTogglePin={handleTogglePin}
             onOpenHiddenFolder={handleOpenHiddenFolder}
-            onPlaylistOrderChange={setPlaylistOrder}
+            onPlaylistOrderChange={handlePlaylistOrderChange}
+            onPinnedOrderChange={handlePinnedOrderChange}
+            onUnpinnedOrderChange={handleUnpinnedOrderChange}
             onPlayPlaylist={handlePlayPlaylist}
             expanded={sidebarExpanded}
             onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
@@ -1626,6 +1702,7 @@ export function Dashboard({ user }: Props) {
                 restoredTrack={restoredTrack}
                 currentVideoId={currentTrack?.videoId}
                 activePlaylistId={activePlaylistId}
+                isPlaying={isPlaying}
                 scrollToTrackRequest={playlistScrollRequest}
                 isHardwareOffline={isHardwareOffline}
                 onEditOrderChange={setIsPlaylistEditOrder}

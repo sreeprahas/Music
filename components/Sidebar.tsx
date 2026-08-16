@@ -17,6 +17,8 @@ interface SidebarProps {
   onTogglePin: (id: string) => void;
   onOpenHiddenFolder: () => void;
   onPlaylistOrderChange?: (ids: string[]) => void;
+  onPinnedOrderChange?: (ids: string[]) => void;
+  onUnpinnedOrderChange?: (ids: string[]) => void;
   onPlayPlaylist?: (id: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
@@ -34,6 +36,8 @@ export function Sidebar({
   onTogglePin,
   onOpenHiddenFolder,
   onPlaylistOrderChange,
+  onPinnedOrderChange,
+  onUnpinnedOrderChange,
   onPlayPlaylist = onSelect,
   expanded = true,
   onToggleExpanded,
@@ -45,27 +49,24 @@ export function Sidebar({
   const pinnedSet = new Set(safePinnedIds);
   const hiddenSet = new Set(safeHiddenIds);
   const [orderedIds, setOrderedIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('yt_playlist_order');
-      return saved ? JSON.parse(saved) : safePlaylists.map((playlist) => playlist.id);
-    } catch {
-      return safePlaylists.map((playlist) => playlist.id);
-    }
+    return safePlaylists.map((playlist) => playlist.id);
   });
   const [draggingPlaylistId, setDraggingPlaylistId] = useState<string | null>(null);
   const [dropTargetPlaylistId, setDropTargetPlaylistId] = useState<string | null>(null);
   const [hoveredPlaylist, setHoveredPlaylist] = useState<{ playlist: Playlist; isPinned: boolean; x: number; y: number } | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
     fetch('/api/user/settings')
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data?.playlistOrder) && data.playlistOrder.length > 0) {
-          setOrderedIds(data.playlistOrder);
-          onPlaylistOrderChange?.(data.playlistOrder);
+          const order = data.playlistOrder as string[];
+          setOrderedIds(order);
         }
+        setSettingsLoaded(true);
       })
-      .catch(() => { });
+      .catch(() => setSettingsLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -77,39 +78,30 @@ export function Sidebar({
   }, [safePlaylists]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     const ids = [...orderedIds.filter((id) => safePlaylists.some((playlist) => playlist.id === id)), ...safePlaylists.map((playlist) => playlist.id).filter((id) => !orderedIds.includes(id))];
     if (ids.join('|') !== orderedIds.join('|')) {
       setOrderedIds(ids);
-      onPlaylistOrderChange?.(ids);
+      publishPlaylistOrder(ids.filter((id) => pinnedSet.has(id)), ids.filter((id) => !pinnedSet.has(id)));
     }
-    fetch('/api/user/settings', {
+  }, [safePlaylists, orderedIds, onPlaylistOrderChange, settingsLoaded]);
+
+  const publishPlaylistOrder = (pinned: string[], unpinned: string[]) => {
+    onPlaylistOrderChange?.([...pinned, ...unpinned.filter((id) => !pinned.includes(id))]);
+  };
+
+  const persistPlaylistOrder = (playlistOrder: string[], pinnedPlaylists: string[]) => {
+    void fetch('/api/user/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlistOrder: ids }),
+      body: JSON.stringify({ playlistOrder, pinnedPlaylists }),
     }).catch(() => { });
-  }, [safePlaylists, orderedIds, onPlaylistOrderChange]);
-
-  const [pinnedOrderedIds, setPinnedOrderedIds] = useState<string[]>(() => safePinnedIds);
-
-  // Sync pinnedOrderedIds when pinnedIds prop changes (new pin/unpin)
-  useEffect(() => {
-    setPinnedOrderedIds((prev) => {
-      const next = [
-        ...prev.filter((id) => safePinnedIds.includes(id)),
-        ...safePinnedIds.filter((id) => !prev.includes(id)),
-      ];
-      if (next.join('|') === prev.join('|')) return prev;
-      onPlaylistOrderChange?.(next);
-      return next;
-    });
-  }, [safePinnedIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
 
   const orderedPlaylists = orderedIds
     .map((id) => safePlaylists.find((playlist) => playlist.id === id))
     .filter((playlist): playlist is Playlist => Boolean(playlist));
-  const pinnedPlaylists = pinnedOrderedIds
-    .map((id) => safePlaylists.find((p) => p && p.id === id))
-    .filter((p): p is Playlist => Boolean(p));
+  const pinnedPlaylists = orderedPlaylists.filter((playlist) => pinnedSet.has(playlist.id));
   const unpinnedPlaylists = orderedPlaylists.filter((p) => p && !pinnedSet.has(p.id) && !hiddenSet.has(p.id));
   const hiddenPlaylists: Playlist[] = [];
 
@@ -117,7 +109,10 @@ export function Sidebar({
     // Only reorder within unpinned
     if (pinnedSet.has(fromId) || pinnedSet.has(toId)) return;
     setOrderedIds((current) => {
-      const next = [...current];
+      // Reorder only the hidden-pinned (unpinned) sequence. Reconstructing
+      // the combined list afterward prevents visible pins from acting as
+      // anchors and corrupting the unpinned order.
+      const next = current.filter((id) => !pinnedSet.has(id));
       const from = next.indexOf(fromId);
       const to = next.indexOf(toId);
       if (from < 0 || to < 0 || from === to) return current;
@@ -127,13 +122,20 @@ export function Sidebar({
       if (from === targetIdx) return current;
       next.splice(from, 1);
       next.splice(targetIdx, 0, fromId);
-      return next;
+      const pinnedOrder = current.filter((id) => pinnedSet.has(id));
+      const combined = [...pinnedOrder, ...next];
+      persistPlaylistOrder(combined, pinnedOrder);
+      onUnpinnedOrderChange?.(next);
+      publishPlaylistOrder(pinnedOrder, next);
+      // Keep the canonical state as the complete sequence. Returning only
+      // `next` drops pinned IDs whenever a mixed list is reordered.
+      return combined;
     });
   };
 
   const reorderPinned = (fromId: string, toId: string, insertBefore: boolean) => {
-    setPinnedOrderedIds((current) => {
-      const next = [...current];
+    setOrderedIds((current) => {
+      const next = current.filter((id) => pinnedSet.has(id));
       const from = next.indexOf(fromId);
       const to = next.indexOf(toId);
       if (from < 0 || to < 0 || from === to) return current;
@@ -142,7 +144,12 @@ export function Sidebar({
       if (from === targetIdx) return current;
       next.splice(from, 1);
       next.splice(targetIdx, 0, fromId);
-      return next;
+      const unpinnedOrder = current.filter((id) => !pinnedSet.has(id));
+      const combined = [...next, ...unpinnedOrder];
+      onPinnedOrderChange?.(next);
+      persistPlaylistOrder(combined, next);
+      publishPlaylistOrder(next, unpinnedOrder);
+      return combined;
     });
   };
 
@@ -265,7 +272,39 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 space-y-5 sidebar-scrollbar">
+      <nav
+        className="flex-1 overflow-y-auto overflow-x-hidden px-3 space-y-5 sidebar-scrollbar"
+        onDragOver={(event) => {
+          event.preventDefault();
+          const draggingPinned = event.dataTransfer.getData('text/playlist-pinned') === '1';
+          const firstItem = event.currentTarget.querySelector<HTMLElement>(`[data-playlist-item="true"][data-playlist-pinned="${draggingPinned ? '1' : '0'}"]`);
+          if (!firstItem) return;
+          const navRect = event.currentTarget.getBoundingClientRect();
+          if (event.clientY <= navRect.top + 28) {
+            // Keep the guide visible when the pointer is above the first row;
+            // dropping there is treated as an explicit move-to-top action.
+            setDropTargetPlaylistId(firstItem.dataset.playlistId || null);
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const id = event.dataTransfer.getData('text/playlist-id');
+          const draggedPinned = event.dataTransfer.getData('text/playlist-pinned') === '1';
+          if (!id) return;
+          const group = [...event.currentTarget.querySelectorAll<HTMLElement>(
+            `[data-playlist-item="true"][data-playlist-pinned="${draggedPinned ? '1' : '0'}"]`
+          )];
+          if (group.length === 0) return;
+          const y = event.clientY;
+          let target = group.find((item) => y <= item.getBoundingClientRect().bottom) || group[group.length - 1];
+          const rect = target.getBoundingClientRect();
+          const before = y <= rect.top + rect.height / 2;
+          const targetId = target.dataset.playlistId;
+          if (!targetId || targetId === id) return;
+          if (draggedPinned) reorderPinned(id, targetId, before);
+          else reorder(id, targetId, before);
+        }}
+      >
         {pinnedPlaylists.length > 0 && (
           <div>
             <div className="flex max-h-8 items-center justify-between overflow-hidden text-white/30 text-[11px] font-bold uppercase tracking-wider px-3 pb-2 opacity-100 translate-x-0">
@@ -367,7 +406,7 @@ function CollapsedNavItem({
       onMouseLeave={onLeave}
       className="group flex h-12 w-12 mx-auto shrink-0 items-center justify-center p-0 transition-all duration-200 bg-transparent hover:bg-white/10 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent [webkit-tap-highlight-color:transparent]"
     >
-      <div className="relative h-full w-full aspect-square overflow-hidden rounded-[4px] bg-white/5 transition-all duration-200 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_2px_rgba(0,242,254,0.24),0_4px_14px_rgba(0,242,254,0.3)]">
+      <div className="relative h-full w-full aspect-square overflow-hidden rounded-[4px] border border-transparent bg-white/5 transition-all duration-200 group-hover:border-[#00F2FE]/35 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.32),0_0_18px_rgba(0,242,254,0.28),0_12px_36px_rgba(110,72,180,0.3)]">
         <PlaylistArtwork playlist={playlist} />
       </div>
     </button>
@@ -432,6 +471,9 @@ function PlaylistNavItem({
 
   return (
     <div
+      data-playlist-item="true"
+      data-playlist-id={playlist.id}
+      data-playlist-pinned={isPinned ? '1' : '0'}
       draggable={canDrag}
       onMouseDown={startHold}
       onMouseUp={cancelHold}
@@ -464,6 +506,7 @@ function PlaylistNavItem({
       }}
       onDrop={(event) => {
         event.preventDefault();
+        event.stopPropagation();
         const id = event.dataTransfer.getData('text/playlist-id');
         const draggedPinned = event.dataTransfer.getData('text/playlist-pinned') === '1';
         const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -485,8 +528,8 @@ function PlaylistNavItem({
         } ${isPlaying && !isGlowDimmed
           ? 'border border-[#00F2FE]/25 bg-[#00F2FE]/10 text-[#00F2FE] shadow-[0_0_12px_rgba(0,242,254,0.15)] hover:bg-[#00F2FE]/15'
           : active
-            ? 'border border-white/5 bg-white/[0.05] text-white hover:bg-white/[0.12]'
-            : 'border border-transparent text-white/75 hover:bg-white/[0.12] hover:text-white'
+            ? 'border border-transparent bg-white/[0.05] text-white hover:bg-white/[0.12]'
+            : 'border border-transparent text-white/75 hover:border-transparent hover:bg-white/[0.12] hover:text-white'
         }`}
     >
       <div className="h-9 w-9 aspect-square rounded-[4px] relative shrink-0 overflow-hidden bg-white/5 shadow-sm group/art">
@@ -495,7 +538,7 @@ function PlaylistNavItem({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(event) => { event.stopPropagation(); onPlay(); }}
-          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-[#00F2FE]/60 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+          className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-black/70 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
           aria-label={`Play ${playlist.title}`}
         >
           <Play className="h-5 w-5 fill-current" />

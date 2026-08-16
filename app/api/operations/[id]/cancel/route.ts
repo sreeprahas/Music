@@ -10,7 +10,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const params = await props.params;
-    const cancelled = cancelOperation(params.id);
+    const cancelled = cancelOperation(params.id, session.email);
 
     if (!cancelled) {
       return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession, refreshAccessToken } from '@/lib/auth';
 import { getCachedTracks } from '@/lib/db';
+import { addPlaylistItem, createPlaylist } from '@/lib/ytmusicApi';
 
 export async function POST(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
@@ -26,35 +27,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   const playlistDescription = body.description || 'Pushed from YouTube Music Personal';
 
   try {
-    // 1. Create a new playlist on YouTube
-    const createRes = await fetch('https://www.googleapis.com/youtube/v3/playlists?part=snippet,status', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        snippet: {
-          title: playlistTitle,
-          description: playlistDescription,
-        },
-        status: {
-          privacyStatus: 'private',
-        },
-      }),
-    });
-
-    if (!createRes.ok) {
-      const errData = await createRes.json();
-      return NextResponse.json({ error: errData.error?.message || 'Failed to create playlist on YouTube' }, { status: createRes.status });
-    }
-
-    const createdPlaylist = await createRes.json();
-    const newPlaylistId = createdPlaylist.id;
+    const ytmSession = { accessToken, refreshToken, expiresAt };
+    const newPlaylistId = await createPlaylist(ytmSession, playlistTitle, playlistDescription);
 
     // 2. Fetch tracks for the source playlist
     const localTracks = Array.from(
-      new Map((getCachedTracks(playlistId) || []).filter((track) => track.videoId).map((track) => [track.videoId, track])).values()
+      new Map((getCachedTracks(playlistId, session.email) || []).filter((track) => track.videoId).map((track) => [track.videoId, track])).values()
     );
     
     // 3. Add items to the new playlist
@@ -62,23 +40,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     for (const track of localTracks) {
       if (!track.videoId) continue;
       try {
-        const itemRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            snippet: {
-              playlistId: newPlaylistId,
-              resourceId: {
-                kind: 'youtube#video',
-                videoId: track.videoId,
-              },
-            },
-          }),
-        });
-        if (itemRes.ok) addedCount++;
+        await addPlaylistItem(ytmSession, newPlaylistId, track.videoId);
+        addedCount++;
       } catch (e) {
         console.error(`[api/playlist/push] Error adding track ${track.videoId}:`, e);
       }

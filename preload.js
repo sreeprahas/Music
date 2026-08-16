@@ -17,5 +17,10 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('auth:login-error', handler);
       return () => ipcRenderer.removeListener('auth:login-error', handler);
     },
+    onDeviceCode: (callback) => {
+      const handler = (_event, payload) => callback(payload);
+      ipcRenderer.on('auth:device-code', handler);
+      return () => ipcRenderer.removeListener('auth:device-code', handler);
+    },
   },
 });

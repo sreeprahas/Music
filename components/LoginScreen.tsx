@@ -11,6 +11,8 @@ export function LoginScreen({ error }: Props) {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isElectron, setIsElectron] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
+  const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUrl: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const errorMessages: Record<string, string> = {
     unauthorized: 'That Google account is not authorized to access this app.',
@@ -31,6 +33,8 @@ export function LoginScreen({ error }: Props) {
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setLoginError(null);
+    setDeviceCode(null);
+    setCopied(false);
 
     try {
       if (isElectron) {
@@ -42,6 +46,9 @@ export function LoginScreen({ error }: Props) {
           console.error('OAuth error:', errorMsg);
           setLoginError(errorMsg);
           setIsLoading(false);
+        } else if (result.deviceCode) {
+          setDeviceCode(result.deviceCode);
+          void navigator.clipboard?.writeText(result.deviceCode.userCode).then(() => setCopied(true)).catch(() => { });
         }
       } else {
         // Use regular web OAuth flow
@@ -65,6 +72,7 @@ export function LoginScreen({ error }: Props) {
       setIsLoading(false);
       setIsCanceling(false);
       setLoginError(null);
+      setDeviceCode(null);
     }
   };
 
@@ -72,6 +80,24 @@ export function LoginScreen({ error }: Props) {
     if (!isElectron) return;
     return window.electron!.auth.onLoginSuccess(() => window.location.reload());
   }, [isElectron]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    return window.electron!.auth.onDeviceCode((code) => {
+      setDeviceCode(code);
+      void navigator.clipboard?.writeText(code.userCode).then(() => setCopied(true)).catch(() => { });
+    });
+  }, [isElectron]);
+
+  const copyDeviceCode = async () => {
+    if (!deviceCode) return;
+    try {
+      await navigator.clipboard.writeText(deviceCode.userCode);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   useEffect(() => {
     if (!isElectron) return;
@@ -98,7 +124,14 @@ export function LoginScreen({ error }: Props) {
   const displayError = loginError || error;
 
   return (
-    <div className="h-screen w-screen bg-[#0a0a0a] flex items-center justify-center select-none">
+    <div className="relative h-screen w-screen bg-[#0a0a0a] flex items-center justify-center select-none">
+      <header
+        className="fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-3 border-b border-white/5 bg-[#0a0a0a]/95 px-5"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <img src="/music-icon.png" alt="Music" className="h-8 w-8 rounded-lg" />
+        <span className="text-sm font-bold tracking-tight text-white/85">Music</span>
+      </header>
       <div className="flex flex-col items-center gap-10">
         {/* Wordmark */}
         <div className="flex flex-col items-center gap-4">
@@ -164,8 +197,17 @@ export function LoginScreen({ error }: Props) {
             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#00F2FE]/10 ring-1 ring-[#00F2FE]/25">
               <div className="h-7 w-7 animate-spin rounded-full border-2 border-white/15 border-t-[#00F2FE]" />
             </div>
-            <h2 className="text-lg font-semibold text-white">Continue in your browser</h2>
-            <p className="mt-2 text-sm leading-6 text-white/50">Google sign-in is open in your default browser. Finish there to return to Music.</p>
+            <h2 className="text-lg font-semibold text-white">Finish signing in</h2>
+            <p className="mt-2 text-sm leading-6 text-white/50">Google opened the verification page. Enter this code there while Music waits for approval.</p>
+            {deviceCode && (
+              <div className="mt-5 rounded-2xl border border-[#00F2FE]/20 bg-[#00F2FE]/5 p-3 text-left">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate text-lg font-bold tracking-[0.18em] text-[#00F2FE]">{deviceCode.userCode}</code>
+                  <button type="button" onClick={copyDeviceCode} className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/75 transition hover:bg-white/10 hover:text-white">{copied ? 'Copied' : 'Copy'}</button>
+                </div>
+                <button type="button" onClick={() => window.open(deviceCode.verificationUrl, '_blank', 'noopener,noreferrer')} className="mt-2 text-xs text-white/45 underline underline-offset-4 hover:text-white/75">Open verification page</button>
+              </div>
+            )}
             <button
               type="button"
               onClick={handleCancelLogin}

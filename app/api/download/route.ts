@@ -48,7 +48,7 @@ export async function GET(request: Request): Promise<Response> {
 
         try {
           console.log(`[download] Starting download for playlist ${playlistId}`);
-          const allTracks = await getPlaylistTracks(accessToken, playlistId);
+          const allTracks = await getPlaylistTracks({ accessToken, refreshToken, expiresAt }, playlistId);
           console.log(`[download] Found ${allTracks.length} total tracks`);
           const toDownload = allTracks.filter((t) => !isDownloaded(t.videoId));
           console.log(`[download] ${toDownload.length} tracks to download`);

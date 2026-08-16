@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Playlist, Track, RepeatMode, SleepTimer } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
+import { formatDuration, cleanArtistName } from '@/lib/ytmusicFormat';
 import {
   Play,
   Pause,
@@ -120,13 +120,45 @@ export function PlayerBar({
   const [isSeeking, setIsSeeking] = useState(false);
   const [sleepTimer, setSleepTimer] = useState<SleepTimer>({ isActive: false, endTime: null, remainingTime: 0 });
   const [timerMenuOpen, setTimerMenuOpen] = useState(false);
+  const [isTimerMenuClosing, setIsTimerMenuClosing] = useState(false);
   const [addPlaylistMenuOpen, setAddPlaylistMenuOpen] = useState(false);
+  const [isAddPlaylistClosing, setIsAddPlaylistClosing] = useState(false);
   const addPlaylistMenuRef = useRef<HTMLDivElement>(null);
+  const popoverCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customHours, setCustomHours] = useState('');
   const [customMinutes, setCustomMinutes] = useState('');
   const [playlistFeedback, setPlaylistFeedback] = useState(false);
   const [trackPlaylistIds, setTrackPlaylistIds] = useState<Set<string>>(new Set());
   const playlistFeedbackTimeoutRef = useRef<number | null>(null);
+
+  const cancelPopoverClose = () => {
+    if (popoverCloseTimeoutRef.current) clearTimeout(popoverCloseTimeoutRef.current);
+    popoverCloseTimeoutRef.current = null;
+    setIsTimerMenuClosing(false);
+    setIsAddPlaylistClosing(false);
+  };
+
+  const schedulePopoverClose = (type: 'timer' | 'add') => {
+    if (type === 'timer' && !timerMenuOpen) return;
+    if (type === 'add' && !addPlaylistMenuOpen) return;
+    if (popoverCloseTimeoutRef.current) clearTimeout(popoverCloseTimeoutRef.current);
+    if (type === 'timer') setIsTimerMenuClosing(true);
+    else setIsAddPlaylistClosing(true);
+    popoverCloseTimeoutRef.current = setTimeout(() => {
+      popoverCloseTimeoutRef.current = null;
+      if (type === 'timer') {
+        setTimerMenuOpen(false);
+        setIsTimerMenuClosing(false);
+      } else {
+        setAddPlaylistMenuOpen(false);
+        setIsAddPlaylistClosing(false);
+      }
+    }, 160);
+  };
+
+  useEffect(() => () => {
+    if (popoverCloseTimeoutRef.current) clearTimeout(popoverCloseTimeoutRef.current);
+  }, []);
 
   const setIsPlaying = useCallback((val: boolean | ((p: boolean) => boolean)) => {
     setIsPlayingState(val);
@@ -165,18 +197,6 @@ export function PlayerBar({
       return next;
     });
   }, [playlistMutation, track]);
-
-  // Close Add to Playlist popover on click outside
-  useEffect(() => {
-    if (!addPlaylistMenuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (addPlaylistMenuRef.current && !addPlaylistMenuRef.current.contains(e.target as Node)) {
-        setAddPlaylistMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [addPlaylistMenuOpen]);
 
   const handleOpenPlaylist = useCallback(() => {
     if (!onOpenPlaylist) return;
@@ -496,7 +516,7 @@ export function PlayerBar({
 
       <div className="music-player relative w-full h-[88px] min-h-[88px] bg-[#0A0A0A] border-t border-white/10 flex items-center gap-2 px-3 lg:px-5 justify-between z-30 select-none shrink-0">
         {/* Left Section: Track Info & Heart */}
-        <div key={navigationTick} className={`flex items-center gap-2 w-56 lg:w-64 min-w-0 shrink ${navigationDirection === 'next' ? 'animate-track-next' : navigationDirection === 'prev' ? 'animate-track-prev' : ''}`}>
+        <div key={navigationTick} className={`flex items-center gap-2 w-56 lg:w-64 min-w-0 shrink-0 ${navigationDirection === 'next' ? 'animate-track-next' : navigationDirection === 'prev' ? 'animate-track-prev' : ''}`}>
           <div
             onClick={onToggleFullscreen}
               className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
@@ -511,18 +531,15 @@ export function PlayerBar({
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <p
-              onClick={onToggleFullscreen}
-              className="text-sm font-medium text-white truncate hover:underline cursor-pointer"
-            >
+            <p className="text-sm font-medium text-white truncate">
               {track.title}
             </p>
-            <p className="text-xs text-white truncate hover:text-[#00F2FE] transition-colors hover:underline cursor-pointer">
+            <p className="text-xs text-white truncate">
               {cleanArtistName(track.artist)}
             </p>
           </div>
           {/* Playlist & Add-To-Playlist Buttons */}
-          <div className="flex items-center gap-1 shrink-0 relative">
+          <div ref={addPlaylistMenuRef} onMouseEnter={cancelPopoverClose} className="flex items-center gap-1 shrink-0 relative">
             {/* Library / Playlist button — reverted to icon, tooltip = "Playlist" */}
             <button
               onClick={handleOpenPlaylist}
@@ -540,8 +557,11 @@ export function PlayerBar({
 
             {/* Add to Playlist button reflects whether the track is already saved */}
             <button
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={() => setAddPlaylistMenuOpen((prev) => !prev)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => {
+                cancelPopoverClose();
+                setAddPlaylistMenuOpen((prev) => !prev);
+              }}
               disabled={!track}
               className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-white/25 disabled:hover:bg-transparent ${
                 addPlaylistMenuOpen
@@ -560,10 +580,15 @@ export function PlayerBar({
 
             {/* Add to Playlist Dropdown */}
             {addPlaylistMenuOpen && track && (
-              <div ref={addPlaylistMenuRef} className="absolute bottom-12 left-0">
+              <div
+                onMouseEnter={cancelPopoverClose}
+                onMouseLeave={() => schedulePopoverClose('add')}
+                className={`absolute bottom-12 left-0 ${isAddPlaylistClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+              >
                 <AddToPlaylistDropdown
                   track={track}
                   playlists={playlists}
+                  anchorRef={addPlaylistMenuRef}
                   onAdd={(t, pid) => {
                     onAddToPlaylist?.(t, pid);
                   }}
@@ -571,7 +596,10 @@ export function PlayerBar({
                     onRemoveFromPlaylist?.(t, pid);
                   }}
                   isOffline={isOffline}
-                  onClose={() => setAddPlaylistMenuOpen(false)}
+                  onClose={() => {
+                    setIsAddPlaylistClosing(false);
+                    setAddPlaylistMenuOpen(false);
+                  }}
                 />
               </div>
             )}
@@ -579,7 +607,7 @@ export function PlayerBar({
         </div>
 
         {/* Center Section: Controls & Progress */}
-        <div className="flex-1 min-w-0 flex flex-col items-center gap-2 max-w-2xl px-2 lg:px-5">
+        <div className="flex-1 min-w-[220px] flex flex-col items-center gap-2 max-w-2xl px-2 lg:px-5">
           {/* Top Control Buttons */}
           <div className="playerbar-control-icons flex items-center gap-4 text-white">
             {/* Shuffle */}
@@ -610,7 +638,7 @@ export function PlayerBar({
             {/* Play / Pause */}
             <button
               onClick={handlePlayPause}
-              className="w-8 h-8 rounded-2xl bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+              className="playerbar-primary w-8 h-8 rounded-2xl bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
               title={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
@@ -800,57 +828,78 @@ export function PlayerBar({
             </div>
           </div>
 
-          <div className="relative">
+          <div className="relative" onMouseEnter={cancelPopoverClose}>
             <button
-              onClick={() => setTimerMenuOpen((p) => !p)}
+              onClick={() => {
+                cancelPopoverClose();
+                setTimerMenuOpen((p) => !p);
+              }}
               className={`p-1.5 rounded-md transition-all duration-300 ${sleepTimer.isActive ? 'text-[#00F2FE]' : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'}`}
               title="Sleep timer"
             >
               <Timer className="w-4 h-4" />
             </button>
             {timerMenuOpen && (
-              <div className="absolute bottom-11 right-0 w-72 rounded-2xl border border-white/10 bg-[#121212] shadow-2xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Sleep timer</p>
-                    <p className="text-xs text-white">
-                      {sleepTimer.isActive ? `Ends in ${formatDuration(sleepTimer.remainingTime)}` : 'Stop playback automatically'}
+              <div
+                onMouseEnter={cancelPopoverClose}
+                onMouseLeave={() => schedulePopoverClose('timer')}
+                className={`absolute bottom-11 right-0 w-80 rounded-3xl border border-white/10 bg-[#121212]/95 shadow-2xl shadow-black/60 p-4 backdrop-blur-xl ${isTimerMenuClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+              >
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Timer className="w-4 h-4 text-[#00F2FE]" />
+                      <p className="text-sm font-bold text-white">Sleep timer</p>
+                    </div>
+                    <p className="text-xs text-white/45 mt-1">
+                      {sleepTimer.isActive ? `Playback stops in ${formatDuration(sleepTimer.remainingTime)}` : 'Choose when playback should stop'}
                     </p>
                   </div>
                   {sleepTimer.isActive && (
-                    <button onClick={clearSleepTimer} className="text-white hover:text-[#00F2FE] transition-colors">
-                      <X className="w-4 h-4" />
+                    <button
+                      onClick={clearSleepTimer}
+                      className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-red-300 hover:bg-red-400/15 hover:text-red-200 transition-all duration-300"
+                      title="Clear sleep timer"
+                    >
+                      Clear
                     </button>
                   )}
                 </div>
 
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35 mb-2">Quick presets</p>
                 <div className="grid grid-cols-2 gap-2">
-                  {[15, 30, 60, 120].map((mins) => (
+                  {[5, 10, 15, 30, 45, 60].map((mins) => (
                     <button
                       key={mins}
                       onClick={() => startSleepTimer(mins)}
-                      className="rounded-xl bg-[#0A0A0A] hover:bg-[#1A1A1A] hover:text-[#00F2FE] hover:shadow-[0_0_14px_rgba(0,242,254,0.14)] px-3 py-2 text-sm text-white transition-all duration-300"
+                      className="rounded-xl border border-white/5 bg-[#0A0A0A] hover:border-[#00F2FE]/25 hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] hover:shadow-[0_0_14px_rgba(0,242,254,0.14)] px-3 py-2.5 text-sm text-white transition-all duration-300"
                     >
-                      {mins < 60 ? `${mins} mins` : `${mins / 60} hr${mins > 60 ? 's' : ''}`}
+                      {mins === 60 ? '1 hour' : `${mins} minutes`}
                     </button>
                   ))}
+                  <button
+                    onClick={() => startSleepTimer(Math.max(1, Math.ceil((duration - currentTime) / 60)))}
+                    className="col-span-2 rounded-xl border border-white/5 bg-[#0A0A0A] hover:border-[#00F2FE]/25 hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] hover:shadow-[0_0_14px_rgba(0,242,254,0.14)] px-3 py-2.5 text-sm text-white transition-all duration-300"
+                  >
+                    End of track
+                  </button>
                 </div>
 
                 <div className="mt-3 border-t border-white/5 pt-3">
-                  <p className="text-xs uppercase tracking-widest text-white mb-2">Custom</p>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/35 mb-2">Custom duration</p>
                   <div className="flex items-center gap-2">
                     <input
                       value={customHours}
                       onChange={(e) => setCustomHours(e.target.value.replace(/[^0-9]/g, ''))}
                       placeholder="hr"
-                      className="w-16 rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white outline-none focus:outline-none caret-[#00F2FE]"
+                      className="w-16 rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-[#00F2FE]/40 focus:outline-none caret-[#00F2FE] transition-colors"
                     />
                     <span className="text-white">:</span>
                     <input
                       value={customMinutes}
                       onChange={(e) => setCustomMinutes(e.target.value.replace(/[^0-9]/g, ''))}
                       placeholder="mins"
-                      className="w-20 rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white outline-none focus:outline-none caret-[#00F2FE]"
+                      className="w-20 rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-[#00F2FE]/40 focus:outline-none caret-[#00F2FE] transition-colors"
                     />
                     <button
                       onClick={() => {

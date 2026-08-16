@@ -28,6 +28,39 @@
 
 img, svg { -webkit-user-drag: none; user-drag: none; }
 
+/* Electron/browser keyboard focus rings are rendered as a bright orange halo
+   in some Windows themes. Controls already provide their own active states. */
+*:focus,
+*:focus-visible {
+  outline: none !important;
+}
+
+/* Give every button a short, clean press reset before its hover feedback returns. */
+button:active {
+  box-shadow: none !important;
+  border-color: transparent !important;
+  transition-duration: 0ms !important;
+}
+
+/* Player controls share the same soft hover, press-reset, and return fade as
+   the header actions. Primary play styling remains intentionally distinct. */
+.music-player button:not(.playerbar-primary) {
+  transition: color 500ms ease, background-color 500ms ease, box-shadow 500ms ease, transform 500ms ease !important;
+}
+
+.music-player button:not(.playerbar-primary):hover {
+  color: #00f2fe;
+  background-color: rgba(0, 242, 254, 0.1);
+  box-shadow: 0 0 14px rgba(0, 242, 254, 0.16), 0 10px 26px rgba(110, 72, 180, 0.18);
+}
+
+.music-player button:not(.playerbar-primary):active {
+  color: inherit;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  transform: scale(0.96);
+}
+
 html,
 body {
   height: 100%;
@@ -151,6 +184,38 @@ body {
   animation: music-bar 0.7s ease-in-out infinite alternate;
 }
 
+/* Preserve title/artist space while the less important metadata columns
+   smoothly leave the table as the window narrows. */
+.playlist-date-column,
+.playlist-time-column {
+  opacity: 1;
+  transition: opacity 220ms ease, width 260ms ease, padding 260ms ease;
+}
+
+@media (max-width: 1120px) {
+  .playlist-date-column {
+    width: 0 !important;
+    max-width: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 900px) {
+  .playlist-time-column {
+    width: 0 !important;
+    max-width: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}
+
 @keyframes trackNext {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
@@ -171,6 +236,37 @@ body {
 
 .animate-fadeIn {
   animation: fadeIn 0.18s ease-out both;
+}
+
+/* Position-sensitive dropdowns must keep their measured transform while
+   entering; animating transform here would overwrite collision offsets. */
+.animate-dropdown-in {
+  animation: dropdownIn 0.18s ease-out both;
+}
+
+.animate-dropdown-out {
+  animation: dropdownOut 0.16s ease-in both;
+  pointer-events: none;
+}
+
+/* Keep the context menu interactive while its pointer leaves so a quick
+   re-entry can cancel the exit animation. */
+.animate-context-menu-out {
+  animation: dropdownOut 0.16s ease-in both;
+}
+
+.animate-popover-out {
+  animation: dropdownOut 0.16s ease-in both;
+}
+
+@keyframes dropdownIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dropdownOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 @keyframes slideInRight {
@@ -286,13 +382,6 @@ input[type='range']:active::-moz-range-thumb {
    playback state alive, but stop compositor-heavy visual work. */
 /* Keep the active renderer light as well; playback and controls do not rely
    on decorative animation frames. */
-html *,
-html *::before,
-html *::after {
-  animation-play-state: paused !important;
-  transition: none !important;
-}
-
 .ambient-art {
   display: none !important;
 }
@@ -309,10 +398,19 @@ html:not(.electron-inactive) .animate-slide-up-full,
 html:not(.electron-inactive) .animate-slide-down-full,
 html:not(.electron-inactive) .animate-fadeIn,
 html:not(.electron-inactive) .animate-fade-in,
+html:not(.electron-inactive) .animate-track-next,
+html:not(.electron-inactive) .animate-track-prev,
 html:not(.electron-inactive) .playlist-preview-expand {
   animation-play-state: running !important;
   transition-property: all !important;
   transition-duration: 300ms !important;
+}
+
+/* Track navigation starts at opacity 0. It must finish even while the app is
+   background-throttled, otherwise the left side of the playerbar is hidden. */
+.animate-track-next,
+.animate-track-prev {
+  animation-play-state: running !important;
 }
 
 /* The now-playing bars communicate playback state even when the renderer is

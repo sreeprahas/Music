@@ -20,6 +20,11 @@
       "!.next/standalone/data/**",
       "!node_modules/electron-builder/**",
       "!node_modules/app-builder-lib/**"
+      ,"!.ytmusic-venv/**"
+      ,"!services/.build/**"
+    ],
+    "extraResources": [
+      { "from": "services/ytmusic-sidecar.exe", "to": "ytmusic-sidecar.exe" }
     ],
     "nsis": {
       "oneClick": true,

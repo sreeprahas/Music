@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, ipcMain, safeStorage, shell, utilityProcess } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -42,9 +43,11 @@ try {
 const OAUTH_CONFIG = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  clientId: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  scope: 'openid profile email https://www.googleapis.com/auth/youtube',
+  clientId: process.env.GOOGLE_CLIENT_ID?.trim(),
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim(),
+  // The device flow obtains ytmusicapi's YouTube scope itself. These are only
+  // the identity scopes used by the legacy browser OAuth path.
+  scope: 'openid profile email',
 };
 const SESSION_COOKIE = 'ytm_session';
 // Keep the renderer origin stable across launches. A random port would create
@@ -58,6 +61,7 @@ let nextProcess = null;
 let nextServerPort = null;
 let oauthServer = null;
 let oauthCancelled = false;
+let deviceAuthTimer = null;
 const pendingAuthRequests = new Map();
 const appOrigin = () => isElectronDev ? 'http://127.0.0.1:3000' : `http://127.0.0.1:${nextServerPort}`;
 
@@ -77,6 +81,26 @@ function readTokensFromDisk() {
   catch (error) { console.warn('[auth] Could not decrypt stored session:', error.message); return null; }
 }
 function clearTokensFromDisk() { if (fs.existsSync(tokenFilePath())) fs.unlinkSync(tokenFilePath()); }
+function sidecarPath() {
+  const packaged = path.join(process.resourcesPath || '', 'ytmusic-sidecar.exe');
+  if (fs.existsSync(packaged)) return { command: packaged, args: [] };
+  return { command: process.env.YTMUSIC_PYTHON || 'python', args: [path.join(__dirname, 'services', 'ytmusic_service.py')] };
+}
+function runSidecar(request) {
+  return new Promise((resolve, reject) => {
+    const command = sidecarPath();
+    const child = spawn(command.command, command.args, { windowsHide: true, env: { ...process.env, PYTHONPATH: process.env.YTMUSIC_PYTHONPATH }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; }); child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', () => {
+      try { const response = JSON.parse(stdout.trim()); if (!response.ok) reject(new Error(response.error || stderr || 'YouTube Music authentication failed')); else resolve(response.result); }
+      catch { reject(new Error(stderr || 'YouTube Music sidecar returned invalid JSON')); }
+    });
+    child.stdin.end(`${JSON.stringify(request)}\n`);
+  });
+}
 function postForm(endpoint, parameters) {
   return new Promise((resolve, reject) => {
     const body = new URLSearchParams(parameters).toString();
@@ -113,7 +137,10 @@ async function fetchProfile(accessToken) {
 function makeSession(tokens, profile) { return { email: profile.email, name: profile.name || profile.email, picture: profile.picture || '', image: profile.picture || '', accessToken: tokens.accessToken, refreshToken: tokens.refreshToken || '', expiresAt: tokens.expiresAt || Date.now() + 3600 * 1000 }; }
 async function syncSessionCookie(tokens, profile) {
   if (!mainWindow) return;
-  await mainWindow.webContents.session.cookies.set({ url: appOrigin(), name: SESSION_COOKIE, value: Buffer.from(JSON.stringify(makeSession(tokens, profile))).toString('base64'), httpOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 });
+  const payload = Buffer.from(JSON.stringify(makeSession(tokens, profile))).toString('base64url');
+  const secret = process.env.SESSION_SECRET || OAUTH_CONFIG.clientSecret || 'change-me';
+  const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  await mainWindow.webContents.session.cookies.set({ url: appOrigin(), name: SESSION_COOKIE, value: `${payload}.${signature}`, httpOnly: true, sameSite: 'lax', expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 });
 }
 const clearSessionCookie = () => mainWindow && nextServerPort ? mainWindow.webContents.session.cookies.remove(appOrigin(), SESSION_COOKIE) : Promise.resolve();
 const notify = (channel, payload) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload); };
@@ -180,7 +207,7 @@ function startNextServer() {
     nextProcess = utilityProcess.fork(path.join(__dirname, 'electron-next-server.js'), [], {
       serviceName: 'Music',
       stdio: 'pipe',
-      env: { ...process.env, PORT: String(ELECTRON_SERVER_PORT), MUSIC_ELECTRON_TOKEN: ELECTRON_SERVER_TOKEN, DATA_DIR: path.join(app.getPath('userData'), 'data') },
+      env: { ...process.env, PORT: String(ELECTRON_SERVER_PORT), MUSIC_ELECTRON_TOKEN: ELECTRON_SERVER_TOKEN, DATA_DIR: path.join(app.getPath('userData'), 'data'), YTMUSIC_SIDECAR_PATH: path.join(process.resourcesPath || __dirname, 'ytmusic-sidecar.exe') },
     });
     nextProcess.on('message', (message) => {
       if (message?.type === 'ready') { nextServerPort = message.port; resolve(); }
@@ -259,17 +286,76 @@ function startLoopbackServer(state, codeVerifier) {
   });
 }
 ipcMain.handle('auth:login', async () => {
-  if (!OAUTH_CONFIG.clientId) return { success: false, error: 'GOOGLE_CLIENT_ID is not configured.' };
-  for (const [state, pending] of pendingAuthRequests) if (Date.now() - pending.createdAt > AUTH_REQUEST_TTL_MS) pendingAuthRequests.delete(state);
+  if (!OAUTH_CONFIG.clientId || !OAUTH_CONFIG.clientSecret) return { success: false, error: 'Google OAuth client credentials are not configured.' };
   oauthCancelled = false;
-  const { codeVerifier, codeChallenge } = generatePkcePair(), state = base64Url(crypto.randomBytes(16));
-  const port = await startLoopbackServer(state, codeVerifier);
-  const redirectUri = `http://127.0.0.1:${port}/oauth2redirect`;
-  const authUrl = new URL(OAUTH_CONFIG.authorizationEndpoint); authUrl.search = new URLSearchParams({ response_type: 'code', client_id: OAUTH_CONFIG.clientId, redirect_uri: redirectUri, scope: OAUTH_CONFIG.scope, state, code_challenge: codeChallenge, code_challenge_method: 'S256', access_type: 'offline', prompt: 'consent' }).toString();
-  await shell.openExternal(authUrl.toString()); return { success: true, started: true };
+  try {
+    const oauth = { client_id: OAUTH_CONFIG.clientId, client_secret: OAUTH_CONFIG.clientSecret };
+    const response = await runSidecar({ action: 'oauth_code', oauth });
+    const code = response.code || {};
+    const deviceCode = {
+      userCode: code.user_code,
+      verificationUrl: code.verification_url || code.verification_uri,
+    };
+    if (!deviceCode.userCode || !deviceCode.verificationUrl || !code.device_code) throw new Error('YouTube Music did not return a device verification code.');
+    notify('auth:device-code', deviceCode);
+    await shell.openExternal(deviceCode.verificationUrl);
+
+    const expiresAt = Date.now() + Number(code.expires_in || 1800) * 1000;
+    let intervalMs = Math.max(5000, Number(code.interval || 5) * 1000);
+    const poll = async () => {
+      if (oauthCancelled || Date.now() >= expiresAt) {
+        if (!oauthCancelled) notify('auth:login-error', { message: 'The Google verification code expired. Please try again.' });
+        return;
+      }
+      try {
+        const tokenResponse = await runSidecar({ action: 'oauth_token', oauth, device_code: code.device_code });
+        if (tokenResponse.token?.access_token) {
+          const tokens = normalizeTokens(tokenResponse.token);
+          let profile;
+          try {
+            profile = await fetchProfile(tokens.accessToken);
+          } catch {
+            // ytmusicapi's TV/Limited Input token is intentionally scoped to
+            // YouTube Music and may not authorize Google's OpenID userinfo
+            // endpoint. Use ytmusicapi's authenticated account menu instead.
+            const accountResponse = await runSidecar({
+              action: 'account_info',
+              oauth,
+              token: tokenResponse.token,
+            });
+            const account = accountResponse.account || {};
+            const accountName = account.accountName || account.channelHandle || 'YouTube Music user';
+            profile = {
+              name: accountName,
+              email: account.channelHandle || accountName,
+              picture: account.accountPhotoUrl || '',
+            };
+          }
+          writeTokensToDisk({ tokens, profile, authMode: 'ytmusic-device' });
+          await syncSessionCookie(tokens, profile);
+          notify('auth:login-success', { isAuthenticated: true });
+          return;
+        }
+        if (tokenResponse.token?.error === 'slow_down') intervalMs += 5000;
+        if (tokenResponse.token?.error && !['authorization_pending', 'slow_down'].includes(tokenResponse.token.error)) {
+          notify('auth:login-error', { message: tokenResponse.token.error_description || 'Google device authentication failed.' });
+          return;
+        }
+      } catch (error) {
+        notify('auth:login-error', { message: error.message || 'YouTube Music authentication failed.' });
+        return;
+      }
+      deviceAuthTimer = setTimeout(poll, intervalMs);
+    };
+    deviceAuthTimer = setTimeout(poll, intervalMs);
+    return { success: true, started: true, deviceCode };
+  } catch (error) {
+    return { success: false, error: error.message || 'Could not start Google authentication.' };
+  }
 });
 ipcMain.handle('auth:cancel-login', async () => {
   oauthCancelled = true;
+  if (deviceAuthTimer) { clearTimeout(deviceAuthTimer); deviceAuthTimer = null; }
   pendingAuthRequests.clear();
   if (oauthServer) oauthServer.cancelled = true;
   await closeOAuthServer();
@@ -278,10 +364,20 @@ ipcMain.handle('auth:cancel-login', async () => {
 });
 ipcMain.handle('auth:get-session', async () => {
   const stored = readTokensFromDisk(); if (!stored) return { isAuthenticated: false };
-  try { let { tokens, profile } = stored; if (tokens.expiresAt && Date.now() > tokens.expiresAt - 60_000) { if (!tokens.refreshToken) throw new Error('Your session expired.'); tokens = await refreshAccessToken(tokens.refreshToken); writeTokensToDisk({ tokens, profile }); } await syncSessionCookie(tokens, profile); return { isAuthenticated: true }; }
+  if (stored.authMode !== 'ytmusic-device') {
+    clearTokensFromDisk();
+    await clearSessionCookie();
+    return { isAuthenticated: false, error: 'Your old login must be replaced. Please sign in again.' };
+  }
+  try { let { tokens, profile } = stored; if (tokens.expiresAt && Date.now() > tokens.expiresAt - 60_000) { if (!tokens.refreshToken) throw new Error('Your session expired.'); tokens = await refreshAccessToken(tokens.refreshToken); writeTokensToDisk({ tokens, profile, authMode: 'ytmusic-device' }); } await syncSessionCookie(tokens, profile); return { isAuthenticated: true }; }
   catch (error) { clearTokensFromDisk(); await clearSessionCookie(); return { isAuthenticated: false, error: error.message || 'Your session expired. Please sign in again.' }; }
 });
-ipcMain.handle('auth:logout', async () => { clearTokensFromDisk(); pendingAuthRequests.clear(); await clearSessionCookie(); return { success: true }; });
+ipcMain.handle('auth:logout', async () => {
+  try { clearTokensFromDisk(); } catch (error) { console.warn('[auth] Could not remove stored login:', error.message); }
+  pendingAuthRequests.clear();
+  try { await clearSessionCookie(); } catch (error) { console.warn('[auth] Could not clear session cookie:', error.message); }
+  return { success: true };
+});
 if (!app.requestSingleInstanceLock()) app.quit(); else {
   app.whenReady().then(async () => {
     try { if (!isElectronDev) await startNextServer(); createWindow(); }

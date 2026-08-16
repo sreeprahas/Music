@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { cleanArtistName } from '@/lib/ytmusicApi';
+import { cleanArtistName } from '@/lib/ytmusicFormat';
 import { SongContextMenu } from './SongContextMenu';
 import { X, Trash2 } from 'lucide-react';
 

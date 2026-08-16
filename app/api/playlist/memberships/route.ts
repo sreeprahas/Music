@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession, refreshAccessToken } from '@/lib/auth';
-import { getPlaylists } from '@/lib/ytmusicApi';
+import { getPlaylists, getPlaylistTracks } from '@/lib/ytmusicApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,20 +18,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    const playlists = (await getPlaylists(accessToken)).filter((playlist) => playlist.id !== 'LL');
+    const playlists = (await getPlaylists({ accessToken, refreshToken, expiresAt })).filter((playlist) => playlist.id !== 'LL');
+    const ytmSession = { accessToken, refreshToken, expiresAt };
     const memberships = await Promise.all(playlists.map(async (playlist) => {
-      const url = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
-      url.searchParams.set('part', 'id');
-      url.searchParams.set('playlistId', playlist.id);
-      url.searchParams.set('videoId', videoId);
-      url.searchParams.set('maxResults', '1');
       try {
-        const response = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!response.ok) return null;
-        const data = await response.json().catch(() => ({}));
-        return data.items?.length ? playlist.id : null;
+        const tracks = await getPlaylistTracks(ytmSession, playlist.id);
+        return tracks.some((track) => track.videoId === videoId) ? playlist.id : null;
       } catch {
         return null;
       }

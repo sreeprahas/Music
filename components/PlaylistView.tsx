@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
+import { formatDuration, cleanArtistName } from '@/lib/ytmusicFormat';
 import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2 } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
@@ -84,6 +84,7 @@ interface Props {
   restoredTrack?: { track: Track; playlistId: string; timestamp: number } | null;
   currentVideoId?: string;
   activePlaylistId?: string | null;
+  isPlaying?: boolean;
   scrollToTrackRequest?: number;
   isHardwareOffline?: boolean;
   onEditOrderChange?: (isEditing: boolean) => void;
@@ -112,6 +113,7 @@ export function PlaylistView({
   restoredTrack,
   currentVideoId,
   activePlaylistId,
+  isPlaying = false,
   scrollToTrackRequest = 0,
   isHardwareOffline = false,
   onEditOrderChange,
@@ -119,6 +121,7 @@ export function PlaylistView({
   playlistMutation,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const tracksRef = useRef<Track[]>([]);
   const [loading, setLoading] = useState(playlist.trackCount > 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreTracks, setHasMoreTracks] = useState(true);
@@ -127,6 +130,8 @@ export function PlaylistView({
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
+  const contextMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const playlistViewRef = useRef<HTMLDivElement>(null);
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const lastSelectedIndexRef = useRef<number | null>(null);
   const [visibleRecommendations, setVisibleRecommendations] = useState<Track[]>(recommendations);
@@ -135,6 +140,7 @@ export function PlaylistView({
   const trackListRef = useRef<HTMLDivElement>(null);
   const callbackRef = useRef(onTracksLoaded);
   callbackRef.current = onTracksLoaded;
+  useEffect(() => { tracksRef.current = tracks; }, [tracks]);
 
   useEffect(() => setVisibleRecommendations(recommendations), [recommendations]);
 
@@ -355,11 +361,22 @@ export function PlaylistView({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(playlist.trackCount > 0);
+    // Do not reset an already-rendered playlist to its skeleton when the
+    // connectivity flag changes; refresh in place instead.
     prefetchNextPageRef.current = false;
     setError('');
 
     const load = async () => {
+      const acceptLoadedTracks = (loaded: Track[], hasMore: boolean) => {
+        // Do not let a transient empty response erase a playlist already
+        // visible in the UI. Empty playlists are still accepted on first load.
+        if (loaded.length === 0 && tracksRef.current.length > 0) return false;
+        tracksRef.current = loaded;
+        setTracks(loaded);
+        setHasMoreTracks(hasMore);
+        callbackRef.current?.(playlist, loaded);
+        return true;
+      };
       const manualOffline = localStorage.getItem('yt_offline_mode') === 'true';
       const canRefresh = navigator.onLine && !isHardwareOffline && !manualOffline;
       // Hydrate from the effective cache first. The API overlays pending
@@ -371,16 +388,12 @@ export function PlaylistView({
           if (cancelled) return;
           if (cachedResponse.ok && Array.isArray(data.tracks) && (data.fromCache || data.offline)) {
             const loaded = (data.tracks || []) as Track[];
-            setTracks(loaded);
-            setHasMoreTracks(Boolean(data.hasMore));
-            callbackRef.current?.(playlist, loaded);
+            acceptLoadedTracks(loaded, Boolean(data.hasMore));
             setLoading(false);
           } else if (cachedResponse.ok && Array.isArray(data.tracks)) {
             // No cache existed, so this response was already a fresh remote load.
             const loaded = data.tracks as Track[];
-            setTracks(loaded);
-            setHasMoreTracks(Boolean(data.hasMore));
-            callbackRef.current?.(playlist, loaded);
+            acceptLoadedTracks(loaded, Boolean(data.hasMore));
             setLoading(false);
           }
         } catch (err) {
@@ -395,9 +408,7 @@ export function PlaylistView({
         const data = await response.json().catch(() => ({ tracks: [] }));
         if (!cancelled && response.ok) {
           const loaded = (data.tracks || []) as Track[];
-          setTracks(loaded);
-          setHasMoreTracks(Boolean(data.hasMore));
-          callbackRef.current?.(playlist, loaded);
+          acceptLoadedTracks(loaded, Boolean(data.hasMore));
         }
       } catch (err) {
         if (!cancelled) setError('Failed to load tracks');
@@ -471,7 +482,7 @@ export function PlaylistView({
   }
 
   return (
-    <div className="h-full w-full min-w-0 flex flex-col min-h-0 relative">
+    <div ref={playlistViewRef} className="h-full w-full min-w-0 flex flex-col min-h-0 relative overflow-hidden">
       {/* Sticky top mini header that smoothly merges in when scrolled */}
       <div
         className={`absolute top-0 left-0 right-0 z-20 px-6 py-3 bg-[#0A0A0A]/90 backdrop-blur-md border-b border-white/10 flex items-center justify-between gap-4 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -497,7 +508,7 @@ export function PlaylistView({
             value={trackSearchQuery}
             onChange={(e) => setTrackSearchQuery(e.target.value)}
             placeholder="Search tracks..."
-            className="w-full h-8 bg-white/5 border border-white/10 rounded-xl pl-9 pr-8 text-xs text-white placeholder-white/40 outline-none focus:outline-none focus:border-[#00F2FE]/50 caret-[#00F2FE] transition-all duration-300"
+            className="w-full h-8 bg-white/5 border border-transparent rounded-xl pl-9 pr-8 text-xs text-white placeholder-white/40 outline-none focus:outline-none hover:border-[#00F2FE]/30 hover:bg-[#00F2FE]/10 hover:shadow-[0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] focus:border-[#00F2FE]/45 focus:bg-[#00F2FE]/14 focus:shadow-[0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)] caret-[#00F2FE] transition-[background-color,box-shadow] duration-500 ease-out"
           />
           {trackSearchQuery && (
             <button
@@ -599,7 +610,7 @@ export function PlaylistView({
                     value={trackSearchQuery}
                     onChange={(e) => setTrackSearchQuery(e.target.value)}
                     placeholder="Search tracks..."
-                    className="w-full h-8 bg-white/5 border border-white/10 rounded-xl pl-9 pr-8 text-xs text-white placeholder-white outline-none focus:outline-none focus:border-[#00F2FE]/50 caret-[#00F2FE] transition-all duration-300 ease-out"
+                    className="w-full h-8 bg-white/5 border border-transparent rounded-xl pl-9 pr-8 text-xs text-white placeholder-white outline-none focus:outline-none hover:border-[#00F2FE]/30 hover:bg-[#00F2FE]/10 hover:shadow-[0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] focus:border-[#00F2FE]/45 focus:bg-[#00F2FE]/14 focus:shadow-[0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)] caret-[#00F2FE] transition-[background-color,box-shadow] duration-500 ease-out"
                   />
                   {trackSearchQuery && (
                     <button
@@ -632,9 +643,9 @@ export function PlaylistView({
                 }`}>
                   <th className="text-left py-3 px-3 w-10">{isEditOrder ? '' : '#'}</th>
                   <th className="text-left py-3 px-3 w-[42%]">Title</th>
-                  <th className="text-left py-3 px-3 hidden md:table-cell w-[22%]">Artist</th>
-                  <th className="text-right py-3 px-3 hidden lg:table-cell w-32">Date added</th>
-                  <th className="text-right py-3 px-3 w-20">Time</th>
+                  <th className="text-left py-3 px-3 w-[22%]">Artist</th>
+                  <th className="playlist-date-column text-right py-3 px-3 w-32">Date added</th>
+                  <th className="playlist-time-column text-right py-3 px-3 w-20">Time</th>
                   <th className="text-center py-3 px-3 w-12"></th>
                 </tr>
               </thead>
@@ -685,7 +696,7 @@ export function PlaylistView({
                         setSelectedTrackIds(new Set());
                         lastSelectedIndexRef.current = idx;
                         if (!canPlay) return;
-                        const queueForTrack = downloadedTracks.length > 0 ? downloadedTracks : [track];
+                        const queueForTrack = tracks;
                         onPlay(track, queueForTrack);
                       }}
                       className={`group transition-all duration-150 rounded-xl ${
@@ -704,7 +715,7 @@ export function PlaylistView({
                       <td className="py-2.5 px-3 text-center w-10 relative">
                         {isEditOrder ? (
                           <GripVertical className="w-4 h-4 text-white/30 mx-auto" />
-                        ) : isActive ? (
+                        ) : isActive && isPlaying ? (
                           <NowPlayingBars />
                         ) : downloadingIds.has(track.videoId) ? (
                           <DownloadingSpinner />
@@ -731,19 +742,19 @@ export function PlaylistView({
                             <p className={`text-sm font-medium truncate ${isActive ? 'text-[#00F2FE]' : 'text-white'}`}>
                               {track.title}
                             </p>
-                            <p className="text-xs text-white/40 truncate md:hidden">{artist}</p>
+                            <p className="text-xs text-white/40 whitespace-normal break-words">{artist}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 hidden md:table-cell max-w-0 overflow-hidden">
-                        <span className="block text-sm text-white/50 truncate whitespace-nowrap">{artist}</span>
+                      <td className="py-2.5 px-3 max-w-0 overflow-hidden">
+                        <span className="block text-sm text-white/50 whitespace-normal break-words">{artist}</span>
                       </td>
-                      <td className="py-2.5 px-3 text-right hidden lg:table-cell max-w-0 overflow-hidden">
+                      <td className="playlist-date-column py-2.5 px-3 text-right max-w-0 overflow-hidden">
                         <span className="block text-sm text-white/30 whitespace-nowrap">
                           {track.dateAdded ? formatRelativeDate(track.dateAdded) : '—'}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td className="playlist-time-column py-2.5 px-3 text-right">
                         <span className="text-sm text-white/30">
                           {track.duration ? formatDuration(track.duration) : '–'}
                         </span>
@@ -754,8 +765,13 @@ export function PlaylistView({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (contextMenu) { setContextMenu(null); return; }
+                              if (contextMenu) {
+                                contextMenuAnchorRef.current = null;
+                                setContextMenu(null);
+                                return;
+                              }
                               const rect = e.currentTarget.getBoundingClientRect();
+                              contextMenuAnchorRef.current = e.currentTarget;
                               setContextMenu({ track, x: rect.right, y: rect.bottom });
                             }}
                             className="p-1.5 rounded-lg text-white/40 hover:text-[#00F2FE] hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
@@ -811,6 +827,8 @@ export function PlaylistView({
         <SongContextMenu
           track={contextMenu.track}
           playlists={playlists}
+          anchorRef={contextMenuAnchorRef}
+          boundaryRef={playlistViewRef}
           x={contextMenu.x}
           y={contextMenu.y}
           onPlayNext={onPlayNext}
