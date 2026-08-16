@@ -2,53 +2,38 @@
 
 import React, { useState } from 'react';
 import type { Playlist } from '@/types';
-import { Eye, EyeOff, FolderLock, Trash2, Upload, Loader2 } from 'lucide-react';
+import { FolderLock, Trash2, Loader2, Check } from 'lucide-react';
 
 interface Props {
   playlists: Playlist[];
-  hiddenIds: string[];
+  importedIds: string[];
   onSelect: (id: string) => void;
-  onToggleHidden: (id: string) => void;
+  onToggleImport: (id: string) => void;
+  onDone: () => void;
   onDeletePlaylist?: (id: string) => Promise<void>;
-  onPushPlaylist?: (playlist: Playlist) => Promise<void>;
 }
 
-export function HiddenPlaylistsView({
+export function PlaylistManagementView({
   playlists,
-  hiddenIds,
+  importedIds,
   onSelect,
-  onToggleHidden,
+  onToggleImport,
+  onDone,
   onDeletePlaylist,
-  onPushPlaylist,
 }: Props) {
-  const hiddenSet = new Set(hiddenIds);
-  const hiddenPlaylists = playlists.filter((playlist) => hiddenSet.has(playlist.id));
-  const visiblePlaylists = playlists.filter((playlist) => !hiddenSet.has(playlist.id));
+  const importedSet = new Set(importedIds);
 
   const [loadingActionId, setLoadingActionId] = useState<string | null>(null);
-  const [actionType, setActionType] = useState<'delete' | 'push' | null>(null);
+  const [actionType, setActionType] = useState<'delete' | null>(null);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!onDeletePlaylist) return;
-    if (!confirm('Are you sure you want to delete this playlist?')) return;
+    if (!confirm('Remove this playlist from the local library? Your YouTube Music playlist will not be changed.')) return;
     setLoadingActionId(id);
     setActionType('delete');
     try {
       await onDeletePlaylist(id);
-    } finally {
-      setLoadingActionId(null);
-      setActionType(null);
-    }
-  };
-
-  const handlePush = async (e: React.MouseEvent, playlist: Playlist) => {
-    e.stopPropagation();
-    if (!onPushPlaylist) return;
-    setLoadingActionId(playlist.id);
-    setActionType('push');
-    try {
-      await onPushPlaylist(playlist);
     } finally {
       setLoadingActionId(null);
       setActionType(null);
@@ -63,18 +48,18 @@ export function HiddenPlaylistsView({
             <FolderLock className="w-5 h-5 text-[#00F2FE]" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white tracking-tight">Hidden Playlists</h1>
-            <p className="text-sm text-white/35">Playlists you have tucked away from the sidebar.</p>
+            <h1 className="text-2xl font-black text-white tracking-tight">Playlist Management</h1>
+            <p className="text-sm text-white/35">Choose the YouTube Music playlists to import into your local library.</p>
           </div>
         </div>
 
-        {hiddenPlaylists.length === 0 ? (
+        {playlists.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center text-white/35">
-            Nothing is hidden yet.
+            No playlists are available. Sign in and refresh to load them.
           </div>
         ) : (
           <div className="space-y-3">
-            {hiddenPlaylists.map((playlist) => (
+            {playlists.map((playlist) => (
               <div
                 key={playlist.id}
                 className="w-full flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-left hover:bg-white/[0.04] transition-colors"
@@ -97,27 +82,9 @@ export function HiddenPlaylistsView({
                 </button>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => handlePush(e, playlist)}
-                    disabled={loadingActionId === playlist.id}
-                    className="flex items-center justify-center gap-1.5 rounded-2xl border border-purple-500/40 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 px-4 py-2 text-sm font-medium transition-all"
-                    title="Push playlist to YouTube Music"
-                  >
-                    {loadingActionId === playlist.id && actionType === 'push' ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                    ) : (
-                      <Upload className="w-4 h-4 text-purple-400" />
-                    )}
-                    Push
-                  </button>
-
-                  <button
-                    onClick={() => onToggleHidden(playlist.id)}
-                    className="flex items-center justify-center gap-2 rounded-2xl border border-[#00F2FE]/40 bg-[#00F2FE]/10 text-[#00F2FE] hover:bg-[#00F2FE]/20 px-5 py-2 text-sm font-medium transition-all"
-                    title="Unhide playlist"
-                  >
-                    <Eye className="w-4 h-4 text-[#00F2FE]" />
-                    Unhide
+                  <button onClick={() => onToggleImport(playlist.id)} className={`flex items-center justify-center gap-2 rounded-2xl border px-5 py-2 text-sm font-medium transition-all ${importedSet.has(playlist.id) ? 'border-[#00F2FE]/40 bg-[#00F2FE]/10 text-[#00F2FE]' : 'border-white/10 text-white/70 hover:text-white hover:border-white/20'}`} title={importedSet.has(playlist.id) ? 'Remove from local library' : 'Import playlist'}>
+                    {importedSet.has(playlist.id) && <Check className="w-4 h-4" />}
+                    {importedSet.has(playlist.id) ? 'Imported' : 'Import'}
                   </button>
 
                   {playlist.id !== 'LL' && (
@@ -125,14 +92,14 @@ export function HiddenPlaylistsView({
                       onClick={(e) => handleDelete(e, playlist.id)}
                       disabled={loadingActionId === playlist.id}
                       className="flex items-center justify-center gap-1.5 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 px-4 py-2 text-sm font-medium transition-all"
-                      title="Delete playlist"
+                      title="Remove local playlist metadata"
                     >
                       {loadingActionId === playlist.id && actionType === 'delete' ? (
                         <Loader2 className="w-4 h-4 animate-spin text-red-400" />
                       ) : (
                         <Trash2 className="w-4 h-4 text-red-400" />
                       )}
-                      Delete
+                      Remove
                     </button>
                   )}
                 </div>
@@ -141,58 +108,9 @@ export function HiddenPlaylistsView({
           </div>
         )}
 
-        <div className="mt-8 grid gap-3">
-          {visiblePlaylists.map((playlist) => (
-            <div
-              key={playlist.id}
-              className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.01] px-4 py-3"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-white/85 truncate">{playlist.title}</p>
-                <p className="text-xs text-white/30 truncate">Visible in the sidebar</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => handlePush(e, playlist)}
-                  disabled={loadingActionId === playlist.id}
-                  className="flex items-center justify-center gap-1.5 rounded-2xl border border-purple-500/40 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 px-4 py-2 text-sm font-medium transition-all"
-                  title="Push playlist to YouTube Music"
-                >
-                  {loadingActionId === playlist.id && actionType === 'push' ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                  ) : (
-                    <Upload className="w-4 h-4 text-purple-400" />
-                  )}
-                  Push
-                </button>
-
-                <button
-                  onClick={() => onToggleHidden(playlist.id)}
-                  className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 px-5 py-2 text-sm text-white/70 hover:text-white hover:border-white/20 transition-all"
-                >
-                  <EyeOff className="w-4 h-4" />
-                  Hide
-                </button>
-
-                {playlist.id !== 'LL' && (
-                  <button
-                    onClick={(e) => handleDelete(e, playlist.id)}
-                    disabled={loadingActionId === playlist.id}
-                    className="flex items-center justify-center gap-1.5 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 px-4 py-2 text-sm font-medium transition-all"
-                    title="Delete playlist"
-                  >
-                    {loadingActionId === playlist.id && actionType === 'delete' ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-red-400" />
-                    ) : (
-                      <Trash2 className="w-4 h-4 text-red-400" />
-                    )}
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      </div>
+      <div className="shrink-0 flex justify-end border-t border-white/10 bg-[#101010] px-8 py-4">
+        <button onClick={onDone} className="rounded-xl bg-[#00F2FE] px-6 py-2.5 text-sm font-bold text-black hover:bg-[#7DFAFF] transition-colors">Done</button>
       </div>
     </div>
   );

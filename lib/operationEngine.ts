@@ -691,6 +691,35 @@ export function getOperations(filter?: { targetResource?: string; status?: Opera
   return stmt.all(...params) as unknown as OperationRecord[];
 }
 
+/** Pending playlist intent used to overlay slow/stale remote reads. */
+export function getPendingPlaylistMutations(playlistId: string): Array<{
+  operation: 'add' | 'remove';
+  videoId: string;
+  track?: any;
+  playlistItemId?: string;
+  sequence: number;
+}> {
+  const operations = getOperations({ targetResource: `playlist:${playlistId}`, limit: 500 })
+    .filter((operation) => operation.status === 'PENDING' || operation.status === 'RUNNING' || operation.status === 'RETRY_WAIT')
+    .sort((a, b) => a.created_at - b.created_at);
+  return operations.flatMap((operation) => {
+    if (operation.type !== 'playlist:add' && operation.type !== 'playlist:remove') return [];
+    try {
+      const payload = JSON.parse(operation.payload) as { videoId?: string; track?: any; playlistItemId?: string };
+      if (!payload.videoId) return [];
+      return [{
+        operation: operation.type === 'playlist:add' ? 'add' as const : 'remove' as const,
+        videoId: payload.videoId,
+        track: payload.track,
+        playlistItemId: payload.playlistItemId,
+        sequence: operation.created_at,
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function cancelOperation(id: string): boolean {
   initOperationEngine();
   const db = getDb();

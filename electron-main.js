@@ -10,6 +10,34 @@ const musicIconPath = path.join(__dirname, 'public', 'music-icon.png');
 
 app.setName('Music');
 app.setAppUserModelId('com.prahas.music');
+// Keep Chromium localStorage, auth tokens, downloaded audio, caches, queues,
+// and panel/player settings together in the stable per-user app directory.
+// This directory survives normal upgrades and is only removed by uninstall.
+const musicUserDataPath = path.join(app.getPath('appData'), 'music');
+app.setPath('userData', musicUserDataPath);
+try {
+  const dataPath = path.join(musicUserDataPath, 'data');
+  fs.mkdirSync(dataPath, { recursive: true });
+  // Older builds placed server data directly in %APPDATA%\\music. Move only
+  // known server-data entries into the requested data subdirectory; browser
+  // storage and auth_tokens.enc remain at the profile root.
+  const dataEntries = ['lyrics', 'mp3', 'playlist-thumbnails', 'thumbnails', 'metadata_cache.json', 'operations.db', 'operations.db-shm', 'operations.db-wal', 'playlist_commands.json'];
+  for (const entry of dataEntries) {
+    const source = path.join(musicUserDataPath, entry);
+    const destination = path.join(dataPath, entry);
+    if (!fs.existsSync(source)) continue;
+    if (fs.existsSync(destination) && fs.statSync(destination).isDirectory() && fs.statSync(source).isDirectory()) {
+      for (const child of fs.readdirSync(source)) {
+        const childDestination = path.join(destination, child);
+        if (!fs.existsSync(childDestination)) fs.cpSync(path.join(source, child), childDestination, { recursive: true, force: true });
+      }
+    } else if (!fs.existsSync(destination)) {
+      fs.cpSync(source, destination, { recursive: true, force: true });
+    }
+  }
+} catch (error) {
+  console.warn('[storage] Could not migrate legacy Music data:', error.message);
+}
 
 const OAUTH_CONFIG = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -19,6 +47,11 @@ const OAUTH_CONFIG = {
   scope: 'openid profile email https://www.googleapis.com/auth/youtube',
 };
 const SESSION_COOKIE = 'ytm_session';
+// Keep the renderer origin stable across launches. A random port would create
+// a new Chromium localStorage origin every time the app starts.
+const ELECTRON_SERVER_PORT = 47821;
+const ELECTRON_SERVER_TOKEN = crypto.randomBytes(32).toString('hex');
+const isElectronDev = process.argv.includes('--dev');
 const AUTH_REQUEST_TTL_MS = 5 * 60 * 1000;
 let mainWindow = null;
 let nextProcess = null;
@@ -26,7 +59,7 @@ let nextServerPort = null;
 let oauthServer = null;
 let oauthCancelled = false;
 const pendingAuthRequests = new Map();
-const appOrigin = () => `http://127.0.0.1:${nextServerPort}`;
+const appOrigin = () => isElectronDev ? 'http://127.0.0.1:3000' : `http://127.0.0.1:${nextServerPort}`;
 
 const tokenFilePath = () => path.join(app.getPath('userData'), 'auth_tokens.enc');
 const base64Url = (value) => value.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -97,8 +130,32 @@ async function handleAuthCallback(callbackUrl) {
   catch (error) { console.error('[auth] Callback failed:', error); notify('auth:login-error', { message: error.message || 'Authentication failed.' }); }
 }
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1200, height: 800, title: 'Music', icon: musicIconPath, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 1024,
+    minHeight: 640,
+    backgroundColor: '#08090b',
+    show: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0A0A0A', symbolColor: '#FFFFFF', height: 44 },
+    title: 'Music',
+    icon: musicIconPath,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
+  });
   Menu.setApplicationMenu(null);
+  // Authenticate every renderer request to the private loopback server. A
+  // normal browser on the machine cannot open the app URL without this token.
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: [`http://127.0.0.1:${ELECTRON_SERVER_PORT}/*`] },
+    (details, callback) => {
+      details.requestHeaders['X-Music-Electron-Token'] = ELECTRON_SERVER_TOKEN;
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+  });
   mainWindow.loadURL(appOrigin());
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -107,7 +164,7 @@ function startNextServer() {
     nextProcess = utilityProcess.fork(path.join(__dirname, 'electron-next-server.js'), [], {
       serviceName: 'Music',
       stdio: 'pipe',
-      env: { ...process.env, PORT: '0', DATA_DIR: path.join(app.getPath('userData'), 'data') },
+      env: { ...process.env, PORT: String(ELECTRON_SERVER_PORT), MUSIC_ELECTRON_TOKEN: ELECTRON_SERVER_TOKEN, DATA_DIR: path.join(app.getPath('userData'), 'data') },
     });
     nextProcess.on('message', (message) => {
       if (message?.type === 'ready') { nextServerPort = message.port; resolve(); }
@@ -211,7 +268,7 @@ ipcMain.handle('auth:get-session', async () => {
 ipcMain.handle('auth:logout', async () => { clearTokensFromDisk(); pendingAuthRequests.clear(); await clearSessionCookie(); return { success: true }; });
 if (!app.requestSingleInstanceLock()) app.quit(); else {
   app.whenReady().then(async () => {
-    try { await startNextServer(); createWindow(); }
+    try { if (!isElectronDev) await startNextServer(); createWindow(); }
     catch (error) { console.error('[server] Failed to start Music server:', error); app.quit(); }
     app.on('activate', () => { if (!mainWindow) createWindow(); });
   });

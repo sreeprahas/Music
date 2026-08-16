@@ -151,6 +151,19 @@ body {
   animation: music-bar 0.7s ease-in-out infinite alternate;
 }
 
+@keyframes trackNext {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes trackPrev {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-track-next { animation: trackNext 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+.animate-track-prev { animation: trackPrev 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -246,4 +259,14 @@ input[type='range']:hover::-moz-range-thumb,
 input[type='range']:active::-moz-range-thumb {
   opacity: 1;
   transform: scale(1.2);
+}
+.music-header {
+  -webkit-app-region: drag;
+}
+
+.music-header button,
+.music-header input,
+.music-header a,
+.music-header [role='button'] {
+  -webkit-app-region: no-drag;
 }

@@ -70,17 +70,25 @@ export function Header({
   useEffect(() => {
     const picture = user.picture || user.image || '';
     if (!picture) return;
-    setCachedProfilePicture(picture);
-    try { window.localStorage.setItem('music_profile_photo', picture); } catch { /* storage may be disabled */ }
-    if ('caches' in window) {
-      fetch(picture, { mode: 'cors' })
-        .then((response) => {
-          if (!response.ok) return;
-          return caches.open('music-profile-v1').then((cache) => cache.put(picture, response.clone()));
-        })
-        .catch(() => { /* the remote avatar remains a valid fallback */ });
-    }
-  }, [user.picture, user.image]);
+    if (cachedProfilePicture.startsWith('data:image/')) return;
+    let cancelled = false;
+    fetch(picture, { mode: 'cors', cache: 'force-cache' })
+      .then((response) => response.ok ? response.blob() : null)
+      .then((blob) => new Promise<string | null>((resolve) => {
+        if (!blob) return resolve(null);
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      }))
+      .then((dataUrl) => {
+        if (cancelled || !dataUrl) return;
+        setCachedProfilePicture(dataUrl);
+        try { window.localStorage.setItem('music_profile_photo', dataUrl); } catch { /* quota/storage disabled */ }
+      })
+      .catch(() => { if (!cancelled) setCachedProfilePicture((current) => current || picture); });
+    return () => { cancelled = true; };
+  }, [cachedProfilePicture, user.picture, user.image]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -121,7 +129,7 @@ export function Header({
   const finishedJobs = downloadJobs.filter((j) => j.status === 'done' || j.status === 'error');
 
   return (
-    <header className="music-header w-full h-[72px] bg-[#0A0A0A] border-b border-white/5 px-6 flex items-center justify-between select-none shrink-0 z-30 relative">
+    <header className="music-header w-full h-[72px] bg-[#0A0A0A] border-b border-white/5 pl-6 pr-40 flex items-center justify-between select-none shrink-0 z-30 relative">
       {/* Left branding */}
       <div className="flex items-center gap-2 shrink-0">
         <button
@@ -222,7 +230,7 @@ export function Header({
 
             {/* Live search dropdown */}
             {searchDropdownOpen && visibleResults.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50">
+            <div className="absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 animate-fadeIn">
                 <div className="py-1.5">
                   {visibleResults.map((track, idx) => (
                     <button
@@ -279,37 +287,8 @@ export function Header({
         </div>
       </div>
 
-      {/* Right section: Download Center + Offline Toggle + Account */}
+      {/* Right section: Download Center + Account */}
       <div className="flex items-center gap-3 relative shrink-0">
-        {/* Offline Mode Toggle */}
-        <button
-          onClick={isHardwareOffline ? undefined : onToggleOfflineMode}
-          disabled={isHardwareOffline}
-          className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-semibold transition-all duration-300 border ${isOfflineMode
-              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.2)]'
-              : 'bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10'
-            } ${isHardwareOffline ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'}`}
-          title={
-            isHardwareOffline
-              ? 'No physical internet connection detected (Locked in Offline Mode)'
-              : isOfflineMode
-                ? 'Offline Mode Active (Manual setting stored in browser)'
-                : 'Online Mode Active (Click to switch to Offline Mode)'
-          }
-        >
-          {isOfflineMode ? (
-            <>
-              <WifiOff className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Offline</span>
-            </>
-          ) : (
-            <>
-              <Wifi className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Online</span>
-            </>
-          )}
-        </button>
-
         {/* Download Center Button & Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
@@ -340,7 +319,7 @@ export function Header({
 
           {/* Download Center Dropdown */}
           {isDownloadOpen && (
-            <div className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-[#181818] border border-white/10 rounded-3xl shadow-2xl overflow-hidden z-50 transition-all duration-700 ease-out">
+            <div className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-[#181818] border border-white/10 rounded-3xl shadow-2xl overflow-hidden z-50 animate-fadeIn">
               {/* Dropdown Header */}
               <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/5 bg-black/20">
                 <div className="flex items-center gap-2.5">
@@ -439,7 +418,7 @@ export function Header({
 
           {/* Account Dropdown */}
           {isAccountMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-[#181818] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 p-2 space-y-1 transition-all duration-700 ease-out">
+            <div className="absolute right-0 top-full mt-2 w-56 bg-[#181818] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 p-2 space-y-1 animate-fadeIn">
               <div className="px-3 py-2 border-b border-white/5 mb-1">
                 <p className="text-xs font-bold text-white truncate">{user.name}</p>
                 <p className="text-[11px] text-white/40 truncate">{user.email}</p>
@@ -447,11 +426,27 @@ export function Header({
 
               <button
                 type="button"
+                onClick={onToggleOfflineMode}
+                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs transition-all duration-300 w-full font-semibold ${isOfflineMode ? 'bg-amber-500/15 text-amber-300' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
+                title={isHardwareOffline ? 'Connection unavailable — click to retry' : 'Toggle online/offline mode'}
+              >
+                <span className="flex items-center gap-2">
+                  {isOfflineMode ? <WifiOff className="w-4 h-4 text-amber-400" /> : <Wifi className="w-4 h-4 text-emerald-400" />}
+                  {isOfflineMode ? 'Offline mode' : 'Online mode'}
+                </span>
+                <span className="text-[10px] text-white/35">{isHardwareOffline ? 'Unavailable' : 'Toggle'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={async () => {
                   if (window.electron?.auth) {
                     await window.electron.auth.logout();
+                    try { window.localStorage.removeItem('music_profile_photo'); } catch { /* ignore */ }
+                    try { await caches.delete('music-profile-v1'); } catch { /* ignore */ }
                     window.location.reload();
                   } else {
+                    try { window.localStorage.removeItem('music_profile_photo'); } catch { /* ignore */ }
                     window.location.href = '/api/auth/logout';
                   }
                 }}

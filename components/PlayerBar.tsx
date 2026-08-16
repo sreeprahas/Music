@@ -16,6 +16,7 @@ import {
   Volume2,
   VolumeX,
   Maximize2,
+  Maximize,
   Library,
   Timer,
   X,
@@ -26,6 +27,9 @@ import { AddToPlaylistDropdown, getCachedPlaylistMemberships, primePlaylistMembe
 
 interface Props {
   track: Track | null;
+  trackLoadKey?: number;
+  navigationDirection?: 'next' | 'prev';
+  navigationTick?: number;
   queue: Track[];
   playlists?: Playlist[];
   activePlaylistId?: string | null;
@@ -65,6 +69,9 @@ interface Props {
 
 export function PlayerBar({
   track,
+  trackLoadKey,
+  navigationDirection,
+  navigationTick,
   queue,
   playlists = [],
   activePlaylistId,
@@ -102,9 +109,12 @@ export function PlayerBar({
   playlistMutation,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const loadGenerationRef = useRef(0);
   const [isPlaying, setIsPlayingState] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [progressHover, setProgressHover] = useState<number | null>(null);
+  const [volumeHover, setVolumeHover] = useState<number | null>(null);
   const volume = volumeProp;
   const isMuted = isMutedProp;
   const [isSeeking, setIsSeeking] = useState(false);
@@ -307,6 +317,8 @@ export function PlayerBar({
     const audio = audioRef.current;
     if (!audio) return;
 
+    const loadGeneration = ++loadGenerationRef.current;
+
     if (!track) {
       audio.pause();
       audio.src = '';
@@ -321,7 +333,7 @@ export function PlayerBar({
     const loadTrack = async () => {
       try {
         const mp3Url = `/api/mp3?videoId=${encodeURIComponent(track.videoId)}`;
-        if (cancelled) return;
+        if (cancelled || loadGeneration !== loadGenerationRef.current) return;
         
         audio.src = mp3Url;
         audio.volume = 1;
@@ -333,7 +345,9 @@ export function PlayerBar({
         }
         
         if (autoPlay) {
-          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+          audio.play()
+            .then(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(true); })
+            .catch(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(false); });
         }
       } catch (err) {
         if (!cancelled) { console.error('[Track Load Error]:', err); setIsPlaying(false); }
@@ -344,17 +358,23 @@ export function PlayerBar({
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId]);
+  }, [track?.videoId, trackLoadKey]);
 
   // OS Lockscreen & Hardware Media Controls (MediaSession API)
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator) || !track) return;
 
+    // Use the local thumbnail route for Windows media controls. The route
+    // serves the cached file from the data directory (and caches it on the
+    // first request), avoiding a direct dependency on the remote image URL.
+    const localArtwork = track.thumbnailUrl
+      ? `${window.location.origin}/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`
+      : '';
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.artist,
       album: 'YouTube Music',
-      artwork: track.thumbnailUrl ? [{ src: track.thumbnailUrl, sizes: '512x512', type: 'image/png' }] : [],
+      artwork: localArtwork ? [{ src: localArtwork, sizes: '512x512', type: 'image/webp' }] : [],
     });
 
     navigator.mediaSession.setActionHandler('play', () => {
@@ -450,7 +470,25 @@ export function PlayerBar({
   const computedCanNext = canNext ?? (currentIdx >= 0 && currentIdx < queue.length - 1);
 
   if (!track) {
-    return null;
+    return (
+      <div className="music-player relative w-full h-[88px] min-h-[88px] bg-[#000000] border-t border-white/10 flex items-center justify-center px-5 z-30 select-none shrink-0">
+        <div className="flex items-center gap-5 text-white/35">
+          <Shuffle className="w-4 h-4" />
+          <SkipBack className="w-4 h-4" />
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/25 text-black"><Pause className="w-5 h-5 fill-current" /></span>
+          <SkipForward className="w-4 h-4" />
+          <ListMusic className="w-4 h-4" />
+        </div>
+        <div className="absolute left-1/2 top-1/2 flex w-[34%] -translate-x-1/2 translate-y-5 items-center gap-2">
+          <span className="h-1 flex-1 rounded-full bg-[#2A2A2A]" />
+        </div>
+        <div className="absolute right-5 flex items-center gap-3 text-white/60">
+          <Volume2 className="w-4 h-4" />
+          <input type="range" min="0" max="100" value={Math.round(volume * 100)} onChange={(event) => onVolumeChange?.(Number(event.target.value) / 100)} className="h-1 w-28 accent-[#00F2FE]" aria-label="Volume" />
+          <Maximize className="w-4 h-4" />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -474,17 +512,17 @@ export function PlayerBar({
         onPause={() => setIsPlaying(false)}
       />
 
-      <div className="music-player relative w-full h-[96px] bg-[#0A0A0A] border-t border-[#00F2FE]/25 flex items-center px-5 justify-between z-30 select-none shrink-0">
+      <div className="music-player relative w-full h-[88px] min-h-[88px] bg-[#0A0A0A] border-t border-white/10 flex items-center gap-2 px-3 lg:px-5 justify-between z-30 select-none shrink-0">
         {/* Left Section: Track Info & Heart */}
-        <div className="flex items-center gap-3 w-64 min-w-0">
+        <div key={navigationTick} className={`flex items-center gap-2 w-56 lg:w-64 min-w-0 shrink ${navigationDirection === 'next' ? 'animate-track-next' : navigationDirection === 'prev' ? 'animate-track-prev' : ''}`}>
           <div
             onClick={onToggleFullscreen}
-            className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
+              className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
           >
             <img
               src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
               alt={track.title}
-              className="w-full h-full object-cover group-hover:opacity-75 transition-opacity"
+              className="w-full h-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
             />
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
               <Maximize2 className="w-4 h-4 text-white" />
@@ -558,7 +596,7 @@ export function PlayerBar({
         </div>
 
         {/* Center Section: Controls & Progress */}
-        <div className="flex-1 flex flex-col items-center gap-2 max-w-2xl px-5">
+        <div className="flex-1 min-w-0 flex flex-col items-center gap-2 max-w-2xl px-2 lg:px-5">
           {/* Top Control Buttons */}
           <div className="flex items-center gap-4">
             {/* Shuffle */}
@@ -634,7 +672,15 @@ export function PlayerBar({
             <span className="text-[11px] font-medium text-white w-9 text-right shrink-0">
               {formatDuration(Math.floor(currentTime))}
             </span>
-            <div className="relative flex-1 h-1 group flex items-center">
+            <div
+              className="relative flex-1 h-1 group flex items-center"
+              onMouseEnter={() => setProgressHover(0)}
+              onMouseLeave={() => setProgressHover(null)}
+              onMouseMove={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setProgressHover(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)));
+              }}
+            >
               <input
                 type="range"
                 min={0}
@@ -647,11 +693,35 @@ export function PlayerBar({
                 className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
                 aria-label="Seek"
               />
-              <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
+              <div className="relative h-1 w-full min-w-0 bg-white/20 rounded-full overflow-visible">
+                {progressHover !== null && (
+                  <div
+                    className="absolute inset-y-0 z-[1] rounded-full bg-white/55"
+                    style={{
+                      left: `${Math.min(progressHover, duration > 0 ? (currentTime / duration) * 100 : 0)}%`,
+                      width: `${Math.abs(progressHover - (duration > 0 ? (currentTime / duration) * 100 : 0))}%`,
+                    }}
+                  />
+                )}
                 <div
-                  className="h-full bg-[#00F2FE] group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-none"
+                  className={`relative z-[2] h-full rounded-full transition-colors duration-150 ${progressHover !== null ? 'bg-[#00F2FE] shadow-[0_0_12px_rgba(0,242,254,0.8)]' : 'bg-[#FFFFFF]'}`}
                   style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
                 />
+                {progressHover !== null && duration > 0 && (
+                  <>
+                    <span
+                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_5px_rgba(0,0,0,0.55)]"
+                      style={{ left: `${(currentTime / duration) * 100}%` }}
+                    />
+                    <span
+                      className="absolute bottom-3 z-[4] -translate-x-1/2 rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold leading-none text-black whitespace-nowrap"
+                      style={{ left: `${progressHover}%` }}
+                    >
+                      {formatDuration(Math.floor((progressHover / 100) * duration))}
+                    </span>
+                    <span className="absolute inset-y-0 z-[2] w-px bg-white/55" style={{ left: `${progressHover}%` }} />
+                  </>
+                )}
               </div>
             </div>
             <span className="text-[11px] font-medium text-white w-9 shrink-0">
@@ -661,7 +731,7 @@ export function PlayerBar({
         </div>
 
         {/* Right Section: Lyrics, Queue, Volume, Fullscreen */}
-        <div className="flex items-center gap-3 w-80 justify-end">
+        <div className="flex items-center gap-1.5 lg:gap-3 w-64 lg:w-80 justify-end shrink-0">
           {/* Lyrics toggle */}
           <button
             onClick={onToggleLyrics}
@@ -683,7 +753,7 @@ export function PlayerBar({
           </button>
 
           {/* Volume */}
-          <div className="flex items-center gap-2 w-[140px] group relative">
+          <div className="flex items-center gap-2 w-[140px] max-[1200px]:w-[88px] group relative">
             <button
               onClick={() => {
                 if (onMuteChange) onMuteChange(!isMuted);
@@ -697,7 +767,15 @@ export function PlayerBar({
                 <Volume2 className="w-4 h-4" />
               )}
             </button>
-            <div className="relative flex-1 h-1.5 flex items-center group">
+            <div
+              className="relative flex-1 h-1 flex items-center group"
+              onMouseEnter={() => setVolumeHover(0)}
+              onMouseLeave={() => setVolumeHover(null)}
+              onMouseMove={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setVolumeHover(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)));
+              }}
+            >
               <input
                 type="range"
                 min={0}
@@ -713,24 +791,31 @@ export function PlayerBar({
                 aria-label="Volume"
               />
               {/* Background Track */}
-              <div className="relative w-full h-1 bg-white/20 rounded-full overflow-hidden group-hover:h-1.5 transition-all duration-200">
+              <div className="relative w-full h-1 bg-white/20 rounded-full overflow-visible">
                 {/* Active Volume Fill */}
                 <div
-                  className="h-full bg-[#00F2FE] rounded-full transition-all duration-75 group-hover:shadow-[0_0_10px_rgba(0,242,254,0.6)]"
+                  className={`h-full rounded-full transition-colors duration-150 ${volumeHover !== null ? 'bg-[#00F2FE] shadow-[0_0_10px_rgba(0,242,254,0.6)]' : 'bg-[#FFFFFF]'}`}
                   style={{ width: `${isMuted ? 0 : volume * 100}%` }}
                 />
+                {volumeHover !== null && (
+                  <>
+                    <span
+                      className="absolute inset-y-0 z-[1] rounded-full bg-white/55"
+                      style={{
+                        left: `${Math.min(volumeHover, isMuted ? 0 : volume * 100)}%`,
+                        width: `${Math.abs(volumeHover - (isMuted ? 0 : volume * 100))}%`,
+                      }}
+                    />
+                    <span
+                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_5px_rgba(0,0,0,0.55)]"
+                      style={{ left: `${isMuted ? 0 : volume * 100}%` }}
+                    />
+                    <span className="absolute inset-y-0 z-[1] w-px bg-white/55" style={{ left: `${volumeHover}%` }} />
+                  </>
+                )}
               </div>
             </div>
           </div>
-
-          {/* Fullscreen Player toggle */}
-          <button
-            onClick={onToggleFullscreen}
-            className="p-1.5 rounded-md text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300"
-            title="Full screen"
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
 
           <div className="relative">
             <button
@@ -800,6 +885,14 @@ export function PlayerBar({
               </div>
             )}
           </div>
+          <button
+            onClick={onToggleFullscreen}
+            className="p-1.5 rounded-md text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-colors"
+            title="Fullscreen"
+            aria-label="Fullscreen"
+          >
+            <Maximize className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

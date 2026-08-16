@@ -38,9 +38,10 @@
     "lint": "tsc --noEmit",
     "electron:build": "npm run build",
     "electron:run": "electron .",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:3000 && electron . --dev\"",
     "electron": "npm run build && electron .",
-    "electron:package:win": "npm run build && electron-builder --win",
-    "electron:package:nobuild:win": "electron-builder --win"
+    "electron:package": "npm run build && electron-builder --win",
+    "electron:package:nobuild": "electron-builder --win"
   },
   "dependencies": {
     "cookie": "^1.0.2",

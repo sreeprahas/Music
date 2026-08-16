@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
-import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, Plus, Loader2 } from 'lucide-react';
+import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2 } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
@@ -66,7 +66,6 @@ export function PlaylistViewSkeleton() {
 interface Props {
   playlist: Playlist;
   isPinned: boolean;
-  isHidden?: boolean;
   onPlay: (track: Track, queue: Track[]) => void;
   onAddToQueue?: (track: Track) => void;
   onPlayNext?: (track: Track) => void;
@@ -80,7 +79,6 @@ interface Props {
   onDeleteTrack?: (track: Track) => void;
   onTrackDeleted?: (videoId: string) => void;
   onTogglePin: (playlistId: string) => void;
-  onToggleHidden: (playlistId: string) => void;
   onTracksLoaded?: (playlist: Playlist, tracks: Track[]) => void;
   lastDownloadedTrack?: { videoId: string; timestamp: number } | null;
   restoredTrack?: { track: Track; playlistId: string; timestamp: number } | null;
@@ -96,7 +94,6 @@ interface Props {
 export function PlaylistView({
   playlist,
   isPinned,
-  isHidden = false,
   onPlay,
   onAddToQueue,
   onPlayNext,
@@ -110,7 +107,6 @@ export function PlaylistView({
   onDeleteTrack,
   onTrackDeleted,
   onTogglePin,
-  onToggleHidden,
   onTracksLoaded,
   lastDownloadedTrack,
   restoredTrack,
@@ -366,34 +362,42 @@ export function PlaylistView({
     const load = async () => {
       const manualOffline = localStorage.getItem('yt_offline_mode') === 'true';
       const canRefresh = navigator.onLine && !isHardwareOffline && !manualOffline;
-      
-      // If we can refresh online, fetch the full playlist immediately without showing partial results
+      // Hydrate from the effective cache first. The API overlays pending
+      // mutations, so this remains safe even immediately after a reload.
       if (canRefresh) {
         try {
-          const res = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0&forceRefresh=1`);
-          const data = await res.json().catch(() => ({ tracks: [] }));
+          const cachedResponse = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
+          const data = await cachedResponse.json().catch(() => ({ tracks: [] }));
           if (cancelled) return;
-          if (res.ok) {
+          if (cachedResponse.ok && Array.isArray(data.tracks) && (data.fromCache || data.offline)) {
             const loaded = (data.tracks || []) as Track[];
             setTracks(loaded);
             setHasMoreTracks(Boolean(data.hasMore));
             callbackRef.current?.(playlist, loaded);
             setLoading(false);
-            return;
+          } else if (cachedResponse.ok && Array.isArray(data.tracks)) {
+            // No cache existed, so this response was already a fresh remote load.
+            const loaded = data.tracks as Track[];
+            setTracks(loaded);
+            setHasMoreTracks(Boolean(data.hasMore));
+            callbackRef.current?.(playlist, loaded);
+            setLoading(false);
           }
         } catch (err) {
-          // Network error, fall through to offline
+          // Background refresh below remains the source of truth when no cache exists.
         }
       }
-      
-      // Offline or online failed → use cache
+
+      // Refresh remotely in the background. The response is already merged
+      // with pending local mutations by the API route.
       try {
-        const r2 = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
-        const d2 = await r2.json().catch(() => ({ tracks: [] }));
-        if (!cancelled) {
-          setTracks((d2.tracks || []) as Track[]);
-          setHasMoreTracks(Boolean(d2.hasMore));
-          callbackRef.current?.(playlist, (d2.tracks || []) as Track[]);
+        const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0${canRefresh ? '&forceRefresh=1' : ''}`);
+        const data = await response.json().catch(() => ({ tracks: [] }));
+        if (!cancelled && response.ok) {
+          const loaded = (data.tracks || []) as Track[];
+          setTracks(loaded);
+          setHasMoreTracks(Boolean(data.hasMore));
+          callbackRef.current?.(playlist, loaded);
         }
       } catch (err) {
         if (!cancelled) setError('Failed to load tracks');
@@ -579,24 +583,6 @@ export function PlaylistView({
                 >
                   <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
                   {isPinned ? 'Unpin' : 'Pin'}
-                </button>
-                <button
-                  onClick={() => onToggleHidden(playlist.id)}
-                  className={`flex shrink items-center justify-center gap-1.5 px-4 sm:px-5 py-2 rounded-2xl border text-xs sm:text-sm font-medium transition-all duration-300 ease-out ${
-                    isHidden
-                      ? 'border-[#00F2FE]/40 text-[#00F2FE] bg-[#00F2FE]/10 hover:bg-[#00F2FE]/20'
-                      : 'border-white/15 text-white/70 hover:text-white hover:border-white/30 bg-white/5 hover:bg-white/10'
-                  }`}
-                >
-                  {isHidden ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5 text-[#00F2FE]" />Unhide
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />Hide
-                    </>
-                  )}
                 </button>
                 {!loading && tracks.length > 1 && !trackSearchQuery && (
                   <button
@@ -797,26 +783,20 @@ export function PlaylistView({
           )}
 
           {!loading && !error && visibleRecommendations.length > 0 && !trackSearchQuery && (
-            <section className="mt-10 border-t border-white/10 pt-6 pb-8">
-              <div className="mb-3 flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#00F2FE]">Enhance this playlist</p>
-                  <h2 className="mt-1 text-lg font-bold text-white">Add more like this</h2>
-                </div>
-                <span className="text-xs text-white/35">From your library</span>
-              </div>
+            <section className="mt-8 border-t border-white/10 pt-6 pb-8">
+              <h2 className="mb-4 text-xl font-bold tracking-tight text-white">Suggestions</h2>
               <div className="space-y-1">
                 {visibleRecommendations.map((track) => (
-                  <div key={track.videoId} className="group flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.06]">
+                  <div key={track.videoId} className="group flex min-h-16 items-center gap-4 rounded-xl px-3 py-2 hover:bg-white/[0.06] transition-colors">
                     <img
                       src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
                       alt={track.title}
-                      className="h-10 w-10 aspect-square rounded-[4px] object-cover"
+                      className="h-12 w-12 aspect-square rounded-lg object-cover shadow-lg"
                       loading="lazy"
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-white">{track.title}</p>
-                      <p className="truncate text-xs text-white/40">{cleanArtistName(track.artist)}</p>
+                      <p className="mt-0.5 truncate text-xs text-white/45">{cleanArtistName(track.artist)}</p>
                     </div>
                     <button
                       type="button"
@@ -824,9 +804,11 @@ export function PlaylistView({
                         setVisibleRecommendations((prev) => prev.filter((item) => item.videoId !== track.videoId));
                         void handleAddTrackLocal(track, playlist.id);
                       }}
-                      className="flex shrink-0 items-center gap-1.5 rounded-full border border-[#00F2FE]/40 px-3 py-1.5 text-xs font-semibold text-[#00F2FE] opacity-70 transition-opacity hover:bg-[#00F2FE]/10 hover:opacity-100"
+                      aria-label={`Add ${track.title} to playlist`}
+                      title="Add to playlist"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition-all hover:bg-white/10 hover:text-white"
                     >
-                      <Plus className="h-3.5 w-3.5" /> Add
+                      <ListPlus className="h-6 w-6" strokeWidth={2} />
                     </button>
                   </div>
                 ))}

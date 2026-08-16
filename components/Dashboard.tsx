@@ -6,7 +6,7 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { PlaylistGrid, PlaylistGridSkeleton } from './PlaylistGrid';
 import { PlaylistView, PlaylistViewSkeleton } from './PlaylistView';
-import { HiddenPlaylistsView } from './HiddenPlaylistsView';
+import { PlaylistManagementView } from './HiddenPlaylistsView';
 import { PlayerBar } from './PlayerBar';
 import { QueueDrawer } from './QueueDrawer';
 import { LyricsDrawer } from './LyricsDrawer';
@@ -37,11 +37,12 @@ type CachedTrack = Track & { playlistId: string; playlistTitle: string };
 type RouteState =
   | { kind: 'home' }
   | { kind: 'playlist'; playlistId: string }
-  | { kind: 'hidden' }
+  | { kind: 'management' }
   | { kind: 'search'; query: string; songId?: string };
 type PlaybackSession = {
   track: Track | null;
   queue: Track[];
+  queuePosition?: number;
   activePlaylistId?: string | null;
   time: number;
   isPlaying?: boolean;
@@ -74,7 +75,7 @@ function decodeSlug(value: string) {
 function readRoute(): RouteState {
   const parts = window.location.pathname.split('/').filter(Boolean).map(decodeSlug);
   if (parts[0] === 'playlist' && parts[1]) return { kind: 'playlist', playlistId: parts[1] };
-  if (parts[0] === 'hidden') return { kind: 'hidden' };
+  if (parts[0] === 'management' || parts[0] === 'hidden') return { kind: 'management' };
   if (parts[0] === 'search' && parts[1]) {
     return { kind: 'search', query: parts[1], songId: parts[2] === 'song' && parts[3] ? parts[3] : undefined };
   }
@@ -83,7 +84,7 @@ function readRoute(): RouteState {
 
 function routeHref(route: RouteState) {
   if (route.kind === 'playlist') return `/playlist/${encodeURIComponent(route.playlistId)}`;
-  if (route.kind === 'hidden') return '/hidden';
+  if (route.kind === 'management') return '/management';
   if (route.kind === 'search') {
     const base = `/search/${encodeURIComponent(route.query)}`;
     return route.songId ? `${base}/song/${encodeURIComponent(route.songId)}` : base;
@@ -101,7 +102,8 @@ export function Dashboard({ user }: Props) {
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
-  const [showHiddenFolder, setShowHiddenFolder] = useState(false);
+  const [importedPlaylistIds, setImportedPlaylistIds] = useState<string[]>([]);
+  const [showPlaylistManagement, setShowPlaylistManagement] = useState(false);
   const [allTracks, setAllTracks] = useState<Record<string, CachedTrack>>({});
   const [lastDownloadedTrack, setLastDownloadedTrack] = useState<{ videoId: string; timestamp: number } | null>(null);
   const [restoredTrack, setRestoredTrack] = useState<{ track: Track; playlistId: string; timestamp: number } | null>(null);
@@ -111,12 +113,26 @@ export function Dashboard({ user }: Props) {
   const [typedSearchInput, setTypedSearchInput] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('name');
 
-  const [queueWidth, setQueueWidth] = useState(22);
-  const [lyricsWidth, setLyricsWidth] = useState(24);
+  const [queueWidth, setQueueWidth] = useState(QUEUE_MAX);
+  const [lyricsWidth, setLyricsWidth] = useState(LYRICS_MAX);
 
   const [currentTrack, setCurrentTrack] = useState<Track | null>(savedSession?.track ?? null);
   const [queue, setQueue] = useState<Track[]>(savedSession?.queue ?? []);
-  const [playbackHistory, setPlaybackHistory] = useState<Array<{ track: Track; queue: Track[]; activePlaylistId: string | null }>>([]);
+  // `queue` is the complete playback sequence.  Everything before this cursor
+  // is history and everything after it is still upcoming, so duplicate tracks
+  // remain distinct entries rather than being identified by videoId.
+  const [queuePosition, setQueuePosition] = useState(() => {
+    const savedPosition = savedSession?.queuePosition;
+    if (typeof savedPosition === 'number' && savedPosition >= 0 && savedPosition < (savedSession?.queue.length ?? 0)) return savedPosition;
+    return savedSession?.track ? Math.max(0, savedSession.queue.findIndex((track) => track.videoId === savedSession.track?.videoId)) : 0;
+  });
+  const [navigation, setNavigation] = useState<{ direction: 'next' | 'prev'; tick: number } | null>(null);
+  const queueRef = useRef(queue);
+  const queuePositionRef = useRef(queuePosition);
+  const currentTrackRef = useRef(currentTrack);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
+  useEffect(() => { queuePositionRef.current = queuePosition; }, [queuePosition]);
+  useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
   const [activePlaylistId, setActivePlaylistId] = useState<string | null>(() =>
     savedSession?.activePlaylistId ?? (() => {
       try {
@@ -143,14 +159,9 @@ export function Dashboard({ user }: Props) {
       setIsFullscreenClosing(false);
     }, 300);
   }, []);
-  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return localStorage.getItem('yt_sidebar_expanded') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [sidebarExpanded, setSidebarExpanded] = useState(() =>
+    typeof window === 'undefined' ? true : localStorage.getItem('yt_sidebar_expanded') !== 'false'
+  );
   const [sleepTimerRequest, setSleepTimerRequest] = useState<{ type: 'open' | 'set'; minutes?: number; id: number } | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(() =>
     typeof window !== 'undefined' &&
@@ -235,16 +246,14 @@ export function Dashboard({ user }: Props) {
       }
     };
 
-    const handleOnline = () => {
-      if (!isOfflineMode) void checkRealStatus();
-    };
+    const handleOnline = () => { void checkRealStatus(); };
     const handleOffline = () => {
       activeController?.abort();
       activeCheck = null;
       setOfflineMode(true);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !isOfflineMode) {
+      if (document.visibilityState === 'visible') {
         void checkRealStatus();
       }
     };
@@ -253,7 +262,7 @@ export function Dashboard({ user }: Props) {
     window.addEventListener('offline', handleOffline);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     const heartbeatId = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && !isOfflineMode) void checkRealStatus();
+    if (document.visibilityState === 'visible') void checkRealStatus();
     }, 5000);
 
     if (document.visibilityState === 'visible' && !isOfflineMode) void checkRealStatus();
@@ -268,7 +277,6 @@ export function Dashboard({ user }: Props) {
   }, [setOfflineMode, isOfflineMode]);
 
   const handleToggleOfflineMode = useCallback(() => {
-    if (isHardwareOffline) return; // can't go online when hardware is offline
     setIsOfflineMode((prev) => {
       const next = !prev;
       localStorage.setItem('yt_offline_mode', String(next));
@@ -289,46 +297,9 @@ export function Dashboard({ user }: Props) {
   }, [currentTrack]);
 
   const [undoAction, setUndoAction] = useState<{ track: Track; playlistId: string } | null>(null);
-  // Holds the timeout that fires the actual API delete after the undo window expires
-  const pendingDeleteRef = useRef<{ timeoutId: number; track: Track; playlistId: string } | null>(null);
-
-  // When undoAction clears (banner dismissed without clicking undo), fire the deferred API delete
   useEffect(() => {
     if (!undoAction) return;
-    // Clear any previous timer
-    if (pendingDeleteRef.current) {
-      window.clearTimeout(pendingDeleteRef.current.timeoutId);
-    }
-    const { track, playlistId } = undoAction;
-    const timeoutId = window.setTimeout(async () => {
-      setUndoAction(null);
-      pendingDeleteRef.current = null;
-      // Ping internet before firing the remove API call
-      try {
-        const pingRes = await fetch('/api/ping', { method: 'HEAD', cache: 'no-store' }).catch(() => null);
-        if (!pingRes || !pingRes.ok) {
-          alert('No internet connection. Could not remove "' + track.title + '" from the playlist.');
-          return;
-        }
-        const response = await apiFetch('/api/playlist/remove', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Failed to remove song from playlist');
-      } catch (error) {
-        const memberships = getCachedPlaylistMemberships(track.videoId);
-        memberships.add(playlistId);
-        primePlaylistMemberships(track.videoId, memberships);
-        setPlaylists((prev) => prev.map((playlist) => playlist.id === playlistId
-          ? { ...playlist, trackCount: playlist.trackCount + 1 }
-          : playlist));
-        setRestoredTrack({ track, playlistId, timestamp: Date.now() });
-        alert(error instanceof Error ? error.message : 'Failed to remove song from playlist');
-      }
-    }, 7000);
-    pendingDeleteRef.current = { timeoutId, track, playlistId };
+    const timeoutId = window.setTimeout(() => setUndoAction(null), 3000);
     return () => window.clearTimeout(timeoutId);
   }, [undoAction]);
 
@@ -368,6 +339,9 @@ export function Dashboard({ user }: Props) {
   const volumeRef = useRef(savedSession?.volume ?? 1);
   const lastAudibleVolumeRef = useRef(savedSession?.volume && savedSession.volume > 0 ? savedSession.volume : 1);
   const [shouldAutoplay, setShouldAutoplay] = useState(savedSession?.isPlaying ?? false);
+  // Do not let first-render defaults overwrite persisted player settings before
+  // the localStorage hydration effect has finished.
+  const [localSettingsHydrated, setLocalSettingsHydrated] = useState(false);
   const [historyPosition, setHistoryPosition] = useState(0);
   const [historyLength, setHistoryLength] = useState(0);
   const historyPositionRef = useRef(0);
@@ -385,6 +359,7 @@ export function Dashboard({ user }: Props) {
       .then((data) => {
         if (Array.isArray(data?.pinnedPlaylists)) setPinnedIds(data.pinnedPlaylists);
         if (Array.isArray(data?.hiddenPlaylists)) setHiddenIds(data.hiddenPlaylists);
+        if (Array.isArray(data?.importedPlaylists)) setImportedPlaylistIds(data.importedPlaylists);
       })
       .catch(() => { });
 
@@ -401,57 +376,67 @@ export function Dashboard({ user }: Props) {
       if (savedQueueWidth) setQueueWidth(parseFloat(savedQueueWidth));
       if (savedLyricsWidth) setLyricsWidth(parseFloat(savedLyricsWidth));
     } catch { }
+    setLocalSettingsHydrated(true);
   }, []);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_playback_shuffle', JSON.stringify(isShuffle));
     } catch { }
-  }, [isShuffle]);
+  }, [isShuffle, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_playback_repeat', JSON.stringify(repeatMode));
     } catch { }
-  }, [repeatMode]);
+  }, [repeatMode, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_playback_volume', String(volume));
     } catch { }
-  }, [volume]);
+  }, [volume, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_playback_muted', JSON.stringify(isMuted));
     } catch { }
-  }, [isMuted]);
+  }, [isMuted, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_queue_width_pct', String(queueWidth));
     } catch { }
-  }, [queueWidth]);
+  }, [queueWidth, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_lyrics_width_pct', String(lyricsWidth));
     } catch { }
-  }, [lyricsWidth]);
+  }, [lyricsWidth, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem('yt_sidebar_expanded', String(sidebarExpanded));
     } catch { }
-  }, [sidebarExpanded]);
+  }, [sidebarExpanded, localSettingsHydrated]);
 
   useEffect(() => {
+    if (!localSettingsHydrated) return;
     try {
       localStorage.setItem(
         'yt_playback_session',
         JSON.stringify({
           track: currentTrack,
           queue,
+          queuePosition,
           activePlaylistId,
           time: currentTime,
           isPlaying,
@@ -464,7 +449,7 @@ export function Dashboard({ user }: Props) {
         } satisfies PlaybackSession)
       );
     } catch { }
-  }, [currentTrack, queue, activePlaylistId, currentTime, isPlaying, isShuffle, repeatMode, volume, isMuted, isQueueOpen, isLyricsOpen]);
+  }, [currentTrack, queue, queuePosition, activePlaylistId, currentTime, isPlaying, isShuffle, repeatMode, volume, isMuted, isQueueOpen, isLyricsOpen, localSettingsHydrated]);
 
   const nativeProgress = useNativeDownloadProgress();
   const [downloadJobs, setDownloadJobs] = useState<Map<string, DownloadJob>>(new Map());
@@ -498,7 +483,7 @@ export function Dashboard({ user }: Props) {
 
   const applyRoute = useCallback(
     (route: RouteState) => {
-      setShowHiddenFolder(route.kind === 'hidden');
+      setShowPlaylistManagement(route.kind === 'management');
       const q = route.kind === 'search' ? route.query : '';
       setSearchQuery(q);
       setTypedSearchInput(q);
@@ -611,8 +596,21 @@ export function Dashboard({ user }: Props) {
   }, [isOfflineMode]);
 
   const handleOpenHiddenFolder = useCallback(() => {
-    navigateRoute({ kind: 'hidden' });
+    navigateRoute({ kind: 'management' });
   }, [navigateRoute]);
+
+  const handleToggleImport = useCallback((id: string) => {
+    setImportedPlaylistIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+      return next;
+    });
+  }, []);
+
+  const handleDoneImport = useCallback(async () => {
+    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: importedPlaylistIds }) }).catch(() => {});
+    await Promise.all(importedPlaylistIds.map((id) => apiFetch(`/api/playlist?playlistId=${encodeURIComponent(id)}&forceRefresh=1`).catch(() => null)));
+    navigateRoute({ kind: 'home' });
+  }, [apiFetch, importedPlaylistIds, navigateRoute]);
 
   const [playlistGlowDimmed, setPlaylistGlowDimmed] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
@@ -666,25 +664,28 @@ export function Dashboard({ user }: Props) {
     const nextPlaylistId = sourcePlaylistId ?? track.sourcePlaylistId ?? track.playlistId ?? selectedPlaylist?.id ?? null;
     const queuedTracks = newQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined }));
 
-    setPlaybackHistory((prev) => {
-      if (!currentTrack || currentTrack.videoId === track.videoId) return prev;
-      return [...prev, { track: currentTrack, queue: queue.length > 0 ? queue : [currentTrack], activePlaylistId: activePlaylistId }];
-    });
-
     const trackWithSource = {
       ...track,
       sourcePlaylistId: nextPlaylistId || undefined,
       playlistId: track.playlistId ?? (nextPlaylistId || undefined),
     };
+    const requestedIndex = Math.max(0, newQueue.indexOf(track), newQueue.findIndex((item) => item.videoId === track.videoId));
+    const queueWithCurrent = queuedTracks.length > 0 ? queuedTracks : [trackWithSource];
+    const position = Math.min(requestedIndex, queueWithCurrent.length - 1);
+    queueWithCurrent[position] = trackWithSource;
+    queueRef.current = queueWithCurrent;
+    queuePositionRef.current = position;
+    currentTrackRef.current = trackWithSource;
     setCurrentTrack(trackWithSource);
-    setQueue(queuedTracks);
+    setQueue(queueWithCurrent);
+    setQueuePosition(position);
     setActivePlaylistId(nextPlaylistId);
     try {
       if (nextPlaylistId) localStorage.setItem('yt_active_playlist_id', nextPlaylistId);
       else localStorage.removeItem('yt_active_playlist_id');
     } catch { }
     setShouldAutoplay(true);
-  }, [activePlaylistId, currentTrack, queue, selectedPlaylist?.id]);
+  }, [selectedPlaylist?.id]);
 
   const handlePlayPlaylist = useCallback(async (playlistId: string) => {
     let tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId);
@@ -700,88 +701,79 @@ export function Dashboard({ user }: Props) {
   }, [allTracks, handlePlay, playlists]);
 
   const playingPlaylistId = activePlaylistId;
-  const canGoToPrevious = Boolean(
-    currentTrack &&
-    (
-      playbackHistory.length > 0 ||
-      (queue.findIndex((t) => t.videoId === currentTrack.videoId) > 0)
-    )
-  );
+  const moveToQueuePosition = useCallback((position: number, tracks = queueRef.current) => {
+    const nextTrack = tracks[position];
+    if (!nextTrack) return;
+    // Update refs before React schedules a render so rapid media-key/button
+    // presses always advance from the last requested position.
+    queueRef.current = tracks;
+    queuePositionRef.current = position;
+    const trackWithSource = { ...nextTrack, sourcePlaylistId: nextTrack.sourcePlaylistId || activePlaylistId || undefined };
+    currentTrackRef.current = trackWithSource;
+    setQueue(tracks);
+    setQueuePosition(position);
+    setCurrentTrack(trackWithSource);
+    setCurrentTime(0);
+    setShouldAutoplay(true);
+  }, [activePlaylistId]);
+
+  const canGoToPrevious = Boolean(currentTrack && (queuePosition > 0 || currentTime > 3));
+  const canGoToNext = Boolean(currentTrack && (queuePosition < queue.length - 1 || repeatMode === 'all'));
 
   const handleNext = useCallback(() => {
-    if (!currentTrack || queue.length === 0) return;
-    const currentIndex = queue.findIndex((t) => t.videoId === currentTrack.videoId);
-    if (currentIndex === -1) return;
+    const tracks = queueRef.current;
+    const position = queuePositionRef.current;
+    if (!currentTrackRef.current || tracks.length === 0) return;
     if (repeatMode === 'one') {
       const audio = document.querySelector('audio') as HTMLAudioElement | null;
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play();
-      }
+      if (audio) { audio.currentTime = 0; void audio.play(); }
       return;
     }
-    setShouldAutoplay(true);
-    if (isShuffle) {
-      const remaining = queue.filter((_, idx) => idx !== currentIndex);
-      if (remaining.length > 0) {
-        const nextTrack = remaining[Math.floor(Math.random() * remaining.length)];
-        setCurrentTrack({ ...nextTrack, sourcePlaylistId: (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined });
-      }
-      return;
-    }
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < queue.length) {
-      const nextTrack = queue[nextIndex];
-      setCurrentTrack({ ...nextTrack, sourcePlaylistId: (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined });
+
+    if (position < tracks.length - 1) {
+      // When moving forward after Previous, this is deliberately the adjacent
+      // entry in the existing sequence, never a newly shuffled replacement.
+      setNavigation({ direction: 'next', tick: Date.now() });
+      moveToQueuePosition(position + 1);
     } else if (repeatMode === 'all') {
-      const playlistStart = activePlaylistId
-        ? Object.values(allTracks)
-          .filter((track) => track.playlistId === activePlaylistId && track.downloaded)
-          .sort((a, b) => a.position - b.position)[0]
-        : undefined;
-      const target = playlistStart ?? queue[0];
-      if (target) {
-        setCurrentTrack({ ...target, sourcePlaylistId: (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined });
-      }
+      setNavigation({ direction: 'next', tick: Date.now() });
+      moveToQueuePosition(0);
     }
-  }, [activePlaylistId, allTracks, currentTrack, queue, isShuffle, repeatMode]);
+  }, [moveToQueuePosition, repeatMode]);
 
   const handlePrev = useCallback(() => {
-    if (!currentTrack) return;
     const audio = document.querySelector('audio') as HTMLAudioElement | null;
+    if (!currentTrackRef.current) return;
     if (audio && audio.currentTime > 3) {
       audio.currentTime = 0;
+      setCurrentTime(0);
       return;
     }
+    const position = queuePositionRef.current;
+    if (position > 0) {
+      setNavigation({ direction: 'prev', tick: Date.now() });
+      moveToQueuePosition(position - 1);
+    }
+  }, [moveToQueuePosition]);
 
-    const historyEntry = playbackHistory[playbackHistory.length - 1];
-    if (historyEntry) {
-      setShouldAutoplay(true);
-      setPlaybackHistory((prev) => prev.slice(0, -1));
-      const previousTrack = {
-        ...historyEntry.track,
-        sourcePlaylistId: historyEntry.activePlaylistId || (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined,
-      };
-      setCurrentTrack(previousTrack);
-      setQueue(historyEntry.queue.length > 0 ? historyEntry.queue : [historyEntry.track]);
-      setActivePlaylistId(historyEntry.activePlaylistId ?? activePlaylistId ?? null);
-      if (historyEntry.activePlaylistId) {
-        try {
-          localStorage.setItem('yt_active_playlist_id', historyEntry.activePlaylistId);
-        } catch { }
+  const handleToggleShuffle = useCallback(() => {
+    setIsShuffle((enabled) => {
+      const nextEnabled = !enabled;
+      if (nextEnabled) {
+        const position = queuePositionRef.current;
+        const tracks = queueRef.current;
+        const upcoming = tracks.slice(position + 1);
+        for (let index = upcoming.length - 1; index > 0; index -= 1) {
+          const swapIndex = Math.floor(Math.random() * (index + 1));
+          [upcoming[index], upcoming[swapIndex]] = [upcoming[swapIndex], upcoming[index]];
+        }
+        const shuffled = [...tracks.slice(0, position + 1), ...upcoming];
+        queueRef.current = shuffled;
+        setQueue(shuffled);
       }
-      return;
-    }
-
-    const currentIndex = queue.findIndex((t) => t.videoId === currentTrack.videoId);
-    if (currentIndex > 0) {
-      setShouldAutoplay(true);
-      const prevTrack = queue[currentIndex - 1];
-      setCurrentTrack({ ...prevTrack, sourcePlaylistId: (currentTrack as any).sourcePlaylistId || activePlaylistId || undefined });
-    }
-  }, [activePlaylistId, currentTrack, playbackHistory, queue]);
-
-  const handleToggleShuffle = useCallback(() => setIsShuffle((prev) => !prev), []);
+      return nextEnabled;
+    });
+  }, []);
   const handleToggleRepeat = useCallback(() => {
     setRepeatMode((prev) => (prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'));
   }, []);
@@ -811,6 +803,10 @@ export function Dashboard({ user }: Props) {
   }, [isMuted]);
 
   const handleToggleQueue = useCallback(() => {
+    if (isFullscreenOpen) {
+      handleCloseFullscreen();
+      return;
+    }
     if (isQueueOpen) {
       handleCloseQueue();
       return;
@@ -821,9 +817,13 @@ export function Dashboard({ user }: Props) {
       return;
     }
     setIsQueueOpen(true);
-  }, [isQueueOpen, isLyricsOpen, handleCloseQueue, handleCloseLyrics]);
+  }, [isFullscreenOpen, isQueueOpen, isLyricsOpen, handleCloseFullscreen, handleCloseQueue, handleCloseLyrics]);
 
   const handleToggleLyrics = useCallback(() => {
+    if (isFullscreenOpen) {
+      handleCloseFullscreen();
+      return;
+    }
     if (isLyricsOpen) {
       handleCloseLyrics();
       return;
@@ -834,39 +834,37 @@ export function Dashboard({ user }: Props) {
       return;
     }
     setIsLyricsOpen(true);
-  }, [isQueueOpen, isLyricsOpen, handleCloseQueue, handleCloseLyrics]);
+  }, [isFullscreenOpen, isQueueOpen, isLyricsOpen, handleCloseFullscreen, handleCloseQueue, handleCloseLyrics]);
 
   const handleAddToQueue = useCallback((track: Track) => {
-    setQueue((prev) => [track, ...prev.filter((t) => t.videoId !== track.videoId)]);
-    setCurrentTrack((prev) => prev ?? track);
-  }, []);
+    const tracks = [...queueRef.current];
+    const insertAt = currentTrackRef.current ? queuePositionRef.current + 1 : 0;
+    tracks.splice(insertAt, 0, track);
+    queueRef.current = tracks;
+    setQueue(tracks);
+    if (!currentTrackRef.current) moveToQueuePosition(0, tracks);
+  }, [moveToQueuePosition]);
 
-  const handleReorderQueue = useCallback((fromVideoId: string, toVideoId: string, insertBefore: boolean) => {
-    setQueue((prev) => {
-      const fromIndex = prev.findIndex((track) => track.videoId === fromVideoId);
-      const toIndex = prev.findIndex((track) => track.videoId === toVideoId);
-      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev;
-      let targetIdx = insertBefore ? toIndex : toIndex + 1;
-      if (fromIndex < targetIdx) targetIdx -= 1;
-      if (fromIndex === targetIdx) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(targetIdx, 0, moved);
-      return next;
-    });
+  const handleReorderQueue = useCallback((fromIndex: number, toIndex: number, insertBefore: boolean) => {
+    const tracks = [...queueRef.current];
+    if (fromIndex <= queuePositionRef.current || toIndex <= queuePositionRef.current || fromIndex === toIndex) return;
+    let targetIndex = insertBefore ? toIndex : toIndex + 1;
+    if (fromIndex < targetIndex) targetIndex -= 1;
+    if (fromIndex === targetIndex) return;
+    const [moved] = tracks.splice(fromIndex, 1);
+    tracks.splice(targetIndex, 0, moved);
+    queueRef.current = tracks;
+    setQueue(tracks);
   }, []);
 
   const handlePlayNext = useCallback((track: Track) => {
-    setQueue((prev) => {
-      const withoutTrack = prev.filter((item) => item.videoId !== track.videoId);
-      if (!currentTrack) return [...withoutTrack, track];
-      const currentIndex = withoutTrack.findIndex((item) => item.videoId === currentTrack.videoId);
-      if (currentIndex === -1) return [...withoutTrack, track];
-      withoutTrack.splice(currentIndex + 1, 0, track);
-      return withoutTrack;
-    });
-    setCurrentTrack((prev) => prev ?? track);
-  }, [currentTrack]);
+    const tracks = [...queueRef.current];
+    const insertAt = currentTrackRef.current ? queuePositionRef.current + 1 : tracks.length;
+    tracks.splice(insertAt, 0, track);
+    queueRef.current = tracks;
+    setQueue(tracks);
+    if (!currentTrackRef.current) moveToQueuePosition(0, tracks);
+  }, [moveToQueuePosition]);
 
   const handleAddToPlaylist = useCallback((track: Track, playlistId: string) => {
     const targetPl = playlists.find((p) => p.id === playlistId);
@@ -924,29 +922,35 @@ export function Dashboard({ user }: Props) {
       setCurrentTrack(null);
       setQueue((prev) => prev.filter((item) => item.videoId !== track.videoId));
     }
-    // Show undo banner immediately — actual API call is deferred 7s
+    // Enqueue the remote removal immediately, matching add behavior. The
+    // operation engine persists and retries it in the background.
+    apiFetch('/api/playlist/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
+    }).catch((error) => {
+      const memberships = getCachedPlaylistMemberships(track.videoId);
+      memberships.add(playlistId);
+      primePlaylistMemberships(track.videoId, memberships);
+      setPlaylistMutation({ type: 'add', track, playlistId, timestamp: Date.now() });
+      setPlaylists((prev) => prev.map((playlist) => playlist.id === playlistId
+        ? { ...playlist, trackCount: playlist.trackCount + 1 }
+        : playlist));
+      setRestoredTrack({ track, playlistId, timestamp: Date.now() });
+      alert(error instanceof Error ? error.message : 'Failed to remove song from playlist');
+    });
     setUndoAction({ track, playlistId });
-  }, [activePlaylistId, currentTrack]);
+  }, [activePlaylistId, apiFetch, currentTrack]);
 
   const handleUndoRemove = useCallback(() => {
     if (!undoAction) return;
-    // Cancel the pending API delete — no server call needed
-    if (pendingDeleteRef.current) {
-      window.clearTimeout(pendingDeleteRef.current.timeoutId);
-      pendingDeleteRef.current = null;
-    }
     const target = undoAction;
     setUndoAction(null);
     const memberships = getCachedPlaylistMemberships(target.track.videoId);
     memberships.add(target.playlistId);
     primePlaylistMemberships(target.track.videoId, memberships);
-    setPlaylistMutation({ type: 'add', track: target.track, playlistId: target.playlistId, timestamp: Date.now() });
-    setPlaylists((prev) => prev.map((playlist) => playlist.id === target.playlistId
-      ? { ...playlist, trackCount: playlist.trackCount + 1 }
-      : playlist));
-    // Re-insert track into PlaylistView state at original position
-    setRestoredTrack({ track: target.track, playlistId: target.playlistId, timestamp: Date.now() });
-  }, [undoAction]);
+    void handleAddToPlaylist(target.track, target.playlistId);
+  }, [handleAddToPlaylist, undoAction]);
 
   const handleSetSleepTimer = useCallback((minutes: number) => {
     setSleepTimerRequest({ type: 'set', minutes, id: Date.now() });
@@ -956,16 +960,19 @@ export function Dashboard({ user }: Props) {
     setSleepTimerRequest({ type: 'open', id: Date.now() });
   }, []);
 
-  const handleRemoveFromQueue = useCallback((videoId: string) => {
-    setQueue((prev) => prev.filter((t) => t.videoId !== videoId));
+  const handleRemoveFromQueue = useCallback((queueIndex: number) => {
+    if (queueIndex <= queuePositionRef.current) return;
+    const tracks = [...queueRef.current];
+    tracks.splice(queueIndex, 1);
+    queueRef.current = tracks;
+    setQueue(tracks);
   }, []);
 
   const handleClearQueue = useCallback(() => {
-    setQueue((prev) => {
-      if (!currentTrack) return [];
-      return prev.filter((t) => t.videoId === currentTrack.videoId);
-    });
-  }, [currentTrack]);
+    const tracks = currentTrackRef.current ? queueRef.current.slice(0, queuePositionRef.current + 1) : [];
+    queueRef.current = tracks;
+    setQueue(tracks);
+  }, []);
 
   const handleDownloadTrack = useCallback(async (track: Track) => {
     try {
@@ -1149,9 +1156,10 @@ export function Dashboard({ user }: Props) {
   const allJobs = Array.from(downloadJobs.values());
   const activeDownloadCount = allJobs.filter((j) => j.status === 'running' || j.status === 'starting').length;
 
+  const importedPlaylists = playlists.filter((playlist) => importedPlaylistIds.includes(playlist.id));
   const filteredPlaylists = searchQuery.trim()
-    ? playlists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase().trim()))
-    : playlists;
+    ? importedPlaylists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase().trim()))
+    : importedPlaylists;
 
   const playlistRecommendations = useMemo(() => {
     if (!selectedPlaylist) return [];
@@ -1270,20 +1278,24 @@ export function Dashboard({ user }: Props) {
           method: 'DELETE',
         });
         if (res.ok) {
-          setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
+          setImportedPlaylistIds((prev) => {
+            const next = prev.filter((id) => id !== playlistId);
+            apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => {});
+            return next;
+          });
           setHiddenIds((prev) => prev.filter((id) => id !== playlistId));
           setPinnedIds((prev) => prev.filter((id) => id !== playlistId));
           if (selectedPlaylist?.id === playlistId) {
             setSelectedPlaylist(null);
           }
         } else {
-          alert('Failed to delete playlist');
+          alert('Failed to remove playlist');
         }
       } catch {
-        alert('Error deleting playlist');
+        alert('Error removing playlist');
       }
     },
-    [selectedPlaylist]
+    [apiFetch, selectedPlaylist]
   );
 
   const handlePushPlaylist = useCallback(async (playlist: Playlist) => {
@@ -1460,6 +1472,14 @@ export function Dashboard({ user }: Props) {
     navigateRoute,
   ]);
 
+  const longestPlaylistTitle = playlists.reduce(
+    (longest, playlist) => Math.max(longest, playlist.title.trim().length),
+    0,
+  );
+  // Give shorter libraries a more compact footprint while reserving enough
+  // room for names up to 20 characters. Longer names remain contained.
+  const sidebarWidth = Math.min(310, Math.max(240, 210 + Math.min(20, longestPlaylistTitle) * 7));
+
   return (
     <div className="music-shell h-screen w-screen flex flex-col overflow-hidden">
       <Header
@@ -1510,10 +1530,13 @@ export function Dashboard({ user }: Props) {
       />
 
       <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
-        <aside className="music-sidebar h-full shrink-0 overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]" style={{ width: sidebarExpanded ? `${SIDEBAR_EXPANDED_WIDTH}%` : '85px' }}>
+        <aside
+          className={`music-sidebar h-full shrink-0 overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${sidebarExpanded ? 'min-w-[240px] max-w-[360px]' : 'w-[72px]'}`}
+          style={{ width: sidebarExpanded ? `${sidebarWidth}px` : '72px' }}
+        >
           <Sidebar
-            playlists={playlists}
-            selectedId={selectedPlaylist ? selectedPlaylist.id : showHiddenFolder ? '__hidden__' : null}
+            playlists={importedPlaylists}
+            selectedId={selectedPlaylist ? selectedPlaylist.id : showPlaylistManagement ? '__management__' : null}
             pinnedIds={pinnedIds}
             hiddenIds={hiddenIds}
             playingPlaylistId={playingPlaylistId}
@@ -1521,7 +1544,6 @@ export function Dashboard({ user }: Props) {
             isGlowDimmed={playlistGlowDimmed}
             onSelect={handleSelectPlaylist}
             onTogglePin={handleTogglePin}
-            onToggleHidden={handleToggleHidden}
             onOpenHiddenFolder={handleOpenHiddenFolder}
             onPlayPlaylist={handlePlayPlaylist}
             expanded={sidebarExpanded}
@@ -1544,21 +1566,20 @@ export function Dashboard({ user }: Props) {
               />
             ) : loadingPlaylists ? (
               selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
-            ) : showHiddenFolder ? (
-              <HiddenPlaylistsView
+            ) : showPlaylistManagement ? (
+              <PlaylistManagementView
                 playlists={playlists}
-                hiddenIds={hiddenIds}
+                importedIds={importedPlaylistIds}
                 onSelect={handleSelectPlaylist}
-                onToggleHidden={handleToggleHidden}
+                onToggleImport={handleToggleImport}
+                onDone={handleDoneImport}
                 onDeletePlaylist={handleDeletePlaylist}
-                onPushPlaylist={handlePushPlaylist}
               />
             ) : selectedPlaylist ? (
               <PlaylistView
                 key={selectedPlaylist.id}
                 playlist={selectedPlaylist}
                 isPinned={pinnedIds.includes(selectedPlaylist.id)}
-                isHidden={hiddenIds.includes(selectedPlaylist.id)}
                 onPlay={(track, queue) => handlePlay(track, queue, selectedPlaylist.id)}
                 onAddToQueue={handleAddToQueue}
                 onPlayNext={handlePlayNext}
@@ -1572,7 +1593,6 @@ export function Dashboard({ user }: Props) {
                 onDeleteTrack={handleDeleteTrack}
                 onTrackDeleted={handleTrackDeleted}
                 onTogglePin={handleTogglePin}
-                onToggleHidden={handleToggleHidden}
                 onTracksLoaded={handleTracksLoaded}
                 lastDownloadedTrack={lastDownloadedTrack}
                 restoredTrack={restoredTrack}
@@ -1585,14 +1605,25 @@ export function Dashboard({ user }: Props) {
                 playlistMutation={playlistMutation}
               />
             ) : (
-              <PlaylistGrid
-                playlists={filteredPlaylists}
-                pinnedIds={pinnedIds}
-                hiddenIds={hiddenIds}
-                onSelect={handleSelectPlaylist}
-                onTogglePin={handleTogglePin}
-                onPlay={handlePlayPlaylist}
-              />
+              importedPlaylists.length === 0 ? (
+                <PlaylistManagementView
+                  playlists={playlists}
+                  importedIds={importedPlaylistIds}
+                  onSelect={handleSelectPlaylist}
+                  onToggleImport={handleToggleImport}
+                  onDone={handleDoneImport}
+                  onDeletePlaylist={handleDeletePlaylist}
+                />
+              ) : (
+                <PlaylistGrid
+                  playlists={filteredPlaylists}
+                  pinnedIds={pinnedIds}
+                  hiddenIds={[]}
+                  onSelect={handleSelectPlaylist}
+                  onTogglePin={handleTogglePin}
+                  onPlay={handlePlayPlaylist}
+                />
+              )
             )}
           </div>
 
@@ -1600,15 +1631,16 @@ export function Dashboard({ user }: Props) {
             <>
               <ResizeDivider onDelta={(d) => setQueueWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, QUEUE_MIN, QUEUE_MAX))} />
               <div
-                className={`h-full shrink-0 border-l border-[#00F2FE]/45 overflow-hidden ${isQueueClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                className={`h-full shrink-0 border-l border-white/10 overflow-hidden transition-[width] duration-300 ease-out ${isQueueClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
                 style={{ width: `${queueWidth}%` }}
               >
                 <QueueDrawer
                   currentTrack={currentTrack}
                   queue={queue}
+                  queuePosition={queuePosition}
                   onClose={handleCloseQueue}
-                  onPlayTrack={(t) => setCurrentTrack(t)}
+                  onPlayTrack={(_, position) => moveToQueuePosition(position)}
                   onRemoveFromQueue={handleRemoveFromQueue}
                   onClearQueue={handleClearQueue}
                   onReorderQueue={handleReorderQueue}
@@ -1628,7 +1660,7 @@ export function Dashboard({ user }: Props) {
             <>
               <ResizeDivider onDelta={(d) => setLyricsWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, LYRICS_MIN, LYRICS_MAX))} />
               <div
-                className={`h-full shrink-0 border-l border-[#a855f7]/35 overflow-hidden ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                className={`h-full shrink-0 border-l border-white/10 overflow-hidden transition-[width] duration-300 ease-out ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
                 style={{ width: `${lyricsWidth}%` }}
               >
@@ -1649,11 +1681,14 @@ export function Dashboard({ user }: Props) {
 
       <PlayerBar
         track={currentTrack}
+        trackLoadKey={queuePosition}
+        navigationDirection={navigation?.direction}
+        navigationTick={navigation?.tick}
         queue={queue}
         onNext={handleNext}
         onPrev={handlePrev}
         canPrev={canGoToPrevious}
-        canNext={queue.length > 0 && currentTrack ? queue.findIndex((t) => t.videoId === currentTrack.videoId) >= 0 && queue.findIndex((t) => t.videoId === currentTrack.videoId) < queue.length - 1 : false}
+        canNext={canGoToNext}
         onTrackEnd={handleNext}
         onToggleQueue={handleToggleQueue}
         onToggleLyrics={handleToggleLyrics}

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { Track } from '@/types';
-import { X, Music2 } from 'lucide-react';
+import { X, Music2, Image as ImageIcon } from 'lucide-react';
 import { parseLRC, getActiveLyricIndex } from '@/lib/lyrics';
 import type { LyricLine } from '@/lib/lyrics';
 import { Skeleton } from './Skeleton';
@@ -43,6 +43,42 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const activeRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastFetchKey = useRef('');
+  const [palette, setPalette] = useState(['#17121f', '#101827', '#0b1118']);
+  const [imageTheme, setImageTheme] = useState(true);
+
+  useEffect(() => {
+    if (!track?.thumbnailUrl) return;
+    let cancelled = false;
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => {
+      if (cancelled) return;
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        context.drawImage(image, 0, 0, 32, 32);
+        const pixels = context.getImageData(0, 0, 32, 32).data;
+        const buckets = new Map<string, number>();
+        for (let i = 0; i < pixels.length; i += 16) {
+          const r = Math.floor(pixels[i] / 32) * 32;
+          const g = Math.floor(pixels[i + 1] / 32) * 32;
+          const b = Math.floor(pixels[i + 2] / 32) * 32;
+          const key = `${r},${g},${b}`;
+          buckets.set(key, (buckets.get(key) || 0) + 1);
+        }
+        const colors = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key]) => {
+          const [r, g, b] = key.split(',').map(Number);
+          return `rgb(${r}, ${g}, ${b})`;
+        });
+        if (colors.length > 0) setPalette(colors);
+      } catch { /* Some browser image policies can block canvas sampling. */ }
+    };
+    image.src = `/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`;
+    return () => { cancelled = true; };
+  }, [track?.thumbnailUrl, track?.videoId]);
 
   useEffect(() => {
     if (!track) return;
@@ -118,9 +154,9 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const hasPlain = !!lyricsData?.plainLyrics;
 
   return (
-    <div className="h-full bg-[#120e18] flex flex-col overflow-hidden relative select-none">
+    <div className="h-full flex flex-col overflow-hidden relative select-none" style={{ background: imageTheme ? `linear-gradient(135deg, ${palette[0]} 0%, #090b10 58%, ${palette[1] || palette[0]} 100%)` : '#090b10' }}>
       {/* Ambient bg */}
-      <div className="absolute inset-0 opacity-[0.07] pointer-events-none z-0">
+      <div className={`absolute inset-0 opacity-[0.18] pointer-events-none z-0 ${imageTheme ? '' : 'hidden'}`}>
         {track.thumbnailUrl && (
           <img
             src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
@@ -131,7 +167,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       </div>
 
       {/* Header */}
-      <div className="relative z-10 flex items-center justify-between px-5 py-4 border-b border-white/5 shrink-0">
+      <div className="relative z-10 flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-2">
           <Music2 className="w-4 h-4 text-[#00F2FE]" />
           <span className="text-sm font-bold text-white tracking-tight">Lyrics</span>
@@ -139,16 +175,23 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
             <span className="text-xs text-white/30 truncate max-w-[120px]">— {lyricsData.artistName}</span>
           )}
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded-full text-white/30 hover:text-white hover:bg-white/5 transition-all"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setImageTheme((enabled) => !enabled)}
+            className={`p-1.5 rounded-full transition-all ${imageTheme ? 'text-[#00F2FE] bg-white/5' : 'text-white/30 hover:text-white hover:bg-white/5'}`}
+            title={imageTheme ? 'Use normal lyrics theme' : 'Use song image theme'}
+            aria-label="Toggle lyrics background theme"
+          >
+            <ImageIcon className="w-4 h-4" />
+          </button>
+          <button onClick={onClose} className="p-1.5 rounded-full text-white/30 hover:text-white hover:bg-white/5 transition-all" aria-label="Close lyrics">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Body */}
-      <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0">
+      <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0 [scrollbar-color:transparent_transparent]">
         {loading && (
           <div className="py-0 space-y-1">
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((index) => (
@@ -240,7 +283,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       </div>
 
       {/* Now playing footer */}
-      <div className="relative z-10 border-t border-white/5 px-5 py-3 shrink-0 flex items-center gap-3 bg-black/30">
+      <div className="relative z-10 border-t border-white/10 px-5 py-3 shrink-0 flex items-center gap-3 bg-black/30">
         <div className="w-8 h-8 rounded-md overflow-hidden shrink-0">
           <img
             src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}

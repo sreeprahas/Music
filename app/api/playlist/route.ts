@@ -3,6 +3,7 @@ import { getSession, refreshAccessToken } from '@/lib/auth';
 import { getPlaylistTracks } from '@/lib/ytmusicApi';
 import { isDownloaded } from '@/lib/downloader';
 import { getCachedTracks, setCachedTracks } from '@/lib/db';
+import { getPendingPlaylistMutations } from '@/lib/operationEngine';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,19 @@ function uniqueTracks(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
     seen.add(track.videoId);
     return true;
   });
+}
+
+function applyPendingMutations(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>, playlistId: string) {
+  const effective = [...tracks];
+  for (const mutation of getPendingPlaylistMutations(playlistId)) {
+    const index = effective.findIndex((track) => track.videoId === mutation.videoId);
+    if (mutation.operation === 'remove') {
+      if (index >= 0) effective.splice(index, 1);
+    } else if (index < 0 && mutation.track) {
+      effective.push({ ...mutation.track, playlistId, playlistItemId: undefined, position: effective.length });
+    }
+  }
+  return effective.map((track, index) => ({ ...track, position: index }));
 }
 
 async function removeDuplicateItems(accessToken: string, tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
@@ -55,7 +69,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!forceRefresh) {
     const cached = getCachedTracks(playlistId);
     if (cached && cached.length > offset) {
-      const tracksWithStatus = uniqueTracks(cached).map((t) => ({
+      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
@@ -67,7 +81,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   if (!session) {
     const cached = getCachedTracks(playlistId);
     if (cached && cached.length > offset) {
-      const tracksWithStatus = uniqueTracks(cached).map((t) => ({
+      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));
@@ -85,18 +99,20 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   try {
     const fetchedTracks = await getPlaylistTracks(accessToken, playlistId, offset + limit);
     await removeDuplicateItems(accessToken, fetchedTracks);
-    const tracks = uniqueTracks(fetchedTracks);
+    const tracks = applyPendingMutations(uniqueTracks(fetchedTracks), playlistId);
     const tracksWithStatus = tracks.slice(offset, end).map((t) => ({
       ...t,
       downloaded: isDownloaded(t.videoId),
     }));
-    setCachedTracks(playlistId, tracksWithStatus);
+    // Cache the effective state, never the stale remote snapshot, while work
+    // is still pending. This prevents a reload from resurrecting a mutation.
+    setCachedTracks(playlistId, tracks);
     return NextResponse.json({ tracks: tracksWithStatus, hasMore: limit > 0 && tracks.length >= offset + limit });
   } catch (err: unknown) {
     console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);
     const cached = getCachedTracks(playlistId);
     if (cached) {
-      const tracksWithStatus = uniqueTracks(cached).slice(0, limit || undefined).map((t) => ({
+      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId).slice(0, limit || undefined).map((t) => ({
         ...t,
         downloaded: isDownloaded(t.videoId),
       }));

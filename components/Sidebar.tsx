@@ -15,7 +15,6 @@ interface SidebarProps {
   isGlowDimmed?: boolean;
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
-  onToggleHidden: (id: string) => void;
   onOpenHiddenFolder: () => void;
   onPlayPlaylist?: (id: string) => void;
   expanded?: boolean;
@@ -32,7 +31,6 @@ export function Sidebar({
   isGlowDimmed = false,
   onSelect,
   onTogglePin,
-  onToggleHidden,
   onOpenHiddenFolder,
   onPlayPlaylist = onSelect,
   expanded = true,
@@ -40,7 +38,7 @@ export function Sidebar({
 }: SidebarProps) {
   const safePlaylists = Array.isArray(playlists) ? playlists : [];
   const safePinnedIds = Array.isArray(pinnedIds) ? pinnedIds : [];
-  const safeHiddenIds = Array.isArray(hiddenIds) ? hiddenIds : [];
+  const safeHiddenIds: string[] = [];
 
   const pinnedSet = new Set(safePinnedIds);
   const hiddenSet = new Set(safeHiddenIds);
@@ -106,7 +104,7 @@ export function Sidebar({
     .map((id) => safePlaylists.find((p) => p && p.id === id))
     .filter((p): p is Playlist => Boolean(p));
   const unpinnedPlaylists = orderedPlaylists.filter((p) => p && !pinnedSet.has(p.id) && !hiddenSet.has(p.id));
-  const hiddenPlaylists = orderedPlaylists.filter((p) => p && hiddenSet.has(p.id));
+  const hiddenPlaylists: Playlist[] = [];
 
   const reorder = (fromId: string, toId: string, insertBefore: boolean) => {
     // Only reorder within unpinned
@@ -192,7 +190,7 @@ export function Sidebar({
                   onClick={onOpenHiddenFolder}
                   onMouseEnter={(e) =>
                     setHoveredPlaylist({
-                      playlist: { id: '__hidden__', title: 'Hidden Playlists', trackCount: hiddenPlaylists.length } as Playlist,
+                      playlist: { id: '__management__', title: 'Playlist Management', trackCount: 0 } as Playlist,
                       isPinned: false,
                       x: e.currentTarget.getBoundingClientRect().right + 10,
                       y: e.currentTarget.getBoundingClientRect().top + e.currentTarget.getBoundingClientRect().height / 2,
@@ -275,7 +273,6 @@ export function Sidebar({
                   isPinned={true}
                   onSelect={() => onSelect(pl.id)}
                   onTogglePin={() => onTogglePin(pl.id)}
-                  onToggleHidden={() => onToggleHidden(pl.id)}
                   onPlay={() => onPlayPlaylist(pl.id)}
                   onDropOn={(id, insertBefore) => reorderPinned(id, pl.id, insertBefore)}
                   isPlaying={pl.id === playingPlaylistId}
@@ -304,7 +301,6 @@ export function Sidebar({
                 isPinned={false}
                 onSelect={() => onSelect(pl.id)}
                 onTogglePin={() => onTogglePin(pl.id)}
-                onToggleHidden={() => onToggleHidden(pl.id)}
                 onPlay={() => onPlayPlaylist(pl.id)}
                 onDropOn={(id, insertBefore) => reorder(id, pl.id, insertBefore)}
                 isPlaying={pl.id === playingPlaylistId}
@@ -323,7 +319,7 @@ export function Sidebar({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpenHiddenFolder}
-          className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group cursor-pointer outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${selectedId === '__hidden__'
+          className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group cursor-pointer outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${selectedId === '__management__'
             ? 'bg-white/10 text-white border border-white/10'
             : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
             }`}
@@ -332,8 +328,8 @@ export function Sidebar({
             <FolderLock className="w-4 h-4 text-[#00F2FE]" />
           </div>
           <div className="min-w-0 flex-1 max-w-[240px] overflow-hidden">
-            <p className="text-sm font-semibold truncate">Hidden Playlists</p>
-            <p className="text-xs text-white/30 truncate">{hiddenPlaylists.length} hidden</p>
+            <p className="text-sm font-semibold truncate">Playlist Management</p>
+            <p className="text-xs text-white/30 truncate">Import playlists</p>
           </div>
         </button>
       </nav>
@@ -378,7 +374,6 @@ function PlaylistNavItem({
   isPinned,
   onSelect,
   onTogglePin,
-  onToggleHidden,
   onPlay,
   onDropOn,
   isPlaying,
@@ -394,7 +389,6 @@ function PlaylistNavItem({
   isPinned: boolean;
   onSelect: () => void;
   onTogglePin: () => void;
-  onToggleHidden: () => void;
   onPlay: () => void;
   onDropOn: (id: string, insertBefore: boolean) => void;
   isPlaying: boolean;
@@ -501,10 +495,12 @@ function PlaylistNavItem({
         </button>
       </div>
 
-      <div className="min-w-0 flex-1 max-w-[240px] overflow-hidden">
-        <p className="text-sm font-medium truncate">{playlist.title}</p>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <p className={`text-sm font-medium leading-tight ${playlist.title.length <= 20 ? 'whitespace-nowrap' : 'truncate'}`}>
+          {playlist.title}
+        </p>
         {playlist.trackCount > 0 && (
-          <p className="text-xs text-white/30 truncate">{playlist.trackCount} tracks</p>
+          <p className="text-xs text-white/30 whitespace-nowrap">{playlist.trackCount} tracks</p>
         )}
       </div>
 

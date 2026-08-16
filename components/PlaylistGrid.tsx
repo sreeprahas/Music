@@ -19,10 +19,10 @@ export function PlaylistGridSkeleton() {
   return (
     <div className="h-full min-h-0 overflow-y-auto px-8 py-8 select-none">
       <Skeleton className="mb-6 h-8 w-44" />
-      <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-5">
         {Array.from({ length: 10 }, (_, index) => (
           <div key={index} className="rounded-3xl border border-white/5 bg-white/[0.03] p-3">
-            <Skeleton className="aspect-square w-full rounded-2xl" />
+            <Skeleton className="h-[180px] w-[180px] rounded-2xl" />
             <Skeleton className="mt-4 h-4 w-4/5" />
             <Skeleton className="mt-2 h-3 w-2/5" />
           </div>
@@ -60,7 +60,7 @@ export function PlaylistGrid({
               <Pin className="w-4 h-4 text-[#00F2FE] fill-[#00F2FE]" />
               <h2 className="text-xl font-bold text-white tracking-tight">Pinned Playlists</h2>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-x-5 gap-y-7">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
               {pinnedPlaylists.map((pl) => (
                 <PlaylistCard
                   key={pl.id}
@@ -79,7 +79,7 @@ export function PlaylistGrid({
           <h2 className="text-3xl font-bold text-white mb-6 tracking-tight">
             {pinnedPlaylists.length > 0 ? 'All Playlists' : 'From your library'}
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-x-5 gap-y-7">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
             {unpinnedPlaylists.map((pl) => (
               <PlaylistCard
                 key={pl.id}
@@ -112,9 +112,9 @@ function PlaylistCard({
   return (
     <div
       onClick={onSelect}
-      className="group text-left cursor-pointer relative flex min-w-0 flex-col rounded-xl bg-transparent p-0"
+      className="group text-left cursor-pointer relative flex w-[180px] min-w-[180px] flex-col rounded-xl bg-transparent p-0"
     >
-      <div className="aspect-square rounded-[10px] overflow-hidden bg-white/5 mb-4 relative shadow-lg border border-white/5 transition-all duration-300 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.32),0_0_18px_rgba(0,242,254,0.28),0_12px_36px_rgba(110,72,180,0.3)]">
+      <div className="h-[180px] w-[180px] rounded-[10px] overflow-hidden bg-white/5 mb-4 relative shadow-lg border border-white/5 transition-all duration-300 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.32),0_0_18px_rgba(0,242,254,0.28),0_12px_36px_rgba(110,72,180,0.3)]">
         <PlaylistArtwork playlist={playlist} />
 
         {/* Restrained cover tint/depth overlay on hover. */}

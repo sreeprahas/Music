@@ -1,18 +1,19 @@
 import React, { useState, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicApi';
+import { cleanArtistName } from '@/lib/ytmusicApi';
 import { SongContextMenu } from './SongContextMenu';
-import { X, Trash2, GripVertical } from 'lucide-react';
+import { X, Trash2 } from 'lucide-react';
 
 interface Props {
   currentTrack: Track | null;
   queue: Track[];
+  queuePosition: number;
   playlists: Playlist[];
   onClose: () => void;
-  onPlayTrack: (track: Track) => void;
-  onRemoveFromQueue: (videoId: string) => void;
+  onPlayTrack: (track: Track, queueIndex: number) => void;
+  onRemoveFromQueue: (queueIndex: number) => void;
   onClearQueue: () => void;
-  onReorderQueue: (fromVideoId: string, toVideoId: string, insertBefore: boolean) => void;
+  onReorderQueue: (fromQueueIndex: number, toQueueIndex: number, insertBefore: boolean) => void;
   onPlayNext: (track: Track) => void;
   onAddToQueue: (track: Track) => void;
   onAddToPlaylist: (track: Track, playlistId: string) => void;
@@ -24,6 +25,7 @@ interface Props {
 export function QueueDrawer({
   currentTrack,
   queue,
+  queuePosition,
   playlists,
   onClose,
   onPlayTrack,
@@ -37,16 +39,16 @@ export function QueueDrawer({
   onOpenSleepTimer,
   isHardwareOffline = false,
 }: Props) {
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const [insertBefore, setInsertBefore] = useState<boolean>(true);
   const justDroppedRef = useRef<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
-  const visibleQueue = queue.filter((track) => track.videoId !== currentTrack?.videoId);
+  const visibleQueue = queue.slice(queuePosition + 1).map((track, index) => ({ track, queueIndex: queuePosition + index + 1 }));
 
   return (
-    <div className="h-full w-full bg-[#0c131a]/95 backdrop-blur-xl flex flex-col shadow-2xl">
-      <div className="flex items-center justify-between px-5 py-4 shrink-0">
+    <div className="h-full w-full bg-[#0c131a]/95 backdrop-blur-xl flex flex-col shadow-2xl border-l border-white/10">
+      <div className="flex items-center justify-between px-5 py-4 shrink-0 border-b border-white/10">
         <h3 className="text-sm font-bold text-white tracking-tight">Play Queue</h3>
         <button onClick={onClose} className="text-white/30 hover:text-white transition-colors p-1.5 rounded-2xl hover:bg-white/5">
           <X className="w-4 h-4" />
@@ -72,57 +74,56 @@ export function QueueDrawer({
         <div>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-[10px] font-bold text-white/25 uppercase tracking-widest">Next Up ({visibleQueue.length})</h4>
-            {queue.length > 0 && <button onClick={onClearQueue} className="text-[10px] text-white/30 hover:text-white transition-colors flex items-center gap-1"><Trash2 className="w-3 h-3" />Clear</button>}
+            {queue.length > 0 && <button onClick={onClearQueue} className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-white/60 hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-300 transition-all flex items-center gap-1.5" title="Clear queue"><Trash2 className="w-4 h-4" />Clear</button>}
           </div>
           {visibleQueue.length === 0 ? (
             <p className="text-xs text-white/20 italic py-4">Queue is empty</p>
           ) : (
             <div className="space-y-0.5">
-              {visibleQueue.map((track) => (
+              {visibleQueue.map(({ track, queueIndex }) => (
                 <div
-                  key={track.videoId}
+                  key={`${track.videoId}-${queueIndex}`}
                   draggable
                   data-song-context="true"
                   onDragStart={() => {
                     justDroppedRef.current = false;
-                    setDraggingId(track.videoId);
+                    setDraggingIndex(queueIndex);
                   }}
-                  onDragEnd={() => { setDraggingId(null); setDropTargetId(null); }}
+                  onDragEnd={() => { setDraggingIndex(null); setDropTargetIndex(null); }}
                   onDragOver={(event) => {
                     event.preventDefault();
-                    if (draggingId !== track.videoId) {
+                    if (draggingIndex !== queueIndex) {
                       const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
                       setInsertBefore(event.clientY < rect.top + rect.height / 2);
-                      setDropTargetId(track.videoId);
+                      setDropTargetIndex(queueIndex);
                     }
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
-                    if (draggingId) {
+                    if (draggingIndex !== null) {
                       const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
                       const before = event.clientY < rect.top + rect.height / 2;
                       justDroppedRef.current = true;
-                      onReorderQueue(draggingId, track.videoId, before);
+                      onReorderQueue(draggingIndex, queueIndex, before);
                     }
-                    setDraggingId(null);
-                    setDropTargetId(null);
+                    setDraggingIndex(null);
+                    setDropTargetIndex(null);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     setContextMenu({ track, x: event.clientX, y: event.clientY });
                   }}
-                  className={`group relative flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-white/5 cursor-grab ${draggingId === track.videoId ? 'opacity-40' : ''} ${dropTargetId === track.videoId && insertBefore ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : dropTargetId === track.videoId && !insertBefore ? 'after:absolute after:-bottom-px after:left-2 after:right-2 after:z-10 after:h-0.5 after:rounded-full after:bg-[#00F2FE] after:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : ''}`}
+                  className={`group relative flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-white/5 cursor-grab ${draggingIndex === queueIndex ? 'opacity-40' : ''} ${dropTargetIndex === queueIndex && insertBefore ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : dropTargetIndex === queueIndex && !insertBefore ? 'after:absolute after:-bottom-px after:left-2 after:right-2 after:z-10 after:h-0.5 after:rounded-full after:bg-[#00F2FE] after:shadow-[0_0_8px_rgba(0,242,254,0.9)]' : ''}`}
                   onClick={() => {
                     if (justDroppedRef.current) {
                       justDroppedRef.current = false;
                       return;
                     }
-                    onPlayTrack(track);
+                    onPlayTrack(track, queueIndex);
                   }}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <GripVertical className="h-4 w-4 shrink-0 text-white/20 group-hover:text-white/50" />
                     <div className="w-8 h-8 rounded-md overflow-hidden bg-white/5 shrink-0">
                       <img src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`} alt={track.title} className="w-full h-full object-cover" />
                     </div>
@@ -132,8 +133,7 @@ export function QueueDrawer({
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <span className="text-[10px] text-white/25">{track.duration ? formatDuration(track.duration) : ''}</span>
-                    <button onClick={(event) => { event.stopPropagation(); onRemoveFromQueue(track.videoId); }} className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-red-400 p-0.5 transition-all" aria-label="Remove from queue"><X className="w-3 h-3" /></button>
+                    <button onClick={(event) => { event.stopPropagation(); onRemoveFromQueue(queueIndex); }} className="opacity-0 group-hover:opacity-100 rounded-lg p-2 text-white/45 hover:bg-red-400/15 hover:text-red-300 transition-all" aria-label="Remove from queue" title="Remove from queue"><X className="w-5 h-5" strokeWidth={2.5} /></button>
                   </div>
                 </div>
               ))}

@@ -27,6 +27,7 @@ export function ensureDirs() {
 }
 
 export interface UserSettings {
+  importedPlaylists: string[];
   hiddenPlaylists: string[];
   pinnedPlaylists: string[];
   playlistOrder: string[];
@@ -57,6 +58,7 @@ interface MetadataCache {
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
+  importedPlaylists: [],
   hiddenPlaylists: [],
   pinnedPlaylists: [],
   playlistOrder: [],
