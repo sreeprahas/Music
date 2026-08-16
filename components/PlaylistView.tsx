@@ -119,7 +119,7 @@ export function PlaylistView({
   playlistMutation,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(playlist.trackCount > 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreTracks, setHasMoreTracks] = useState(true);
   const prefetchNextPageRef = useRef(false);
@@ -355,7 +355,7 @@ export function PlaylistView({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setLoading(playlist.trackCount > 0);
     prefetchNextPageRef.current = false;
     setError('');
 
@@ -573,17 +573,6 @@ export function PlaylistView({
                     {downloadedCount === 0 ? 'Download All' : `Download Remaining (${tracks.length - downloadedCount})`}
                   </button>
                 )}
-                <button
-                  onClick={() => onTogglePin(playlist.id)}
-                  className={`flex shrink items-center justify-center gap-1.5 px-4 sm:px-5 py-2 rounded-2xl border text-xs sm:text-sm font-medium transition-all duration-300 ease-out ${
-                    isPinned
-                      ? 'border-[#00F2FE]/40 text-[#00F2FE] bg-[#00F2FE]/10 hover:bg-[#00F2FE]/20'
-                      : 'border-white/15 text-white/70 hover:text-white hover:border-white/30 bg-white/5 hover:bg-white/10'
-                  }`}
-                >
-                  <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
-                  {isPinned ? 'Unpin' : 'Pin'}
-                </button>
                 {!loading && tracks.length > 1 && !trackSearchQuery && (
                   <button
                     disabled={isSavingOrder}
@@ -642,10 +631,10 @@ export function PlaylistView({
                   isEditOrder ? 'transition-all' : ''
                 }`}>
                   <th className="text-left py-3 px-3 w-10">{isEditOrder ? '' : '#'}</th>
-                  <th className="text-left py-3 px-3 w-[46%]">Title</th>
-                  <th className="text-left py-3 px-3 hidden md:table-cell">Artist</th>
-                  <th className="text-right py-3 px-3 hidden lg:table-cell w-28">Date added</th>
-                  <th className="text-right py-3 px-3 w-16">Time</th>
+                  <th className="text-left py-3 px-3 w-[42%]">Title</th>
+                  <th className="text-left py-3 px-3 hidden md:table-cell w-[22%]">Artist</th>
+                  <th className="text-right py-3 px-3 hidden lg:table-cell w-32">Date added</th>
+                  <th className="text-right py-3 px-3 w-20">Time</th>
                   <th className="text-center py-3 px-3 w-12"></th>
                 </tr>
               </thead>
@@ -746,11 +735,11 @@ export function PlaylistView({
                           </div>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 hidden md:table-cell">
-                        <span className="text-sm text-white/50 truncate">{artist}</span>
+                      <td className="py-2.5 px-3 hidden md:table-cell max-w-0 overflow-hidden">
+                        <span className="block text-sm text-white/50 truncate whitespace-nowrap">{artist}</span>
                       </td>
-                      <td className="py-2.5 px-3 text-right hidden lg:table-cell">
-                        <span className="text-sm text-white/30">
+                      <td className="py-2.5 px-3 text-right hidden lg:table-cell max-w-0 overflow-hidden">
+                        <span className="block text-sm text-white/30 whitespace-nowrap">
                           {track.dateAdded ? formatRelativeDate(track.dateAdded) : '—'}
                         </span>
                       </td>
@@ -765,6 +754,7 @@ export function PlaylistView({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (contextMenu) { setContextMenu(null); return; }
                               const rect = e.currentTarget.getBoundingClientRect();
                               setContextMenu({ track, x: rect.right, y: rect.bottom });
                             }}
@@ -844,11 +834,10 @@ export function PlaylistView({
 function NowPlayingBars() {
   return (
     <div className="flex items-end justify-center gap-[2px] h-4">
-      {[0, 1, 2].map((i) => (
+      {['music-bar-random-a', 'music-bar-random-b', 'music-bar-random-c', 'music-bar-random-d'].map((barClass) => (
         <div
-          key={i}
-          className="w-[3px] bg-[#00F2FE] rounded-xl animate-music-bar"
-          style={{ animationDelay: `${i * 0.15}s` }}
+          key={barClass}
+          className={`w-[2px] bg-[#00F2FE] rounded-xl ${barClass}`}
         />
       ))}
     </div>

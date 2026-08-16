@@ -101,8 +101,10 @@ export function Dashboard({ user }: Props) {
   const [loadingPlaylists, setLoadingPlaylists] = useState(true);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const [playlistOrder, setPlaylistOrder] = useState<string[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [importedPlaylistIds, setImportedPlaylistIds] = useState<string[]>([]);
+  const [pendingImportIds, setPendingImportIds] = useState<string[]>([]);
   const [showPlaylistManagement, setShowPlaylistManagement] = useState(false);
   const [allTracks, setAllTracks] = useState<Record<string, CachedTrack>>({});
   const [lastDownloadedTrack, setLastDownloadedTrack] = useState<{ videoId: string; timestamp: number } | null>(null);
@@ -358,6 +360,7 @@ export function Dashboard({ user }: Props) {
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data?.pinnedPlaylists)) setPinnedIds(data.pinnedPlaylists);
+        if (Array.isArray(data?.playlistOrder)) setPlaylistOrder(data.playlistOrder);
         if (Array.isArray(data?.hiddenPlaylists)) setHiddenIds(data.hiddenPlaylists);
         if (Array.isArray(data?.importedPlaylists)) setImportedPlaylistIds(data.importedPlaylists);
       })
@@ -600,17 +603,40 @@ export function Dashboard({ user }: Props) {
   }, [navigateRoute]);
 
   const handleToggleImport = useCallback((id: string) => {
-    setImportedPlaylistIds((prev) => {
+    setPendingImportIds((prev) => {
       const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
       return next;
     });
   }, []);
 
+  const handleImportImmediate = useCallback(async (id: string) => {
+    const removing = importedPlaylistIds.includes(id);
+    const next = importedPlaylistIds.includes(id)
+      ? importedPlaylistIds.filter((item) => item !== id)
+      : [...importedPlaylistIds, id];
+    setImportedPlaylistIds(next);
+    if (removing && ((currentTrack as any)?.sourcePlaylistId === id || activePlaylistId === id)) {
+      setCurrentTrack(null);
+      currentTrackRef.current = null;
+      setQueue([]);
+      setQueuePosition(0);
+      setIsPlaying(false);
+      setIsQueueOpen(false);
+      setIsLyricsOpen(false);
+    }
+    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => {});
+    if (next.includes(id)) await apiFetch(`/api/playlist?playlistId=${encodeURIComponent(id)}&forceRefresh=1`).catch(() => null);
+    else await apiFetch(`/api/playlist/delete?playlistId=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
+  }, [activePlaylistId, apiFetch, currentTrack, importedPlaylistIds]);
+
   const handleDoneImport = useCallback(async () => {
-    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: importedPlaylistIds }) }).catch(() => {});
-    await Promise.all(importedPlaylistIds.map((id) => apiFetch(`/api/playlist?playlistId=${encodeURIComponent(id)}&forceRefresh=1`).catch(() => null)));
+    const next = [...pendingImportIds];
+    setImportedPlaylistIds(next);
+    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => {});
+    await Promise.all(next.map((id) => apiFetch(`/api/playlist?playlistId=${encodeURIComponent(id)}&forceRefresh=1`).catch(() => null)));
+    setPendingImportIds([]);
     navigateRoute({ kind: 'home' });
-  }, [apiFetch, importedPlaylistIds, navigateRoute]);
+  }, [apiFetch, navigateRoute, pendingImportIds]);
 
   const [playlistGlowDimmed, setPlaylistGlowDimmed] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
@@ -1157,9 +1183,13 @@ export function Dashboard({ user }: Props) {
   const activeDownloadCount = allJobs.filter((j) => j.status === 'running' || j.status === 'starting').length;
 
   const importedPlaylists = playlists.filter((playlist) => importedPlaylistIds.includes(playlist.id));
+  const orderedImportedPlaylists = [...importedPlaylists].sort((a, b) => {
+    const ai = playlistOrder.indexOf(a.id); const bi = playlistOrder.indexOf(b.id);
+    return (ai < 0 ? Number.MAX_SAFE_INTEGER : ai) - (bi < 0 ? Number.MAX_SAFE_INTEGER : bi);
+  });
   const filteredPlaylists = searchQuery.trim()
-    ? importedPlaylists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase().trim()))
-    : importedPlaylists;
+    ? orderedImportedPlaylists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase().trim()))
+    : orderedImportedPlaylists;
 
   const playlistRecommendations = useMemo(() => {
     if (!selectedPlaylist) return [];
@@ -1545,6 +1575,7 @@ export function Dashboard({ user }: Props) {
             onSelect={handleSelectPlaylist}
             onTogglePin={handleTogglePin}
             onOpenHiddenFolder={handleOpenHiddenFolder}
+            onPlaylistOrderChange={setPlaylistOrder}
             onPlayPlaylist={handlePlayPlaylist}
             expanded={sidebarExpanded}
             onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
@@ -1570,10 +1601,7 @@ export function Dashboard({ user }: Props) {
               <PlaylistManagementView
                 playlists={playlists}
                 importedIds={importedPlaylistIds}
-                onSelect={handleSelectPlaylist}
-                onToggleImport={handleToggleImport}
-                onDone={handleDoneImport}
-                onDeletePlaylist={handleDeletePlaylist}
+                onToggleImport={handleImportImmediate}
               />
             ) : selectedPlaylist ? (
               <PlaylistView
@@ -1608,11 +1636,10 @@ export function Dashboard({ user }: Props) {
               importedPlaylists.length === 0 ? (
                 <PlaylistManagementView
                   playlists={playlists}
-                  importedIds={importedPlaylistIds}
-                  onSelect={handleSelectPlaylist}
+                  importedIds={pendingImportIds}
                   onToggleImport={handleToggleImport}
                   onDone={handleDoneImport}
-                  onDeletePlaylist={handleDeletePlaylist}
+                  showDone
                 />
               ) : (
                 <PlaylistGrid

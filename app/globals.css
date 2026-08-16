@@ -170,7 +170,7 @@ body {
 }
 
 .animate-fadeIn {
-  animation: fadeIn 0.4s ease-out both;
+  animation: fadeIn 0.18s ease-out both;
 }
 
 @keyframes slideInRight {
@@ -179,7 +179,7 @@ body {
 }
 
 .animate-slide-in-right {
-  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes slideOutRight {
@@ -188,7 +188,7 @@ body {
 }
 
 .animate-slide-out-right {
-  animation: slideOutRight 0.25s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+  animation: slideOutRight 0.18s cubic-bezier(0.7, 0, 0.84, 0) forwards;
 }
 
 /* Fullscreen player — slide up to open, slide down to close */
@@ -269,4 +269,84 @@ input[type='range']:active::-moz-range-thumb {
 .music-header a,
 .music-header [role='button'] {
   -webkit-app-region: no-drag;
+}
+
+.fullscreen-modal-header {
+  -webkit-app-region: drag;
+}
+
+.fullscreen-modal-header button,
+.fullscreen-modal-header input,
+.fullscreen-modal-header a,
+.fullscreen-modal-header [role='button'] {
+  -webkit-app-region: no-drag;
+}
+
+/* Electron applies this class while the window is unfocused/minimized. Keep
+   playback state alive, but stop compositor-heavy visual work. */
+/* Keep the active renderer light as well; playback and controls do not rely
+   on decorative animation frames. */
+html *,
+html *::before,
+html *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+
+.ambient-art {
+  display: none !important;
+}
+
+[class*='backdrop-blur'] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Modal entry/exit animations must remain active in the focused window. */
+html:not(.electron-inactive) .animate-slide-in-right,
+html:not(.electron-inactive) .animate-slide-out-right,
+html:not(.electron-inactive) .animate-slide-up-full,
+html:not(.electron-inactive) .animate-slide-down-full,
+html:not(.electron-inactive) .animate-fadeIn,
+html:not(.electron-inactive) .animate-fade-in,
+html:not(.electron-inactive) .playlist-preview-expand {
+  animation-play-state: running !important;
+  transition-property: all !important;
+  transition-duration: 300ms !important;
+}
+
+/* The now-playing bars communicate playback state even when the renderer is
+   in its lightweight inactive mode. */
+.animate-music-bar {
+  animation-play-state: running !important;
+  animation-duration: 1.2s !important;
+}
+
+@keyframes musicBarRandomA { 0%,100% { height: 4px; } 25% { height: 10px; } 50% { height: 6px; } 75% { height: 13px; } }
+@keyframes musicBarRandomB { 0%,100% { height: 8px; } 25% { height: 14px; } 50% { height: 5px; } 75% { height: 9px; } }
+@keyframes musicBarRandomC { 0%,100% { height: 12px; } 25% { height: 6px; } 50% { height: 14px; } 75% { height: 7px; } }
+@keyframes musicBarRandomD { 0%,100% { height: 6px; } 25% { height: 11px; } 50% { height: 8px; } 75% { height: 13px; } }
+.music-bar-random-a { animation: musicBarRandomA 1.05s ease-in-out infinite; animation-play-state: running !important; }
+.music-bar-random-b { animation: musicBarRandomB 1.05s ease-in-out infinite -0.16s; animation-play-state: running !important; }
+.music-bar-random-c { animation: musicBarRandomC 1.05s ease-in-out infinite -0.32s; animation-play-state: running !important; }
+.music-bar-random-d { animation: musicBarRandomD 1.05s ease-in-out infinite -0.48s; animation-play-state: running !important; }
+
+.playerbar-control-icons {
+  opacity: 1 !important;
+  visibility: visible !important;
+  color: #ffffff !important;
+}
+
+.playerbar-control-icons button,
+.playerbar-control-icons svg {
+  visibility: visible !important;
+}
+.playlist-preview-expand {
+  animation: playlistPreviewExpand 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+}
+
+@keyframes playlistPreviewExpand {
+  from { opacity: 0; transform: translateY(-6px) scaleY(0.96); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
 }

@@ -156,12 +156,12 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   return (
     <div className="h-full flex flex-col overflow-hidden relative select-none" style={{ background: imageTheme ? `linear-gradient(135deg, ${palette[0]} 0%, #090b10 58%, ${palette[1] || palette[0]} 100%)` : '#090b10' }}>
       {/* Ambient bg */}
-      <div className={`absolute inset-0 opacity-[0.18] pointer-events-none z-0 ${imageTheme ? '' : 'hidden'}`}>
+      <div className={`ambient-art absolute inset-0 opacity-[0.18] pointer-events-none z-0 ${imageTheme ? '' : 'hidden'}`}>
         {track.thumbnailUrl && (
           <img
             src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
             alt=""
-            className="w-full h-full object-cover blur-3xl scale-150"
+            className="w-full h-full object-cover blur-xl scale-150"
           />
         )}
       </div>
@@ -193,23 +193,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       {/* Body */}
       <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0 [scrollbar-color:transparent_transparent]">
         {loading && (
-          <div className="py-0 space-y-1">
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((index) => (
-              <div key={index} className="px-3 py-2 rounded-xl">
-                <Skeleton
-                  className={`h-6 rounded-lg ${
-                    index % 4 === 0
-                      ? 'w-3/5'
-                      : index % 4 === 1
-                      ? 'w-5/6'
-                      : index % 4 === 2
-                      ? 'w-2/3'
-                      : 'w-4/5'
-                  }`}
-                />
-              </div>
-            ))}
-          </div>
+          <div className="h-full w-full"><Skeleton className="h-full w-full rounded-none" /></div>
         )}
 
         {!loading && lyricsData?.notFound && (

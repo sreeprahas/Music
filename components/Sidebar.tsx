@@ -16,6 +16,7 @@ interface SidebarProps {
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
   onOpenHiddenFolder: () => void;
+  onPlaylistOrderChange?: (ids: string[]) => void;
   onPlayPlaylist?: (id: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
@@ -32,6 +33,7 @@ export function Sidebar({
   onSelect,
   onTogglePin,
   onOpenHiddenFolder,
+  onPlaylistOrderChange,
   onPlayPlaylist = onSelect,
   expanded = true,
   onToggleExpanded,
@@ -60,6 +62,7 @@ export function Sidebar({
       .then((data) => {
         if (Array.isArray(data?.playlistOrder) && data.playlistOrder.length > 0) {
           setOrderedIds(data.playlistOrder);
+          onPlaylistOrderChange?.(data.playlistOrder);
         }
       })
       .catch(() => { });
@@ -75,13 +78,16 @@ export function Sidebar({
 
   useEffect(() => {
     const ids = [...orderedIds.filter((id) => safePlaylists.some((playlist) => playlist.id === id)), ...safePlaylists.map((playlist) => playlist.id).filter((id) => !orderedIds.includes(id))];
-    if (ids.join('|') !== orderedIds.join('|')) setOrderedIds(ids);
+    if (ids.join('|') !== orderedIds.join('|')) {
+      setOrderedIds(ids);
+      onPlaylistOrderChange?.(ids);
+    }
     fetch('/api/user/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ playlistOrder: ids }),
     }).catch(() => { });
-  }, [safePlaylists, orderedIds]);
+  }, [safePlaylists, orderedIds, onPlaylistOrderChange]);
 
   const [pinnedOrderedIds, setPinnedOrderedIds] = useState<string[]>(() => safePinnedIds);
 
@@ -93,6 +99,7 @@ export function Sidebar({
         ...safePinnedIds.filter((id) => !prev.includes(id)),
       ];
       if (next.join('|') === prev.join('|')) return prev;
+      onPlaylistOrderChange?.(next);
       return next;
     });
   }, [safePinnedIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps

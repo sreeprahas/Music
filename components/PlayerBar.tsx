@@ -470,25 +470,7 @@ export function PlayerBar({
   const computedCanNext = canNext ?? (currentIdx >= 0 && currentIdx < queue.length - 1);
 
   if (!track) {
-    return (
-      <div className="music-player relative w-full h-[88px] min-h-[88px] bg-[#000000] border-t border-white/10 flex items-center justify-center px-5 z-30 select-none shrink-0">
-        <div className="flex items-center gap-5 text-white/35">
-          <Shuffle className="w-4 h-4" />
-          <SkipBack className="w-4 h-4" />
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/25 text-black"><Pause className="w-5 h-5 fill-current" /></span>
-          <SkipForward className="w-4 h-4" />
-          <ListMusic className="w-4 h-4" />
-        </div>
-        <div className="absolute left-1/2 top-1/2 flex w-[34%] -translate-x-1/2 translate-y-5 items-center gap-2">
-          <span className="h-1 flex-1 rounded-full bg-[#2A2A2A]" />
-        </div>
-        <div className="absolute right-5 flex items-center gap-3 text-white/60">
-          <Volume2 className="w-4 h-4" />
-          <input type="range" min="0" max="100" value={Math.round(volume * 100)} onChange={(event) => onVolumeChange?.(Number(event.target.value) / 100)} className="h-1 w-28 accent-[#00F2FE]" aria-label="Volume" />
-          <Maximize className="w-4 h-4" />
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -558,6 +540,7 @@ export function PlayerBar({
 
             {/* Add to Playlist button reflects whether the track is already saved */}
             <button
+              onMouseDown={(event) => event.stopPropagation()}
               onClick={() => setAddPlaylistMenuOpen((prev) => !prev)}
               disabled={!track}
               className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-white/25 disabled:hover:bg-transparent ${
@@ -598,7 +581,7 @@ export function PlayerBar({
         {/* Center Section: Controls & Progress */}
         <div className="flex-1 min-w-0 flex flex-col items-center gap-2 max-w-2xl px-2 lg:px-5">
           {/* Top Control Buttons */}
-          <div className="flex items-center gap-4">
+          <div className="playerbar-control-icons flex items-center gap-4 text-white">
             {/* Shuffle */}
             <button
               onClick={onToggleShuffle}

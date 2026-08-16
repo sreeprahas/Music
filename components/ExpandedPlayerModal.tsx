@@ -62,21 +62,21 @@ export function ExpandedPlayerModal({
   if (!track) return null;
 
   return (
-    <div className={`fixed inset-0 z-50 bg-[#070707] overflow-hidden flex flex-col ${
+    <div className={`fixed inset-0 z-50 bg-[#08090B] overflow-hidden flex flex-col ${
       isClosing ? 'animate-slide-down-full' : 'animate-slide-up-full'
     }`}>
       {/* Blurred album art background */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
+      <div className="ambient-art absolute inset-0 z-0 pointer-events-none">
         <img
-          src={track.thumbnailUrl}
+          src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
           alt=""
-          className="w-full h-full object-cover scale-125 blur-3xl opacity-20"
+          className="w-full h-full object-cover scale-125 blur-xl opacity-15"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/80" />
       </div>
 
       {/* Header bar */}
-      <div className="relative z-10 flex items-center justify-between px-6 pt-5 pb-2 shrink-0">
+      <div className="fullscreen-modal-header relative z-10 flex h-[72px] min-h-[72px] max-h-[72px] items-center justify-between border-b border-white/10 bg-[#0A0D10] px-6 shrink-0">
         <button
           onClick={onClose}
           className="p-2 rounded-full bg-[#0A0A0A] hover:bg-[#1A1A1A] text-white hover:text-[#00F2FE] hover:shadow-[0_0_16px_rgba(0,242,254,0.16)] transition-all duration-300"
@@ -90,16 +90,16 @@ export function ExpandedPlayerModal({
       </div>
 
       {/* Content area */}
-      <div className="relative z-10 flex-1 min-h-0 flex gap-0 overflow-hidden px-4 sm:px-8 pb-4">
+      <div className="relative z-10 flex-1 min-h-0 flex gap-0 overflow-hidden px-4 sm:px-8 pt-4 pb-4">
         {/* Left column: Art + Controls */}
         <div className="w-full lg:w-1/2 flex flex-col justify-between min-h-0 overflow-hidden pr-0 lg:pr-6">
           {/* Album art */}
           <div className="flex-1 min-h-0 flex items-center justify-center py-4">
             <div className="rounded-[4px] overflow-hidden shadow-2xl bg-transparent aspect-square w-full max-w-[min(45vw,320px)] shrink-0">
               <img
-                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}&crop=2`}
+                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
                 alt={track.title}
-                className="w-full h-full object-cover object-center scale-[1.18]"
+                className="w-full h-full object-contain object-center"
               />
             </div>
           </div>
@@ -209,7 +209,7 @@ export function ExpandedPlayerModal({
         </div>
 
         {/* Right column: Embedded Lyrics Panel using shared LyricsDrawer component */}
-        <div className="hidden lg:block w-1/2 h-full border-l border-white/10 overflow-hidden rounded-2xl bg-black/40 backdrop-blur-md">
+        <div className="hidden lg:block w-1/2 h-full border-l border-white/10 overflow-hidden rounded-2xl bg-black/55">
           <LyricsDrawer
             track={track}
             currentTime={currentTime}

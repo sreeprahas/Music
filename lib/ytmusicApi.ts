@@ -236,7 +236,7 @@ export async function getPlaylistTracks(
           thumbnailUrl:
             (snippet.thumbnails?.high?.url as string) ||
             (snippet.thumbnails?.default?.url as string) ||
-            `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            '',
           duration: 0,
           position: position++,
         });
@@ -280,7 +280,7 @@ export async function getPlaylistTracks(
           ),
           thumbnailUrl:
             (snippet.thumbnails?.high?.url as string) ||
-            `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            '',
           duration: 0,
           position: position++,
         });

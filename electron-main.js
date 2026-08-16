@@ -138,10 +138,10 @@ function createWindow() {
     backgroundColor: '#08090b',
     show: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0A0A0A', symbolColor: '#FFFFFF', height: 44 },
+    titleBarOverlay: { color: '#0A0A0A', symbolColor: '#FFFFFF', height: 71 },
     title: 'Music',
     icon: musicIconPath,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: true, preload: path.join(__dirname, 'preload.js') },
   });
   Menu.setApplicationMenu(null);
   // Authenticate every renderer request to the private loopback server. A
@@ -156,6 +156,22 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
   });
+  const throttleInactiveRenderer = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.setFrameRate(15);
+      mainWindow.webContents.executeJavaScript("document.documentElement.classList.add('electron-inactive')").catch(() => {});
+    }
+  };
+  const restoreActiveRenderer = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.setFrameRate(30);
+      mainWindow.webContents.executeJavaScript("document.documentElement.classList.remove('electron-inactive')").catch(() => {});
+    }
+  };
+  mainWindow.on('blur', throttleInactiveRenderer);
+  mainWindow.on('minimize', throttleInactiveRenderer);
+  mainWindow.on('focus', restoreActiveRenderer);
+  mainWindow.on('restore', restoreActiveRenderer);
   mainWindow.loadURL(appOrigin());
   mainWindow.on('closed', () => { mainWindow = null; });
 }

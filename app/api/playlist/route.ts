@@ -60,6 +60,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
   const end = limit > 0 ? offset + limit : undefined;
   // When ?forceRefresh=1, always fetch from network; otherwise serve cache first
   const forceRefresh = searchParams.get('forceRefresh') === '1';
+  const previewOnly = searchParams.get('preview') === '1';
 
   if (!playlistId) {
     return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
@@ -98,7 +99,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
 
   try {
     const fetchedTracks = await getPlaylistTracks(accessToken, playlistId, offset + limit);
-    await removeDuplicateItems(accessToken, fetchedTracks);
+    if (!previewOnly) await removeDuplicateItems(accessToken, fetchedTracks);
     const tracks = applyPendingMutations(uniqueTracks(fetchedTracks), playlistId);
     const tracksWithStatus = tracks.slice(offset, end).map((t) => ({
       ...t,
@@ -106,7 +107,7 @@ export async function GET(request: Request): Promise<NextResponse | Response> {
     }));
     // Cache the effective state, never the stale remote snapshot, while work
     // is still pending. This prevents a reload from resurrecting a mutation.
-    setCachedTracks(playlistId, tracks);
+    if (!previewOnly) setCachedTracks(playlistId, tracks);
     return NextResponse.json({ tracks: tracksWithStatus, hasMore: limit > 0 && tracks.length >= offset + limit });
   } catch (err: unknown) {
     console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);

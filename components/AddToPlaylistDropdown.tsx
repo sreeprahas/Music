@@ -136,7 +136,7 @@ export function AddToPlaylistDropdown({
     <div
       ref={containerRef}
       style={style}
-      className={`z-[200] w-[280px] rounded-2xl border border-white/[0.10] bg-[#1a1a1a] shadow-2xl shadow-black/70 backdrop-blur-xl flex flex-col overflow-hidden ${className}`}
+      className={`z-[200] w-[280px] rounded-2xl border border-white/[0.10] bg-[#1a1a1a] shadow-xl shadow-black/60 flex flex-col overflow-hidden ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}

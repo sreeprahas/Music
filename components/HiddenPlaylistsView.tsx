@@ -1,44 +1,41 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { Playlist } from '@/types';
-import { FolderLock, Trash2, Loader2, Check } from 'lucide-react';
+import type { Playlist, Track } from '@/types';
+import { FolderLock, Trash2 } from 'lucide-react';
+import { PlaylistArtwork } from './PlaylistArtwork';
 
 interface Props {
   playlists: Playlist[];
   importedIds: string[];
-  onSelect: (id: string) => void;
   onToggleImport: (id: string) => void;
-  onDone: () => void;
-  onDeletePlaylist?: (id: string) => Promise<void>;
+  onDone?: () => void;
+  showDone?: boolean;
 }
 
 export function PlaylistManagementView({
   playlists,
   importedIds,
-  onSelect,
   onToggleImport,
   onDone,
-  onDeletePlaylist,
+  showDone = false,
 }: Props) {
   const importedSet = new Set(importedIds);
 
-  const [loadingActionId, setLoadingActionId] = useState<string | null>(null);
-  const [actionType, setActionType] = useState<'delete' | null>(null);
-
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!onDeletePlaylist) return;
-    if (!confirm('Remove this playlist from the local library? Your YouTube Music playlist will not be changed.')) return;
-    setLoadingActionId(id);
-    setActionType('delete');
-    try {
-      await onDeletePlaylist(id);
-    } finally {
-      setLoadingActionId(null);
-      setActionType(null);
-    }
-  };
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewTracks, setPreviewTracks] = useState<Track[]>([]);
+  const previewPlaylist = playlists.find((playlist) => playlist.id === previewId) || null;
+  React.useEffect(() => {
+    if (!previewId) { setPreviewTracks([]); return; }
+    let cancelled = false;
+    fetch(`/api/playlist?playlistId=${encodeURIComponent(previewId)}&limit=10&preview=1`, { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).then((data) => { if (!cancelled) setPreviewTracks(Array.isArray(data?.tracks) ? data.tracks.slice(0, 10) : []); }).catch(() => { if (!cancelled) setPreviewTracks([]); });
+    return () => { cancelled = true; };
+  }, [previewId]);
+  React.useEffect(() => {
+    let cancelled = false;
+    void Promise.all(playlists.filter((playlist) => playlist.id !== 'LL' && playlist.id !== previewId).map((playlist) => fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=10&preview=1`, { cache: 'no-store' }).catch(() => null)));
+    return () => { cancelled = true; };
+  }, [playlists, previewId]);
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -59,21 +56,13 @@ export function PlaylistManagementView({
           </div>
         ) : (
           <div className="space-y-3">
-            {playlists.map((playlist) => (
+            {playlists.filter((playlist) => playlist.id !== 'LL').map((playlist) => (
               <div
                 key={playlist.id}
-                className="w-full flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-left hover:bg-white/[0.04] transition-colors"
+                className="w-full flex flex-wrap items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3 text-left hover:bg-white/[0.04] transition-colors"
               >
-                <button className="flex items-center gap-4 min-w-0 flex-1 text-left" onClick={() => onSelect(playlist.id)}>
-                  <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white/5 shrink-0">
-                    {playlist.thumbnailUrl ? (
-                      <img src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`} alt={playlist.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#00F2FE]/20 to-[#1a1a2e]">
-                        <FolderLock className="w-5 h-5 text-white/40" />
-                      </div>
-                    )}
-                  </div>
+                <button className="flex items-center gap-4 min-w-0 flex-1 text-left" onClick={() => setPreviewId((current) => current === playlist.id ? null : playlist.id)}>
+                  <div className="h-14 w-14 rounded-2xl overflow-hidden bg-white/5 shrink-0">{playlist.trackCount < 4 ? <img src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`} alt={playlist.title} className="h-full w-full object-cover" /> : <PlaylistArtwork playlist={playlist} />}</div>
 
                   <div className="min-w-0 flex-1">
                     <p className="text-base font-semibold text-white truncate">{playlist.title}</p>
@@ -82,36 +71,25 @@ export function PlaylistManagementView({
                 </button>
 
                 <div className="flex items-center gap-2">
-                  <button onClick={() => onToggleImport(playlist.id)} className={`flex items-center justify-center gap-2 rounded-2xl border px-5 py-2 text-sm font-medium transition-all ${importedSet.has(playlist.id) ? 'border-[#00F2FE]/40 bg-[#00F2FE]/10 text-[#00F2FE]' : 'border-white/10 text-white/70 hover:text-white hover:border-white/20'}`} title={importedSet.has(playlist.id) ? 'Remove from local library' : 'Import playlist'}>
-                    {importedSet.has(playlist.id) && <Check className="w-4 h-4" />}
-                    {importedSet.has(playlist.id) ? 'Imported' : 'Import'}
+                  <button onClick={() => onToggleImport(playlist.id)} className={`flex items-center justify-center gap-2 rounded-2xl border px-5 py-2 text-sm font-medium transition-all ${importedSet.has(playlist.id) ? 'border-white/20 bg-white/5 text-[#B7B8B8] hover:text-white' : 'border-[#00F2FE]/40 bg-[#00F2FE]/10 text-[#00F2FE] hover:bg-[#00F2FE]/20'}`} title={importedSet.has(playlist.id) ? 'Remove from local library' : 'Import playlist'}>
+                    {importedSet.has(playlist.id) && <Trash2 className="w-4 h-4" />}
+                    {importedSet.has(playlist.id) ? 'Remove' : 'Import'}
                   </button>
 
-                  {playlist.id !== 'LL' && (
-                    <button
-                      onClick={(e) => handleDelete(e, playlist.id)}
-                      disabled={loadingActionId === playlist.id}
-                      className="flex items-center justify-center gap-1.5 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 px-4 py-2 text-sm font-medium transition-all"
-                      title="Remove local playlist metadata"
-                    >
-                      {loadingActionId === playlist.id && actionType === 'delete' ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-red-400" />
-                      ) : (
-                        <Trash2 className="w-4 h-4 text-red-400" />
-                      )}
-                      Remove
-                    </button>
-                  )}
                 </div>
+                {previewPlaylist?.id === playlist.id && (
+                  <div className="playlist-preview-expand order-3 w-full rounded-xl border-t border-white/10 pt-3">
+                    <div className="mb-2 flex items-center gap-2"><span className="font-semibold text-white">Preview</span><span className="text-xs text-white/35">{previewTracks.length} songs</span></div>
+                    <div className="space-y-1">{previewTracks.map((track, index) => <div key={`${track.videoId}-${index}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5"><span className="w-5 text-xs text-white/30">{index + 1}</span><img src={`/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`} alt="" className="h-8 w-8 rounded object-cover" /><span className="truncate text-sm text-white/80">{track.title}</span></div>)}</div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
 
       </div>
-      <div className="shrink-0 flex justify-end border-t border-white/10 bg-[#101010] px-8 py-4">
-        <button onClick={onDone} className="rounded-xl bg-[#00F2FE] px-6 py-2.5 text-sm font-bold text-black hover:bg-[#7DFAFF] transition-colors">Done</button>
-      </div>
+      {showDone && onDone && <div className="shrink-0 flex justify-end border-t border-white/10 bg-[#101010] px-8 py-4"><button onClick={onDone} className="rounded-xl bg-[#00F2FE] px-6 py-2.5 text-sm font-bold text-black hover:bg-[#7DFAFF] transition-colors">Done</button></div>}
     </div>
   );
 }

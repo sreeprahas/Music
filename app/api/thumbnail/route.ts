@@ -20,9 +20,9 @@ export async function GET(request: NextRequest) {
 
   const localPath = getLocalThumbnailPath(videoId);
 
-  // The first request in a process refreshes the cache with a center crop;
-  // subsequent requests are served from the original filename unchanged.
-  if (remoteUrl) {
+  // Serve the local cache immediately. Never re-download an artwork that is
+  // already present; fullscreen artwork must not wait on the network.
+  if (remoteUrl && !fs.existsSync(localPath)) {
     try { await downloadAndCacheThumbnail(videoId, remoteUrl); } catch { /* use cached/remote fallback */ }
   }
 

@@ -17,16 +17,16 @@ interface Props {
 
 export function PlaylistGridSkeleton() {
   return (
-    <div className="h-full min-h-0 overflow-y-auto px-8 py-8 select-none">
-      <Skeleton className="mb-6 h-8 w-44" />
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-5">
-        {Array.from({ length: 10 }, (_, index) => (
-          <div key={index} className="rounded-3xl border border-white/5 bg-white/[0.03] p-3">
-            <Skeleton className="h-[180px] w-[180px] rounded-2xl" />
-            <Skeleton className="mt-4 h-4 w-4/5" />
-            <Skeleton className="mt-2 h-3 w-2/5" />
-          </div>
-        ))}
+    <div className="h-full min-h-0 overflow-hidden px-8 py-8 select-none">
+      <div className="h-full w-full border border-white/5 bg-white/[0.02] p-6">
+        <Skeleton className="mb-8 h-8 w-52" />
+        <div className="grid h-[calc(100%-4rem)] grid-cols-4 gap-6">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="min-w-0">
+              <Skeleton className="h-full min-h-[120px] w-full" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

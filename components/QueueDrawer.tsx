@@ -47,7 +47,7 @@ export function QueueDrawer({
   const visibleQueue = queue.slice(queuePosition + 1).map((track, index) => ({ track, queueIndex: queuePosition + index + 1 }));
 
   return (
-    <div className="h-full w-full bg-[#0c131a]/95 backdrop-blur-xl flex flex-col shadow-2xl border-l border-white/10">
+    <div className="h-full w-full bg-[#0c131a]/98 flex flex-col shadow-xl border-l border-white/10">
       <div className="flex items-center justify-between px-5 py-4 shrink-0 border-b border-white/10">
         <h3 className="text-sm font-bold text-white tracking-tight">Play Queue</h3>
         <button onClick={onClose} className="text-white/30 hover:text-white transition-colors p-1.5 rounded-2xl hover:bg-white/5">

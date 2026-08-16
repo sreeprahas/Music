@@ -214,7 +214,8 @@ export function saveLyrics(artist: string, title: string, data: any) {
 // Thumbnail path helper
 export function getLocalThumbnailPath(videoId: string): string {
   const { THUMBNAILS_DIR } = getPaths();
-  return path.join(THUMBNAILS_DIR, `${videoId}.webp`);
+  // Versioned name ensures older center-cropped/lossy caches are not reused.
+  return path.join(THUMBNAILS_DIR, `${videoId}.lossless.webp`);
 }
 
 export function hasLocalThumbnail(videoId: string): boolean {
@@ -225,9 +226,18 @@ function safeCacheKey(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function normalizeMusicThumbnailUrl(url: string): string {
+  // YT Music artwork is served as square googleusercontent images. Request
+  // the small square variant instead of the large source rendition.
+  if (url.includes('googleusercontent.com')) {
+    return url.replace(/=w\d+-h\d+/i, '=w544-h544');
+  }
+  return url;
+}
+
 export function getLocalPlaylistThumbnailPath(playlistId: string): string {
   const { PLAYLIST_THUMBNAILS_DIR } = getPaths();
-  return path.join(PLAYLIST_THUMBNAILS_DIR, `${safeCacheKey(playlistId)}.webp`);
+  return path.join(PLAYLIST_THUMBNAILS_DIR, `${safeCacheKey(playlistId)}.lossless.webp`);
 }
 
 export async function downloadAndCachePlaylistThumbnail(playlist: Playlist): Promise<void> {
@@ -235,22 +245,15 @@ export async function downloadAndCachePlaylistThumbnail(playlist: Playlist): Pro
   const localPath = getLocalPlaylistThumbnailPath(playlist.id);
   if (croppedPlaylistIds.has(playlist.id)) return;
   try {
-    const response = await fetch(playlist.thumbnailUrl);
+    const response = await fetch(normalizeMusicThumbnailUrl(playlist.thumbnailUrl));
     if (!response.ok) return;
     ensureDirs();
     const source = Buffer.from(await response.arrayBuffer());
-    const trimmed = await sharp(source).trim({ background: '#000000', threshold: 12 }).toBuffer();
-    const prepared = sharp(trimmed);
-    const metadata = await prepared.metadata();
-    const size = Math.min(metadata.width || 0, metadata.height || 0);
-    if (!size) return;
-    const cropped = await prepared.extract({
-      left: Math.floor(((metadata.width || size) - size) / 2),
-      top: Math.floor(((metadata.height || size) - size) / 2),
-      width: size,
-      height: size,
-    }).toBuffer();
-    fs.writeFileSync(localPath, cropped);
+      // Keep the artwork intact. Cropping/trimming here used to remove edge
+      // content and the default WebP encoder introduced visible softness.
+      // A lossless WebP keeps the local cache fast while preserving pixels.
+      const lossless = await sharp(source).webp({ lossless: true }).toBuffer();
+      fs.writeFileSync(localPath, lossless);
     croppedPlaylistIds.add(playlist.id);
   } catch {
     // Keep the remote URL available as a fallback when offline caching is unavailable.
@@ -269,22 +272,17 @@ export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: str
   const localPath = getLocalThumbnailPath(videoId);
   if (croppedTrackIds.has(videoId)) return;
 
-  const url = remoteUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  // Artwork must come from the thumbnail URL returned by Music. Do not
+  // synthesize a large YouTube video thumbnail when it is missing.
+  const url = remoteUrl ? normalizeMusicThumbnailUrl(remoteUrl) : undefined;
+  if (!url) return;
   try {
     const res = await fetch(url);
     if (res.ok) {
       const source = Buffer.from(await res.arrayBuffer());
-      const trimmed = await sharp(source).trim({ background: '#000000', threshold: 12 }).toBuffer();
-      const prepared = sharp(trimmed);
-      const metadata = await prepared.metadata();
-      const size = Math.min(metadata.width || 0, metadata.height || 0);
-      if (!size) return;
-      const buffer = await prepared.extract({
-        left: Math.floor(((metadata.width || size) - size) / 2),
-        top: Math.floor(((metadata.height || size) - size) / 2),
-        width: size,
-        height: size,
-      }).toBuffer();
+      // Cache the original composition without center-cropping or lossy
+      // re-encoding so fullscreen artwork remains sharp.
+      const buffer = await sharp(source).webp({ lossless: true }).toBuffer();
       ensureDirs();
       fs.writeFileSync(localPath, buffer);
       croppedTrackIds.add(videoId);
