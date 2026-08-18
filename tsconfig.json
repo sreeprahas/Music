@@ -28,6 +28,8 @@
     "app/**/*.tsx",
     "components/**/*.ts",
     "components/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
     "src/**/*.ts",
     "src/**/*.tsx",
     "types/**/*.ts",

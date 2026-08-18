@@ -38,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           dangerouslySetInnerHTML={{
             __html: `
               window.addEventListener('contextmenu', function(e) {
-                if (e.target && e.target.closest && e.target.closest('[data-song-context]')) return;
+                if (e.target && e.target.closest && e.target.closest('[data-song-context],[data-playlist-context]')) return;
                 e.preventDefault();
                 e.stopPropagation();
                 return false;

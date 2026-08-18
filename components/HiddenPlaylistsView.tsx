@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import type { Playlist, Track } from '@/types';
 import { FolderLock, Trash2 } from 'lucide-react';
 import { PlaylistArtwork } from './PlaylistArtwork';
+import { getThumbnailUrl } from '@/lib/ytmusicFormat';
 
 interface Props {
   playlists: Playlist[];
@@ -50,11 +51,11 @@ export function PlaylistManagementView({
             <h1 className="text-2xl font-black text-white tracking-tight">Playlist Management</h1>
             <p className="text-sm text-white/35">Choose the YouTube Music playlists to import into your local library.</p>
           </div>
-        </div>
+          </div>
 
         {playlists.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center text-white/35">
-            No playlists are available. Sign in and refresh to load them.
+            No imported playlists yet.
           </div>
         ) : (
           <div className="space-y-3">
@@ -82,7 +83,7 @@ export function PlaylistManagementView({
                 {previewPlaylist?.id === playlist.id && previewLoaded && (
                   <div className="playlist-preview-expand order-3 w-full rounded-xl border-t border-white/10 pt-3">
                     <div className="mb-2 flex items-center gap-2"><span className="font-semibold text-white">Preview</span><span className="text-xs text-white/35">{previewTracks.length} songs</span></div>
-                    <div className="space-y-1">{previewTracks.map((track, index) => <div key={`${track.videoId}-${index}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5"><span className="w-5 text-xs text-white/30">{index + 1}</span><img src={`/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`} alt="" className="h-8 w-8 rounded object-cover" /><span className="truncate text-sm text-white/80">{track.title}</span></div>)}</div>
+                    <div className="space-y-1">{previewTracks.map((track, index) => <div key={`${track.videoId}-${index}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5"><span className="w-5 text-xs text-white/30">{index + 1}</span><img src={getThumbnailUrl(track.videoId, track.title)} alt="" className="h-8 w-8 rounded object-cover" /><span className="truncate text-sm text-white/80">{track.title}</span></div>)}</div>
                   </div>
                 )}
               </div>

@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import type { Playlist } from '@/types';
 import { Pin, Play } from 'lucide-react';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
+import { PlaylistContextMenu } from './PlaylistContextMenu';
 
 interface Props {
   playlists: Playlist[];
@@ -13,6 +14,9 @@ interface Props {
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
   onPlay: (id: string) => void;
+  onShufflePlay?: (id: string) => void;
+  onDownload?: (id: string) => void;
+  onRemove?: (id: string) => void;
 }
 
 export function PlaylistGridSkeleton() {
@@ -41,11 +45,17 @@ export function PlaylistGrid({
   pinnedIds = [],
   hiddenIds = [],
   onSelect,
+  onTogglePin,
   onPlay,
+  onShufflePlay,
+  onDownload,
+  onRemove,
 }: Props) {
   const safePlaylists = Array.isArray(playlists) ? playlists : [];
   const safePinnedIds = Array.isArray(pinnedIds) ? pinnedIds : [];
   const safeHiddenIds = Array.isArray(hiddenIds) ? hiddenIds : [];
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ playlist: Playlist; isPinned: boolean; x: number; y: number } | null>(null);
 
   const pinnedSet = new Set(safePinnedIds);
   const hiddenSet = new Set(safeHiddenIds);
@@ -55,7 +65,7 @@ export function PlaylistGrid({
   const unpinnedPlaylists = safePlaylists.filter((p) => p && !pinnedSet.has(p.id) && !hiddenSet.has(p.id));
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div ref={gridRef} className="h-full flex flex-col min-h-0 relative">
       <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 space-y-8 select-none scrollbar-thin">
         {/* Pinned Playlists Section */}
         {pinnedPlaylists.length > 0 && (
@@ -72,6 +82,11 @@ export function PlaylistGrid({
                   isPinned={true}
                   onSelect={() => onSelect(pl.id)}
                   onPlay={() => onPlay(pl.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setContextMenu({ playlist: pl, isPinned: true, x: event.clientX, y: event.clientY });
+                  }}
                 />
               ))}
             </div>
@@ -92,12 +107,33 @@ export function PlaylistGrid({
                   isPinned={false}
                   onSelect={() => onSelect(pl.id)}
                   onPlay={() => onPlay(pl.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setContextMenu({ playlist: pl, isPinned: false, x: event.clientX, y: event.clientY });
+                  }}
                 />
               ))}
             </div>
           </div>
         )}
       </div>
+
+      {contextMenu && onShufflePlay && onDownload && onRemove && (
+        <PlaylistContextMenu
+          playlist={contextMenu.playlist}
+          isPinned={contextMenu.isPinned}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          boundaryRef={gridRef}
+          onPlay={onPlay}
+          onShufflePlay={onShufflePlay}
+          onDownload={onDownload}
+          onTogglePin={onTogglePin}
+          onRemove={onRemove}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
@@ -107,17 +143,21 @@ function PlaylistCard({
   isPinned,
   onSelect,
   onPlay,
+  onContextMenu,
 }: {
   playlist: Playlist;
   isPinned: boolean;
   onSelect: () => void;
   onPlay: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   const [isPlayPressed, setIsPlayPressed] = useState(false);
 
   return (
     <div
+      data-playlist-context="true"
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       className="group text-left cursor-pointer relative flex w-[180px] min-w-[180px] flex-col rounded-xl bg-transparent p-0"
     >
       <div className="h-[180px] w-[180px] rounded-[10px] overflow-hidden bg-white/5 mb-4 relative shadow-lg border border-white/5 transition-all duration-300 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.32),0_0_18px_rgba(0,242,254,0.28),0_12px_36px_rgba(110,72,180,0.3)]">

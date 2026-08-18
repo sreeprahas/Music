@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { cleanArtistName } from '@/lib/ytmusicFormat';
+import { cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { SongContextMenu } from './SongContextMenu';
 import { X, Trash2 } from 'lucide-react';
 
@@ -19,7 +19,6 @@ interface Props {
   onAddToPlaylist: (track: Track, playlistId: string) => void;
   onSetSleepTimer: (minutes: number) => void;
   onOpenSleepTimer: () => void;
-  isHardwareOffline?: boolean;
 }
 
 export function QueueDrawer({
@@ -37,7 +36,6 @@ export function QueueDrawer({
   onAddToPlaylist,
   onSetSleepTimer,
   onOpenSleepTimer,
-  isHardwareOffline = false,
 }: Props) {
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
@@ -61,7 +59,7 @@ export function QueueDrawer({
             <h4 className="text-[10px] font-bold text-white/25 uppercase tracking-widest mb-2">Now Playing</h4>
             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/4 border border-white/5">
               <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
-                <img src={`/api/thumbnail?videoId=${currentTrack.videoId}&url=${encodeURIComponent(currentTrack.thumbnailUrl)}`} alt={currentTrack.title} className="w-full h-full object-cover" />
+                <img src={getThumbnailUrl(currentTrack.videoId, currentTrack.title)} alt={currentTrack.title} className="w-full h-full object-cover" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[#00F2FE] text-sm font-semibold truncate">{currentTrack.title}</p>
@@ -125,7 +123,7 @@ export function QueueDrawer({
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <div className="w-8 h-8 rounded-md overflow-hidden bg-white/5 shrink-0">
-                      <img src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`} alt={track.title} className="w-full h-full object-cover" />
+                      <img src={getThumbnailUrl(track.videoId, track.title)} alt={track.title} className="w-full h-full object-cover" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-white/80 truncate group-hover:text-white">{track.title}</p>
@@ -153,7 +151,6 @@ export function QueueDrawer({
           onAddToPlaylist={onAddToPlaylist}
           onSetSleepTimer={onSetSleepTimer}
           onOpenSleepTimer={onOpenSleepTimer}
-          isHardwareOffline={isHardwareOffline}
           onClose={() => setContextMenu(null)}
         />
       )}

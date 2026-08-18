@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DownloadJob, UserProfile, Track } from '@/types';
 import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home } from 'lucide-react';
-import { cleanArtistName } from '@/lib/ytmusicFormat';
+import { cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 
 interface HeaderProps {
   user: UserProfile;
@@ -16,15 +16,12 @@ interface HeaderProps {
   onCommitSearch?: (query: string) => void;
   searchResults?: Track[];
   onResultClick?: (track: Track) => void;
-  searchMode?: 'name' | 'artist';
-  onSearchModeChange?: (mode: 'name' | 'artist') => void;
+  searchMode?: 'auto' | 'spotify' | 'ytmusic';
+  onSearchModeChange?: (mode: 'auto' | 'spotify' | 'ytmusic') => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
-  isOfflineMode?: boolean;
-  isHardwareOffline?: boolean;
-  onToggleOfflineMode?: () => void;
 }
 
 export function Header({
@@ -38,15 +35,12 @@ export function Header({
   onCommitSearch,
   searchResults = [],
   onResultClick,
-  searchMode = 'name',
+  searchMode = 'auto',
   onSearchModeChange,
   onUndo,
   onRedo,
   canUndo = false,
   canRedo = false,
-  isOfflineMode = false,
-  isHardwareOffline = false,
-  onToggleOfflineMode,
 }: HeaderProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isDownloadClosing, setIsDownloadClosing] = useState(false);
@@ -300,7 +294,7 @@ export function Header({
                       }`}
                     >
                       <img
-                        src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                        src={getThumbnailUrl(track.videoId, track.title)}
                         alt=""
                         className="w-9 h-9 rounded-lg object-cover shrink-0 bg-white/5"
                       />
@@ -327,19 +321,28 @@ export function Header({
             )}
           </div>
 
-          {/* Name / Artist toggle */}
+          {/* Auto / YTMusic / Spotify search source toggle */}
           <div className="flex items-center rounded-2xl border border-white/10 bg-white/5 p-1 text-[11px] font-semibold shrink-0">
             <button
-              onClick={() => onSearchModeChange?.('name')}
-              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'name' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
+              onClick={() => onSearchModeChange?.('auto')}
+              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'auto' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
+              title="Search both Spotify and YTMusic, merge & dedupe (Spotify priority)"
             >
-              Name
+              Auto
             </button>
             <button
-              onClick={() => onSearchModeChange?.('artist')}
-              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'artist' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
+              onClick={() => onSearchModeChange?.('ytmusic')}
+              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'ytmusic' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
+              title="Search YouTube Music via yt-dlp only"
             >
-              Artist
+              YTMusic
+            </button>
+            <button
+              onClick={() => onSearchModeChange?.('spotify')}
+              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'spotify' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
+              title="Search Spotify metadata anonymously (noauth) only"
+            >
+              Spotify
             </button>
           </div>
         </div>
@@ -501,29 +504,10 @@ export function Header({
 
               <button
                 type="button"
-                onClick={onToggleOfflineMode}
-                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs transition-all duration-300 w-full font-semibold ${isOfflineMode ? 'bg-amber-500/15 text-amber-300' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}
-                title={isHardwareOffline ? 'Connection unavailable — click to retry' : 'Toggle online/offline mode'}
-              >
-                <span className="flex items-center gap-2">
-                  {isOfflineMode ? <WifiOff className="w-4 h-4 text-amber-400" /> : <Wifi className="w-4 h-4 text-emerald-400" />}
-                  {isOfflineMode ? 'Offline mode' : 'Online mode'}
-                </span>
-                <span className="text-[10px] text-white/35">{isHardwareOffline ? 'Unavailable' : 'Toggle'}</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={async () => {
-                  if (window.electron?.auth) {
-                    await window.electron.auth.logout();
-                    try { window.localStorage.removeItem('music_profile_photo'); } catch { /* ignore */ }
-                    try { await caches.delete('music-profile-v1'); } catch { /* ignore */ }
-                    window.location.reload();
-                  } else {
-                    try { window.localStorage.removeItem('music_profile_photo'); } catch { /* ignore */ }
-                    window.location.href = '/api/auth/logout';
-                  }
+                  try { window.localStorage.removeItem('music_profile_photo'); } catch { /* ignore */ }
+                  try { await caches.delete('music-profile-v1'); } catch { /* ignore */ }
+                  window.location.reload();
                 }}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-white hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] transition-all duration-300 w-full font-semibold"
               >

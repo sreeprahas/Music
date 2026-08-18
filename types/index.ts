@@ -2,6 +2,7 @@ export interface Track {
   videoId: string;
   title: string;
   artist: string;
+  album?: string;
   thumbnailUrl: string;
   duration?: number;
   position: number;
@@ -10,6 +11,12 @@ export interface Track {
   downloaded?: boolean;
   playlistId?: string;
   sourcePlaylistId?: string;
+  /** Spotify track ID (when the track originated from Spotify). */
+  spotifyId?: string;
+  /** Spotify track URI (spotify:track:...). */
+  spotifyUri?: string;
+  /** Cached YouTube video ID resolved from Spotify metadata. */
+  youtubeId?: string;
 }
 
 export interface Playlist {
@@ -21,6 +28,15 @@ export interface Playlist {
   thumbnailVideoIds?: string[];
   trackCount: number;
   hidden?: boolean;
+  importedAt?: string;
+  createdAt?: string;
+  sourceUrl?: string;
+  /** Spotify playlist ID (when the playlist originated from Spotify). */
+  spotifyId?: string;
+  /** Spotify owner user ID. */
+  spotifyOwnerId?: string;
+  /** Spotify snapshot ID — used to detect playlist changes. */
+  spotifySnapshotId?: string;
 }
 
 export interface UserProfile {

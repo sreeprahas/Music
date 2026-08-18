@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Playlist, Track, RepeatMode, SleepTimer } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicFormat';
+import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 import {
   Play,
   Pause,
@@ -63,7 +63,6 @@ interface Props {
   isMuted?: boolean;
   onVolumeChange?: (volume: number) => void;
   onMuteChange?: (isMuted: boolean) => void;
-  isOffline?: boolean;
   playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
 }
 
@@ -105,7 +104,6 @@ export function PlayerBar({
   isMuted: isMutedProp = false,
   onVolumeChange,
   onMuteChange,
-  isOffline = false,
   playlistMutation,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -174,7 +172,6 @@ export function PlayerBar({
     if (track.playlistId) knownIds.add(track.playlistId);
     primePlaylistMemberships(track.videoId, knownIds);
     setTrackPlaylistIds(knownIds);
-    if (isOffline) return;
     fetch(`/api/playlist/memberships?videoId=${encodeURIComponent(track.videoId)}`)
       .then((response) => response.json())
       .then((data) => {
@@ -186,7 +183,7 @@ export function PlayerBar({
       })
       .catch(() => { });
     return () => { cancelled = true; };
-  }, [isOffline, track]);
+  }, [track]);
 
   useEffect(() => {
     if (!track || !playlistMutation || playlistMutation.track.videoId !== track.videoId) return;
@@ -352,10 +349,73 @@ export function PlayerBar({
 
     const loadTrack = async () => {
       try {
-        const mp3Url = `/api/mp3?videoId=${encodeURIComponent(track.videoId)}`;
+        // ── Spotify track resolution ──────────────────────────────────────
+        // If the track came from Spotify and hasn't been resolved to a YouTube
+        // video yet, resolve it on-demand via /api/spotify/resolve. The
+        // resolver checks the Spotify→YouTube cache first, then searches
+        // YouTube via yt-dlp. The player itself never knows how Spotify auth
+        // works — it just asks for a playable videoId.
+        let videoId = track.videoId;
+        if (!videoId && track.spotifyId) {
+          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+          try {
+            const res = await fetch('/api/spotify/resolve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title: track.title,
+                artist: track.artist,
+                duration: track.duration,
+                spotifyId: track.spotifyId,
+              }),
+            });
+            if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+            if (res.ok) {
+              const data = await res.json();
+              if (data.videoId) videoId = data.videoId;
+            }
+          } catch {
+            // Resolution failed — fall through; the mp3/stream load will fail
+            // gracefully below.
+          }
+        }
+
         if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-        
-        audio.src = mp3Url;
+        if (!videoId) {
+          console.error('[Track Load Error]: No videoId and Spotify resolution failed for', track.title);
+          setIsPlaying(false);
+          return;
+        }
+
+        // Prefer the locally-downloaded MP3 (instant, offline-capable).
+        // The /api/mp3 route returns 404 if the file isn't downloaded yet.
+        const mp3Url = `/api/mp3?v=${encodeURIComponent(videoId)}`;
+        const mp3Res = await fetch(mp3Url, { method: 'HEAD' }).catch(() => null);
+        if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+
+        if (mp3Res && mp3Res.ok) {
+          // Local MP3 exists — play it directly.
+          audio.src = mp3Url;
+        } else {
+          // Not downloaded — fall back to live yt-dlp stream extraction.
+          // The /api/stream route resolves a direct audio URL via yt-dlp.
+          const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
+          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+          if (!streamRes || !streamRes.ok) {
+            console.error('[Track Load Error]: No local MP3 and stream extraction failed for', track.title);
+            setIsPlaying(false);
+            return;
+          }
+          const streamData = await streamRes.json();
+          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+          if (!streamData.streamUrl) {
+            console.error('[Track Load Error]: Stream URL missing for', track.title);
+            setIsPlaying(false);
+            return;
+          }
+          audio.src = streamData.streamUrl;
+        }
+
         audio.volume = 1;
         audio.load();
         
@@ -378,7 +438,7 @@ export function PlayerBar({
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId, trackLoadKey]);
+  }, [track?.videoId, track?.spotifyId, trackLoadKey]);
 
   // OS Lockscreen & Hardware Media Controls (MediaSession API)
   useEffect(() => {
@@ -387,8 +447,8 @@ export function PlayerBar({
     // Use the local thumbnail route for Windows media controls. The route
     // serves the cached file from the data directory (and caches it on the
     // first request), avoiding a direct dependency on the remote image URL.
-    const localArtwork = track.thumbnailUrl
-      ? `${window.location.origin}/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`
+    const localArtwork = track.videoId
+      ? `${window.location.origin}${getThumbnailUrl(track.videoId, track.title)}`
       : '';
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
@@ -499,6 +559,7 @@ export function PlayerBar({
         ref={audioRef}
         preload="auto"
         autoPlay={autoPlay}
+        suppressHydrationWarning
         onTimeUpdate={() => {
           if (!isSeeking && audioRef.current) {
             const t = audioRef.current.currentTime;
@@ -522,7 +583,7 @@ export function PlayerBar({
               className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
           >
             <img
-              src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+              src={getThumbnailUrl(track.videoId, track.title)}
               alt={track.title}
               className="w-full h-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
             />
@@ -595,7 +656,6 @@ export function PlayerBar({
                   onRemove={(t, pid) => {
                     onRemoveFromPlaylist?.(t, pid);
                   }}
-                  isOffline={isOffline}
                   onClose={() => {
                     setIsAddPlaylistClosing(false);
                     setAddPlaylistMenuOpen(false);

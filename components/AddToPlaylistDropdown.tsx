@@ -35,7 +35,6 @@ interface Props {
   /** Fixed position override (for context-menu usage) */
   style?: React.CSSProperties;
   className?: string;
-  isOffline?: boolean;
 }
 
 export function AddToPlaylistDropdown({
@@ -48,7 +47,6 @@ export function AddToPlaylistDropdown({
   anchorRef,
   style,
   className = '',
-  isOffline = false,
 }: Props) {
   const [search, setSearch] = useState('');
   // Local checked state — initialised from track.playlistId + optional checkedIds prop
@@ -78,7 +76,7 @@ export function AddToPlaylistDropdown({
         setInitialChecked(next);
         setLocalChecked(next);
       })
-      .catch(() => { })
+      .catch(() => { });
     return () => { cancelled = true; };
   }, [checkedKey, track.playlistId, track.videoId]);
 
@@ -109,7 +107,6 @@ export function AddToPlaylistDropdown({
   });
 
   const toggle = (pl: Playlist) => {
-    if (isOffline) return;
     hasPendingChangesRef.current = true;
     const was = localChecked.has(pl.id);
     setLocalChecked((prev) => {
@@ -170,10 +167,9 @@ export function AddToPlaylistDropdown({
               <button
                 key={pl.id}
                 onClick={() => toggle(pl)}
-                disabled={isOffline}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-colors ${
                   isChecked ? 'bg-white/[0.06] hover:bg-white/[0.09]' : 'hover:bg-white/[0.06]'
-                } ${isOffline ? 'cursor-not-allowed opacity-60' : ''}`}
+                }`}
               >
                 {/* Thumbnail */}
                 <div className="w-9 h-9 rounded-lg overflow-hidden bg-white/5 shrink-0 border border-white/[0.06]">
@@ -195,7 +191,7 @@ export function AddToPlaylistDropdown({
                   {pl.title}
                 </span>
 
-                {/* Check icon — filled green circle (image 1) when checked, outlined circle with + (image 2) when not */}
+                {/* Check icon — filled green circle when checked, outlined circle with + when not */}
                 <div className="shrink-0 flex items-center justify-center w-5 h-5">
                   {isChecked ? (
                     <CheckCircle2 className="w-5 h-5 text-[#00F2FE]" strokeWidth={2.5} />
@@ -212,11 +208,10 @@ export function AddToPlaylistDropdown({
       {/* Footer */}
       <div className="shrink-0 flex items-center justify-end gap-2 px-3 py-2.5 border-t border-white/[0.08]">
         <button
-          onClick={hasChanges && !isOffline ? commitChanges : onClose}
-          disabled={isOffline && hasChanges}
-          className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={hasChanges ? commitChanges : onClose}
+          className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors"
         >
-          {hasChanges && !isOffline ? 'Done' : 'Cancel'}
+          {hasChanges ? 'Done' : 'Cancel'}
         </button>
       </div>
     </div>

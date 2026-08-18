@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicFormat';
+import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2 } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
@@ -86,7 +86,6 @@ interface Props {
   activePlaylistId?: string | null;
   isPlaying?: boolean;
   scrollToTrackRequest?: number;
-  isHardwareOffline?: boolean;
   onEditOrderChange?: (isEditing: boolean) => void;
   recommendations?: Track[];
   playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
@@ -115,7 +114,6 @@ export function PlaylistView({
   activePlaylistId,
   isPlaying = false,
   scrollToTrackRequest = 0,
-  isHardwareOffline = false,
   onEditOrderChange,
   recommendations = [],
   playlistMutation,
@@ -377,34 +375,29 @@ export function PlaylistView({
         callbackRef.current?.(playlist, loaded);
         return true;
       };
-      const manualOffline = localStorage.getItem('yt_offline_mode') === 'true';
-      const canRefresh = navigator.onLine && !isHardwareOffline && !manualOffline;
-      // Hydrate from the effective cache first. The API overlays pending
-      // mutations, so this remains safe even immediately after a reload.
-      if (canRefresh) {
-        try {
-          const cachedResponse = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
-          const data = await cachedResponse.json().catch(() => ({ tracks: [] }));
-          if (cancelled) return;
-          if (cachedResponse.ok && Array.isArray(data.tracks) && (data.fromCache || data.offline)) {
-            const loaded = (data.tracks || []) as Track[];
-            acceptLoadedTracks(loaded, Boolean(data.hasMore));
-            setLoading(false);
-          } else if (cachedResponse.ok && Array.isArray(data.tracks)) {
-            // No cache existed, so this response was already a fresh remote load.
-            const loaded = data.tracks as Track[];
-            acceptLoadedTracks(loaded, Boolean(data.hasMore));
-            setLoading(false);
-          }
-        } catch (err) {
-          // Background refresh below remains the source of truth when no cache exists.
+      // Always fetch from the API - no offline mode restrictions
+      try {
+        const cachedResponse = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
+        const data = await cachedResponse.json().catch(() => ({ tracks: [] }));
+        if (cancelled) return;
+        if (cachedResponse.ok && Array.isArray(data.tracks) && (data.fromCache || data.offline)) {
+          const loaded = (data.tracks || []) as Track[];
+          acceptLoadedTracks(loaded, Boolean(data.hasMore));
+          setLoading(false);
+        } else if (cachedResponse.ok && Array.isArray(data.tracks)) {
+          // No cache existed, so this response was already a fresh remote load.
+          const loaded = data.tracks as Track[];
+          acceptLoadedTracks(loaded, Boolean(data.hasMore));
+          setLoading(false);
         }
+      } catch (err) {
+        // Background refresh below remains the source of truth when no cache exists.
       }
 
       // Refresh remotely in the background. The response is already merged
       // with pending local mutations by the API route.
       try {
-        const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0${canRefresh ? '&forceRefresh=1' : ''}`);
+        const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0&forceRefresh=1`);
         const data = await response.json().catch(() => ({ tracks: [] }));
         if (!cancelled && response.ok) {
           const loaded = (data.tracks || []) as Track[];
@@ -419,7 +412,7 @@ export function PlaylistView({
 
     load();
     return () => { cancelled = true; };
-  }, [playlist.id, isHardwareOffline]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playlist.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -562,18 +555,6 @@ export function PlaylistView({
                 {downloadedCount < playlist.trackCount && !loading && (
                   <button
                     onClick={async () => {
-                      const isManualOffline = typeof window !== 'undefined' && localStorage.getItem('yt_offline_mode') === 'true';
-                      if (isManualOffline || isHardwareOffline) {
-                        alert('You are in offline mode. Please reconnect to download tracks.');
-                        return;
-                      }
-                      try {
-                        const pingRes = await fetch('/api/ping', { method: 'HEAD', cache: 'no-store' });
-                        if (!pingRes.ok) throw new Error();
-                      } catch {
-                        alert('No internet connection. Please check your network.');
-                        return;
-                      }
                       const unDownloadedIds = tracks.filter((t) => !t.downloaded).map((t) => t.videoId);
                       setDownloadingIds((prev) => new Set([...prev, ...unDownloadedIds]));
                       onDownload(playlist.id);
@@ -732,7 +713,7 @@ export function PlaylistView({
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 border border-white/5">
                             <img
-                              src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                              src={getThumbnailUrl(track.videoId, track.title)}
                               alt={track.title}
                               className="w-full h-full object-cover"
                               loading="lazy"
@@ -751,7 +732,7 @@ export function PlaylistView({
                       </td>
                       <td className="playlist-date-column py-2.5 px-3 text-right max-w-0 overflow-hidden">
                         <span className="block text-sm text-white/30 whitespace-nowrap">
-                          {track.dateAdded ? formatRelativeDate(track.dateAdded) : '—'}
+                          {track.dateAdded || playlist.importedAt || playlist.createdAt ? formatRelativeDate(track.dateAdded || playlist.importedAt || playlist.createdAt!) : '—'}
                         </span>
                       </td>
                       <td className="playlist-time-column py-2.5 px-3 text-right">
@@ -795,7 +776,7 @@ export function PlaylistView({
                 {visibleRecommendations.map((track) => (
                   <div key={track.videoId} className="group flex min-h-16 items-center gap-4 rounded-xl px-3 py-2 hover:bg-white/[0.06] transition-colors">
                     <img
-                      src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                      src={getThumbnailUrl(track.videoId, track.title)}
                       alt={track.title}
                       className="h-12 w-12 aspect-square rounded-lg object-cover shadow-lg"
                       loading="lazy"
@@ -840,7 +821,6 @@ export function PlaylistView({
           onOpenSleepTimer={onOpenSleepTimer}
           onDownloadTrack={onDownloadTrack ? handleDownloadTrack : undefined}
           onDeleteTrack={onDeleteTrack ? handleDeleteTrack : undefined}
-          isHardwareOffline={isHardwareOffline}
           isDownloading={downloadingIds.has(contextMenu.track.videoId)}
           onClose={() => setContextMenu(null)}
         />

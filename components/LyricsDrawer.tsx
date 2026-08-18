@@ -5,6 +5,7 @@ import type { Track } from '@/types';
 import { X, Music2, Image as ImageIcon } from 'lucide-react';
 import { parseLRC, getActiveLyricIndex } from '@/lib/lyrics';
 import type { LyricLine } from '@/lib/lyrics';
+import { getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { Skeleton } from './Skeleton';
 
 interface LyricsData {
@@ -76,7 +77,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
         if (colors.length > 0) setPalette(colors);
       } catch { /* Some browser image policies can block canvas sampling. */ }
     };
-    image.src = `/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}`;
+    image.src = getThumbnailUrl(track.videoId, track.title);
     return () => { cancelled = true; };
   }, [track?.thumbnailUrl, track?.videoId]);
 
@@ -159,7 +160,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       <div className={`ambient-art absolute inset-0 opacity-[0.18] pointer-events-none z-0 ${imageTheme ? '' : 'hidden'}`}>
         {track.thumbnailUrl && (
           <img
-            src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+            src={getThumbnailUrl(track.videoId, track.title)}
             alt=""
             className="w-full h-full object-cover blur-xl scale-150"
           />
@@ -200,7 +201,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-14 h-14 rounded-xl overflow-hidden opacity-50">
               <img
-                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                src={getThumbnailUrl(track.videoId, track.title)}
                 alt=""
                 className="w-full h-full object-cover"
               />
@@ -270,7 +271,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       <div className="relative z-10 border-t border-white/10 px-5 py-3 shrink-0 flex items-center gap-3 bg-black/30">
         <div className="w-8 h-8 rounded-md overflow-hidden shrink-0">
           <img
-            src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+            src={getThumbnailUrl(track.videoId, track.title)}
             alt={track.title}
             className="w-full h-full object-cover"
           />

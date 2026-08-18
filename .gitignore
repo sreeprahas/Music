@@ -15,3 +15,6 @@ package-lock.json
 services/.build/
 services/__pycache__/
 services/ytmusic-sidecar.exe
+scratch/
+bin/
+services

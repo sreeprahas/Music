@@ -2,7 +2,7 @@
 
 import React from 'react';
 import type { Track, RepeatMode } from '@/types';
-import { formatDuration, cleanArtistName } from '@/lib/ytmusicFormat';
+import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { LyricsDrawer } from './LyricsDrawer';
 import {
   ChevronDown,
@@ -65,16 +65,6 @@ export function ExpandedPlayerModal({
     <div className={`fixed inset-0 z-50 bg-[#08090B] overflow-hidden flex flex-col ${
       isClosing ? 'animate-slide-down-full' : 'animate-slide-up-full'
     }`}>
-      {/* Blurred album art background */}
-      <div className="ambient-art absolute inset-0 z-0 pointer-events-none">
-        <img
-          src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
-          alt=""
-          className="w-full h-full object-cover scale-125 blur-xl opacity-15"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/80" />
-      </div>
-
       {/* Header bar */}
       <div className="fullscreen-modal-header relative z-10 flex h-[72px] min-h-[72px] max-h-[72px] items-center justify-between border-b border-white/10 bg-[#0A0D10] px-6 shrink-0">
         <button
@@ -97,9 +87,9 @@ export function ExpandedPlayerModal({
           <div className="flex-1 min-h-0 flex items-center justify-center py-4">
             <div className="rounded-[4px] overflow-hidden shadow-2xl bg-transparent aspect-square w-full max-w-[min(45vw,320px)] shrink-0">
               <img
-                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                src={getThumbnailUrl(track.videoId, track.title)}
                 alt={track.title}
-                className="w-full h-full object-contain object-center"
+                className="w-full h-full object-cover object-center"
               />
             </div>
           </div>

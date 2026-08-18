@@ -1,48 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { LoginScreen } from '@/components/LoginScreen';
+import React from 'react';
 import { Dashboard } from '@/components/Dashboard';
 import type { UserProfile } from '@/types';
 
 export default function Home() {
-  const [session, setSession] = useState<{ user: UserProfile } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Handle search params for error messages
-    const params = new URLSearchParams(window.location.search);
-    const err = params.get('error');
-    if (err) setError(err);
-
-    // Electron refreshes secure storage and syncs its HTTP-only cookie first.
-    const electronSession = window.electron?.auth?.getSession
-      ? window.electron.auth.getSession()
-      : Promise.resolve(null);
-
-    electronSession
-      .catch(() => null)
-      .then(() => fetch('/api/auth'))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.user) setSession({ user: data.user });
-      })
-      .catch(() => { })
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#0a0a0a]">
-        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-[#00F2FE] animate-spin" />
-      </div>
-    );
-  }
-
-  if (!session) {
-    return <LoginScreen error={error ?? undefined} />;
-  }
-
-  return <Dashboard user={session.user} />;
+  const user: UserProfile = { name: 'Local Listener', email: 'local@music.app' };
+  return <Dashboard user={user} />;
 }

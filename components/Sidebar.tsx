@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import type { Playlist } from '@/types';
 import { Pin, FolderLock, Music2, Play, Plus, PanelLeftClose, PanelLeftOpen, Volume2 } from 'lucide-react';
 import { PlaylistArtwork } from './PlaylistArtwork';
+import { PlaylistContextMenu } from './PlaylistContextMenu';
 
 interface SidebarProps {
   playlists: Playlist[];
@@ -16,10 +17,14 @@ interface SidebarProps {
   onSelect: (id: string) => void;
   onTogglePin: (id: string) => void;
   onOpenHiddenFolder: () => void;
+  onAddPlaylist?: () => void;
   onPlaylistOrderChange?: (ids: string[]) => void;
   onPinnedOrderChange?: (ids: string[]) => void;
   onUnpinnedOrderChange?: (ids: string[]) => void;
   onPlayPlaylist?: (id: string) => void;
+  onShufflePlayPlaylist?: (id: string) => void;
+  onDownloadPlaylist?: (id: string) => void;
+  onRemovePlaylist?: (id: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }
@@ -35,16 +40,22 @@ export function Sidebar({
   onSelect,
   onTogglePin,
   onOpenHiddenFolder,
+  onAddPlaylist,
   onPlaylistOrderChange,
   onPinnedOrderChange,
   onUnpinnedOrderChange,
   onPlayPlaylist = onSelect,
+  onShufflePlayPlaylist,
+  onDownloadPlaylist,
+  onRemovePlaylist,
   expanded = true,
   onToggleExpanded,
 }: SidebarProps) {
   const safePlaylists = Array.isArray(playlists) ? playlists : [];
   const safePinnedIds = Array.isArray(pinnedIds) ? pinnedIds : [];
   const safeHiddenIds: string[] = [];
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ playlist: Playlist; isPinned: boolean; x: number; y: number } | null>(null);
 
   const pinnedSet = new Set(safePinnedIds);
   const hiddenSet = new Set(safeHiddenIds);
@@ -68,14 +79,6 @@ export function Sidebar({
       })
       .catch(() => setSettingsLoaded(true));
   }, []);
-
-  useEffect(() => {
-    safePlaylists.forEach((playlist) => {
-      if (!playlist.thumbnailUrl) return;
-      const image = new Image();
-      image.src = `/api/playlist-thumbnail?playlistId=${encodeURIComponent(playlist.id)}&url=${encodeURIComponent(playlist.thumbnailUrl)}`;
-    });
-  }, [safePlaylists]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -158,7 +161,7 @@ export function Sidebar({
     const allPlaylists = [...pinnedPlaylists, ...unpinnedPlaylists];
 
     return (
-      <div className="relative h-full w-[72px] flex flex-col select-none overflow-hidden bg-[#161513] transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
+      <div ref={sidebarRef} className="relative h-full w-[72px] flex flex-col select-none overflow-hidden bg-[#161513] transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
         {/* Collapsed Header */}
         <div className="z-10 shrink-0 flex flex-col items-center justify-start gap-2 pt-3 pb-1 bg-[#161513]">
           <button
@@ -174,6 +177,7 @@ export function Sidebar({
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
+            onClick={onAddPlaylist}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#242424] text-white/60 transition-colors hover:bg-[#303030] hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Add playlist"
           >
@@ -194,10 +198,15 @@ export function Sidebar({
                       setHoveredPlaylist({ playlist, isPinned, x: rect.right + 10, y: rect.top + rect.height / 2 })
                     }
                     onLeave={() => setHoveredPlaylist(null)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextMenu({ playlist: pl, isPinned: pinnedSet.has(pl.id), x: event.clientX, y: event.clientY });
+                    }}
                   />
                 ))}
 
-                {/* Hidden Folder Button */}
+                {/* Hidden Folder Button — playlist management temporarily on standby.
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
@@ -217,9 +226,27 @@ export function Sidebar({
                     <FolderLock className="h-4 w-4 text-[#00F2FE]" />
                   </div>
                 </button>
+                */}
             </nav>
           </div>
         </div>
+
+        {/* Right-click context menu */}
+        {contextMenu && onShufflePlayPlaylist && onDownloadPlaylist && onRemovePlaylist && (
+          <PlaylistContextMenu
+            playlist={contextMenu.playlist}
+            isPinned={contextMenu.isPinned}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            boundaryRef={sidebarRef}
+            onPlay={onPlayPlaylist}
+            onShufflePlay={onShufflePlayPlaylist}
+            onDownload={onDownloadPlaylist}
+            onTogglePin={onTogglePin}
+            onRemove={onRemovePlaylist}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
 
         {/* Hover Tooltip */}
         {hoveredPlaylist && (
@@ -246,7 +273,7 @@ export function Sidebar({
 
   // Expanded Sidebar
   return (
-    <div className="relative h-full w-full flex flex-col select-none overflow-hidden bg-[#161513] py-3 transition-[width,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
+    <div ref={sidebarRef} className="relative h-full w-full flex flex-col select-none overflow-hidden bg-[#161513] py-3 transition-[width,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
       <div className="relative shrink-0 h-12">
         <div className="absolute inset-0 flex items-center gap-3 px-3 opacity-100 translate-y-0 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
           <button
@@ -264,6 +291,7 @@ export function Sidebar({
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
+            onClick={onAddPlaylist}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#242424] text-white/60 transition-colors hover:bg-[#303030] hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Add playlist"
           >
@@ -320,6 +348,11 @@ export function Sidebar({
                   onSelect={() => onSelect(pl.id)}
                   onTogglePin={() => onTogglePin(pl.id)}
                   onPlay={() => onPlayPlaylist(pl.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setContextMenu({ playlist: pl, isPinned: true, x: event.clientX, y: event.clientY });
+                  }}
                   onDropOn={(id, insertBefore) => reorderPinned(id, pl.id, insertBefore)}
                   isPlaying={pl.id === playingPlaylistId}
                   isPlaybackActive={isPlaybackActive}
@@ -348,6 +381,11 @@ export function Sidebar({
                 onSelect={() => onSelect(pl.id)}
                 onTogglePin={() => onTogglePin(pl.id)}
                 onPlay={() => onPlayPlaylist(pl.id)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setContextMenu({ playlist: pl, isPinned: false, x: event.clientX, y: event.clientY });
+                }}
                 onDropOn={(id, insertBefore) => reorder(id, pl.id, insertBefore)}
                 isPlaying={pl.id === playingPlaylistId}
                 isPlaybackActive={isPlaybackActive}
@@ -361,6 +399,7 @@ export function Sidebar({
           </div>
         </div>
 
+        {/* Playlist Management button — temporarily on standby.
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
@@ -378,7 +417,24 @@ export function Sidebar({
             <p className="text-xs text-white/30 truncate">Import playlists</p>
           </div>
         </button>
+        */}
       </nav>
+
+      {contextMenu && onShufflePlayPlaylist && onDownloadPlaylist && onRemovePlaylist && (
+        <PlaylistContextMenu
+          playlist={contextMenu.playlist}
+          isPinned={contextMenu.isPinned}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          boundaryRef={sidebarRef}
+          onPlay={onPlayPlaylist}
+          onShufflePlay={onShufflePlayPlaylist}
+          onDownload={onDownloadPlaylist}
+          onTogglePin={onTogglePin}
+          onRemove={onRemovePlaylist}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
@@ -390,18 +446,22 @@ function CollapsedNavItem({
   onSelect,
   onHover,
   onLeave,
+  onContextMenu,
 }: {
   playlist: Playlist;
   isPinned: boolean;
   onSelect: () => void;
   onHover: (playlist: Playlist, isPinned: boolean, rect: DOMRect) => void;
   onLeave: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   return (
     <button
       type="button"
+      data-playlist-context="true"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       onMouseEnter={(e) => onHover(playlist, isPinned, e.currentTarget.getBoundingClientRect())}
       onMouseLeave={onLeave}
       className="group flex h-12 w-12 mx-auto shrink-0 items-center justify-center p-0 transition-all duration-200 bg-transparent hover:bg-white/10 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent [webkit-tap-highlight-color:transparent]"
@@ -421,6 +481,7 @@ function PlaylistNavItem({
   onSelect,
   onTogglePin,
   onPlay,
+  onContextMenu,
   onDropOn,
   isPlaying,
   isPlaybackActive,
@@ -436,6 +497,7 @@ function PlaylistNavItem({
   onSelect: () => void;
   onTogglePin: () => void;
   onPlay: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
   onDropOn: (id: string, insertBefore: boolean) => void;
   isPlaying: boolean;
   isPlaybackActive: boolean;
@@ -449,7 +511,19 @@ function PlaylistNavItem({
   const [insertBefore, setInsertBefore] = useState(true);
   const holdTimerRef = useRef<number | null>(null);
 
-  const startHold = useCallback(() => {
+  const startHold = useCallback((event: React.MouseEvent) => {
+    // Only start the drag-hold on a primary (left) click. Right-click should
+    // open the context menu without arming the reorder drag or flickering the
+    // active/hover styling.
+    if (event.button !== 0) return;
+    setCanDrag(false);
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = window.setTimeout(() => {
+      setCanDrag(true);
+    }, 100);
+  }, []);
+
+  const startHoldTouch = useCallback(() => {
     setCanDrag(false);
     if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
     holdTimerRef.current = window.setTimeout(() => {
@@ -472,13 +546,14 @@ function PlaylistNavItem({
   return (
     <div
       data-playlist-item="true"
+      data-playlist-context="true"
       data-playlist-id={playlist.id}
       data-playlist-pinned={isPinned ? '1' : '0'}
       draggable={canDrag}
       onMouseDown={startHold}
       onMouseUp={cancelHold}
       onMouseLeave={cancelHold}
-      onTouchStart={startHold}
+      onTouchStart={startHoldTouch}
       onTouchEnd={cancelHold}
       onTouchCancel={cancelHold}
       onDragStart={(event) => {
@@ -496,6 +571,7 @@ function PlaylistNavItem({
         onDragPlaylist(null);
         onDragTarget(null);
       }}
+      onContextMenu={onContextMenu}
       onDragOver={(event) => {
         event.preventDefault();
         if (draggingPlaylistId !== playlist.id) {

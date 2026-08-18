@@ -1,11 +1,17 @@
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { getLocalThumbnailPath, ensureDirs } from './db';
 import { getDataDir } from './nativeData';
 
 function getMp3Dir() {
   return path.join(getDataDir(), 'mp3');
+}
+
+function getYtdlpPath() {
+  if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) return process.env.YTDLP_PATH;
+  const bundled = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+  return fs.existsSync(bundled) ? bundled : 'yt-dlp';
 }
 
 export function ensureMp3Dir(): void {
@@ -53,9 +59,21 @@ export function downloadTrack(
     const MP3_DIR = getMp3Dir();
     const outputTemplate = path.join(MP3_DIR, `${videoId}.%(ext)s`).replace(/\\/g, '/');
     const directUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const directCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 2 --concurrent-fragments 4 --extractor-args "youtube:player_client=android,web" -o "${outputTemplate}" "${directUrl}"`;
+    const ytdlp = getYtdlpPath();
 
-    exec(directCmd, { timeout: 120000 }, (error, _stdout, stderr) => {
+    // SECURITY: execFile with argument array — no shell interpolation.
+    // User-controlled values (title, artist) are never passed to a shell.
+    const directArgs = [
+      '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+      '--write-thumbnail', '--convert-thumbnails', 'webp',
+      '--no-playlist', '--no-warnings', '--retries', '2',
+      '--concurrent-fragments', '4',
+      '--extractor-args', 'youtube:player_client=android,web',
+      '-o', outputTemplate,
+      directUrl,
+    ];
+
+    execFile(ytdlp, directArgs, { timeout: 120000 }, (error, _stdout, stderr) => {
       // Move thumbnail if it exists
       const tempThumb = path.join(getMp3Dir(), `${videoId}.webp`);
       const finalThumb = getLocalThumbnailPath(videoId);
@@ -68,7 +86,8 @@ export function downloadTrack(
         return;
       }
 
-      // If direct URL download failed (e.g. YT Music Premium exclusive track), try YouTube search fallback
+      // If direct URL download failed (e.g. YT Music Premium exclusive track), try YouTube search fallback.
+      // The query is passed as a single argument to yt-dlp — never through a shell.
       const query = [artist, title, 'audio'].filter(Boolean).join(' ');
       if (!query || query.trim() === 'audio') {
         reject(new Error(`yt-dlp failed for ${videoId}: ${stderr || error?.message}`));
@@ -76,10 +95,16 @@ export function downloadTrack(
       }
 
       console.log(`[downloader] Direct download failed for ${videoId}. Attempting fallback search: "${query}"`);
-      const searchUrl = `ytsearch1:${query.replace(/"/g, '')}`;
-      const searchCmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --write-thumbnail --convert-thumbnails webp --no-playlist --no-warnings --retries 2 --concurrent-fragments 4 -o "${outputTemplate}" "${searchUrl}"`;
+      const searchArgs = [
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '--write-thumbnail', '--convert-thumbnails', 'webp',
+        '--no-playlist', '--no-warnings', '--retries', '2',
+        '--concurrent-fragments', '4',
+        '-o', outputTemplate,
+        `ytsearch1:${query}`,
+      ];
 
-      exec(searchCmd, { timeout: 300000 }, (searchErr, _sOut, sErr) => {
+      execFile(ytdlp, searchArgs, { timeout: 300000 }, (searchErr, _sOut, sErr) => {
         // Move thumbnail if it exists
         if (fs.existsSync(tempThumb)) {
           fs.renameSync(tempThumb, finalThumb);

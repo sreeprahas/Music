@@ -10,7 +10,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const { searchParams } = new URL(request.url);
-  const videoId = searchParams.get('videoId');
+  const videoId = searchParams.get('v') || searchParams.get('videoId');
 
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     return new Response('Invalid videoId', { status: 400 });

@@ -1,87 +1,71 @@
 import { NextResponse } from 'next/server';
-import { getSession, refreshAccessToken } from '@/lib/auth';
-import { getPlaylistTracks } from '@/lib/ytmusicApi';
+import { getCachedTracks, setCachedTracks, upsertLocalPlaylist, downloadAllTrackThumbnails, findLocalPlaylistBySourceUrl } from '@/lib/db';
 import { isDownloaded } from '@/lib/downloader';
-import { getCachedTracks, setCachedTracks } from '@/lib/db';
-import { getPendingPlaylistMutations } from '@/lib/operationEngine';
+import { getThumbnailUrl } from '@/lib/ytmusicFormat';
+import type { Playlist, Track } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
-function uniqueTracks(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>) {
-  const seen = new Set<string>();
-  return tracks.filter((track) => {
-    if (!track.videoId || seen.has(track.videoId)) return false;
-    seen.add(track.videoId);
-    return true;
-  });
+function page(tracks: Track[], offset: number, limit: number) {
+  const end = limit > 0 ? offset + limit : undefined;
+  return { tracks: tracks.slice(offset, end).map((track) => ({ ...track, downloaded: isDownloaded(track.videoId) })), hasMore: Boolean(limit && end && tracks.length > end) };
 }
 
-function applyPendingMutations(tracks: Awaited<ReturnType<typeof getPlaylistTracks>>, playlistId: string, accountId = '') {
-  const effective = [...tracks];
-  for (const mutation of getPendingPlaylistMutations(playlistId, accountId)) {
-    const index = effective.findIndex((track) => track.videoId === mutation.videoId);
-    if (mutation.operation === 'remove') {
-      if (index >= 0) effective.splice(index, 1);
-    } else if (index < 0 && mutation.track) {
-      effective.push({ ...mutation.track, playlistId, playlistItemId: undefined, position: effective.length });
-    }
-  }
-  return effective.map((track, index) => ({ ...track, position: index }));
-}
-
-export async function GET(request: Request): Promise<NextResponse | Response> {
+export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const playlistId = searchParams.get('playlistId');
-  const limitParam = Number(searchParams.get('limit') || 0);
-  const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 0;
-  const offsetParam = Number(searchParams.get('offset') || 0);
-  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : 0;
-  const end = limit > 0 ? offset + limit : undefined;
-  // When ?forceRefresh=1, always fetch from network; otherwise serve cache first
-  const forceRefresh = searchParams.get('forceRefresh') === '1';
-  const previewOnly = searchParams.get('preview') === '1';
+  if (!playlistId) return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
+  if (playlistId === 'LL' || playlistId === 'LM') return NextResponse.json({ error: 'Liked Songs is not supported' }, { status: 404 });
+  const tracks = getCachedTracks(playlistId) || [];
+  const offset = Math.max(0, Number(searchParams.get('offset') || 0));
+  const limit = Math.max(0, Number(searchParams.get('limit') || 0));
+  return NextResponse.json(page(tracks, offset, limit));
+}
 
-  if (!playlistId) {
-    return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
-  }
-  if (playlistId === 'LL' || playlistId === 'LM') {
-    return NextResponse.json({ error: 'Liked Songs is not supported' }, { status: 404 });
-  }
-
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  let { accessToken, refreshToken, expiresAt } = session;
-  const accountId = session.email;
-  if (Date.now() > expiresAt - 60_000) {
-    const refreshed = await refreshAccessToken(refreshToken);
-    if (refreshed) accessToken = refreshed.accessToken;
-  }
-
+export async function POST(request: Request) {
   try {
-    const fetchedTracks = await getPlaylistTracks({ accessToken, refreshToken, expiresAt }, playlistId, offset + limit);
-    const tracks = applyPendingMutations(uniqueTracks(fetchedTracks), playlistId, accountId);
-    const tracksWithStatus = tracks.slice(offset, end).map((t) => ({
-      ...t,
-      downloaded: isDownloaded(t.videoId),
-    }));
-    // Cache the effective state, never the stale remote snapshot, while work
-    // is still pending. This prevents a reload from resurrecting a mutation.
-    if (!previewOnly) setCachedTracks(playlistId, tracks, accountId);
-    return NextResponse.json({ tracks: tracksWithStatus, hasMore: limit > 0 && tracks.length >= offset + limit });
-  } catch (err: unknown) {
-    console.error(`[api/playlist] Remote fetch failed for ${playlistId}, using cache:`, err);
-    const cached = getCachedTracks(playlistId, accountId);
-    if (cached) {
-      const tracksWithStatus = applyPendingMutations(uniqueTracks(cached), playlistId, accountId).slice(0, limit || undefined).map((t) => ({
-        ...t,
-        downloaded: isDownloaded(t.videoId),
-      }));
-      return NextResponse.json({ tracks: tracksWithStatus, offline: true });
+    const body = await request.json() as { action?: string; url?: string };
+    if (body.action !== 'import' || !body.url) {
+      return NextResponse.json({ error: 'Expected action: import and a playlist URL' }, { status: 400 });
     }
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+
+    // 0. Deduplication — if this exact URL was already imported, return the existing playlist.
+    const existing = findLocalPlaylistBySourceUrl(body.url);
+    if (existing) {
+      const existingTracks = getCachedTracks(existing.id) || [];
+      return NextResponse.json({ success: true, local: true, playlist: existing, tracks: existingTracks, duplicate: true });
+    }
+
+    // 1. Fetch playlist metadata (tracks carry raw remote thumbnailUrl from yt-dlp)
+    const imported = await import('@/lib/playlistImporter').then((m) => m.importPlaylistUrl(body.url!));
+
+    // 2. Replace thumbnailUrls with local API URLs immediately — the actual
+    //    image download happens on app launch via /api/download-metadata-images.
+    //    This makes import much faster (no waiting for 50+ image downloads).
+    const tracksWithLocalThumbs = imported.tracks.map((track) => ({
+      ...track,
+      thumbnailUrl: getThumbnailUrl(track.videoId, track.title),
+    }));
+
+    // 3. Update the playlist's own thumbnailUrl to point to its first track's local image
+    const playlist: Playlist = {
+      ...imported.playlist,
+      thumbnailUrl: tracksWithLocalThumbs[0]
+        ? getThumbnailUrl(tracksWithLocalThumbs[0].videoId, tracksWithLocalThumbs[0].title)
+        : '',
+    };
+
+    // 4. Persist — metadata now contains only local /api/thumbnail URLs
+    const stored = upsertLocalPlaylist(playlist, tracksWithLocalThumbs);
+    setCachedTracks(stored.id, tracksWithLocalThumbs);
+
+    // 5. Trigger thumbnail download in the background (non-blocking).
+    //    The /api/thumbnail endpoint will serve remote images as a fallback until
+    //    the local files are downloaded.
+    downloadAllTrackThumbnails(imported.tracks).catch(() => { /* non-blocking */ });
+
+    return NextResponse.json({ success: true, local: true, playlist: stored, tracks: tracksWithLocalThumbs });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Playlist import failed' }, { status: 500 });
   }
 }

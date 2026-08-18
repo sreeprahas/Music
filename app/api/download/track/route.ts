@@ -1,15 +1,9 @@
-import { getSession } from '@/lib/auth';
 import { downloadTrack, deleteTrack } from '@/lib/downloader';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request): Promise<Response> {
-  const session = await getSession();
-  if (!session) {
-    return new Response('Unauthorized', { status: 401 });
-  }
-
   try {
     const { videoId, title, artist, action } = await request.json();
 

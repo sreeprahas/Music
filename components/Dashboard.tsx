@@ -12,9 +12,8 @@ import { QueueDrawer } from './QueueDrawer';
 import { LyricsDrawer } from './LyricsDrawer';
 import { ExpandedPlayerModal } from './ExpandedPlayerModal';
 import { ResizeDivider } from './ResizeDivider';
-import { isNativeHost, sendNativeDownloadRequest, useNativeDownloadProgress } from '@/lib/webviewBridge';
-import { Search, Play } from 'lucide-react';
-import { cleanArtistName, formatDuration } from '@/lib/ytmusicFormat';
+import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronRight, Music } from 'lucide-react';
+import { cleanArtistName, formatDuration, getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { getCachedPlaylistMemberships, primePlaylistMemberships, removePlaylistMembership } from './AddToPlaylistDropdown';
 
 const QUEUE_MIN = 16;
@@ -32,7 +31,7 @@ interface Props {
   user: UserProfile;
 }
 
-type SearchMode = 'name' | 'artist';
+type SearchMode = 'auto' | 'spotify' | 'ytmusic';
 type CachedTrack = Track & { playlistId: string; playlistTitle: string };
 type RouteState =
   | { kind: 'home' }
@@ -75,7 +74,8 @@ function decodeSlug(value: string) {
 function readRoute(): RouteState {
   const parts = window.location.pathname.split('/').filter(Boolean).map(decodeSlug);
   if (parts[0] === 'playlist' && parts[1]) return { kind: 'playlist', playlistId: parts[1] };
-  if (parts[0] === 'management' || parts[0] === 'hidden') return { kind: 'management' };
+  // Playlist management temporarily on standby.
+  // if (parts[0] === 'management' || parts[0] === 'hidden') return { kind: 'management' };
   if (parts[0] === 'search' && parts[1]) {
     return { kind: 'search', query: parts[1], songId: parts[2] === 'song' && parts[3] ? parts[3] : undefined };
   }
@@ -84,7 +84,8 @@ function readRoute(): RouteState {
 
 function routeHref(route: RouteState) {
   if (route.kind === 'playlist') return `/playlist/${encodeURIComponent(route.playlistId)}`;
-  if (route.kind === 'management') return '/management';
+  // Playlist management temporarily on standby.
+  // if (route.kind === 'management') return '/management';
   if (route.kind === 'search') {
     const base = `/search/${encodeURIComponent(route.query)}`;
     return route.songId ? `${base}/song/${encodeURIComponent(route.songId)}` : base;
@@ -114,7 +115,12 @@ export function Dashboard({ user }: Props) {
   const [isSearchIndexing, setIsSearchIndexing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [typedSearchInput, setTypedSearchInput] = useState('');
-  const [searchMode, setSearchMode] = useState<SearchMode>('name');
+  const [searchMode, setSearchMode] = useState<SearchMode>('auto');
+  // Online search results — fetched from the dual search engine (Spotify
+  // noauth + YTMusic via yt-dlp) when the user commits a search. The renderer
+  // only receives normalized Track objects (no tokens, no secrets).
+  const [onlineSearchResults, setOnlineSearchResults] = useState<Track[]>([]);
+  const [onlineSearching, setOnlineSearching] = useState(false);
 
   const [queueWidth, setQueueWidth] = useState(QUEUE_MAX);
   const [lyricsWidth, setLyricsWidth] = useState(LYRICS_MAX);
@@ -156,6 +162,20 @@ export function Dashboard({ user }: Props) {
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [isFullscreenClosing, setIsFullscreenClosing] = useState(false);
   const handleOpenFullscreen = useCallback(() => setIsFullscreenOpen(true), []);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importError, setImportError] = useState('');
+  // Bulk import queue: each entry is a URL with optional preview data.
+  type PreviewTrack = { title: string; artist: string; duration?: number; videoId?: string; thumbnailUrl?: string };
+  type ImportEntry = { url: string; title?: string; coverUrl?: string; tracks?: PreviewTrack[]; previewing?: boolean; previewOpen?: boolean; error?: string; isPublic?: boolean };
+  const [importQueue, setImportQueue] = useState<ImportEntry[]>([]);
+  const [importingAll, setImportingAll] = useState(false);
+  const handleOpenImportModal = useCallback(() => {
+    setImportUrl('');
+    setImportError('');
+    setImportQueue([]);
+    setIsImportModalOpen(true);
+  }, []);
   const handleCloseFullscreen = useCallback(() => {
     setIsFullscreenClosing(true);
     setTimeout(() => {
@@ -167,128 +187,127 @@ export function Dashboard({ user }: Props) {
     typeof window === 'undefined' ? true : localStorage.getItem('yt_sidebar_expanded') !== 'false'
   );
   const [sleepTimerRequest, setSleepTimerRequest] = useState<{ type: 'open' | 'set'; minutes?: number; id: number } | null>(null);
-  const [isOfflineMode, setIsOfflineMode] = useState(() =>
-    typeof window !== 'undefined' &&
-    localStorage.getItem('yt_offline_mode') === 'true'
-  );
-  // isHardwareOffline reflects connectivity, independent of the manual offline toggle.
-  const [isHardwareOffline, setIsHardwareOffline] = useState(() =>
-    typeof window !== 'undefined' ? !navigator.onLine : false
-  );
 
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
 
-  const setOfflineMode = useCallback((value: boolean) => {
-    setIsHardwareOffline(value);
+  const apiFetch = useCallback(async (url: RequestInfo | URL, options?: RequestInit) => {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response;
   }, []);
 
-  const apiFetch = useCallback(async (url: RequestInfo | URL, options?: RequestInit) => {
-    try {
-      const response = await fetch(url, options);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return response;
-    } catch (error) {
-      // HTTP errors (401/403/404/500) are API/auth problems, not proof of being offline.
-      if (!navigator.onLine || error instanceof TypeError) {
-        setOfflineMode(true);
-      }
-      throw error;
+  // Add a URL to the import queue and immediately fetch preview.
+  const handleAddUrlToQueue = useCallback(() => {
+    const url = importUrl.trim();
+    if (!url) return;
+    setImportError('');
+    // Prevent duplicates in the queue.
+    if (importQueue.some((entry) => entry.url === url)) {
+      setImportError('This URL is already in the queue.');
+      return;
     }
-  }, [setOfflineMode]);
-
-  useEffect(() => {
-    let activeCheck: Promise<boolean> | null = null;
-    let activeController: AbortController | null = null;
-
-    const checkRealStatus = async (): Promise<boolean> => {
-      if (activeCheck) return activeCheck;
-
-      const check = (async () => {
-        const controller = new AbortController();
-        activeController = controller;
-        const timeoutId = window.setTimeout(() => controller.abort(), 3000);
-
-        try {
-          const request = (method: 'HEAD' | 'GET') => fetch('/api/ping', {
-            method,
-            cache: 'no-store',
-            signal: controller.signal,
-          });
-
-          let response: Response;
-          try {
-            response = await request('HEAD');
-            if (response.status === 405 || response.status === 501) {
-              response = await request('GET');
-            }
-          } catch (error) {
-            if (controller.signal.aborted) throw error;
-            response = await request('GET');
-          }
-
-          const online = response.ok;
-          if (!online) {
-            setOfflineMode(true);
-          } else {
-            setIsHardwareOffline(false);
-          }
-          return online;
-        } catch {
-          setOfflineMode(true);
-          return false;
-        } finally {
-          window.clearTimeout(timeoutId);
-          if (activeController === controller) activeController = null;
-        }
-      })();
-
-      activeCheck = check;
+    // Add entry with previewing=true and auto-expand, then fetch preview.
+    setImportQueue((prev) => [...prev, { url, previewing: true, previewOpen: true }]);
+    setImportUrl('');
+    // Fetch preview immediately.
+    (async () => {
       try {
-        return await check;
-      } finally {
-        if (activeCheck === check) activeCheck = null;
+        const res = await fetch('/api/playlist/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Preview failed');
+        setImportQueue((prev) => prev.map((e) => e.url === url ? { ...e, title: data.title, coverUrl: data.coverUrl, tracks: data.tracks, previewing: false, isPublic: data.isPublic !== false, error: data.isPublic === false ? 'This playlist is not public. Make it public on Spotify to import.' : undefined } : e));
+      } catch (e) {
+        setImportQueue((prev) => prev.map((entry) => entry.url === url ? { ...entry, previewing: false, error: e instanceof Error ? e.message : 'Preview failed' } : entry));
       }
-    };
+    })();
+  }, [importUrl, importQueue]);
 
-    const handleOnline = () => { void checkRealStatus(); };
-    const handleOffline = () => {
-      activeController?.abort();
-      activeCheck = null;
-      setOfflineMode(true);
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void checkRealStatus();
+  // Toggle preview expand/collapse (data already loaded on add).
+  const handleTogglePreview = useCallback((url: string) => {
+    setImportQueue((prev) => prev.map((entry) => entry.url === url ? { ...entry, previewOpen: !entry.previewOpen } : entry));
+  }, []);
+
+  // Retry preview for a failed entry (e.g. after playlist is made public).
+  const handleRetryPreview = useCallback((url: string) => {
+    setImportQueue((prev) => prev.map((entry) => entry.url === url ? { ...entry, previewing: true, error: undefined } : entry));
+    (async () => {
+      try {
+        const res = await fetch('/api/playlist/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Preview failed');
+        setImportQueue((prev) => prev.map((e) => e.url === url ? { ...e, title: data.title, coverUrl: data.coverUrl, tracks: data.tracks, previewing: false, isPublic: data.isPublic !== false, error: data.isPublic === false ? 'This playlist is not public. Make it public on Spotify to import.' : undefined } : e));
+      } catch (e) {
+        setImportQueue((prev) => prev.map((entry) => entry.url === url ? { ...entry, previewing: false, error: e instanceof Error ? e.message : 'Preview failed' } : entry));
       }
-    };
+    })();
+  }, []);
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    const heartbeatId = window.setInterval(() => {
-    if (document.visibilityState === 'visible') void checkRealStatus();
-    }, 5000);
+  // Remove a URL from the import queue.
+  const handleRemoveImportEntry = useCallback((url: string) => {
+    setImportQueue((prev) => prev.filter((entry) => entry.url !== url));
+  }, []);
 
-    if (document.visibilityState === 'visible' && !isOfflineMode) void checkRealStatus();
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.clearInterval(heartbeatId);
-      activeController?.abort();
-    };
-  }, [setOfflineMode, isOfflineMode]);
-
-  const handleToggleOfflineMode = useCallback(() => {
-    setIsOfflineMode((prev) => {
-      const next = !prev;
-      localStorage.setItem('yt_offline_mode', String(next));
-      return next;
-    });
-  }, [isHardwareOffline]);
+  // Finalize: import all queued playlists (skip entries that are not public).
+  const handleImportAll = useCallback(async () => {
+    const importable = importQueue.filter((entry) => entry.isPublic !== false && !entry.error);
+    if (importable.length === 0) return;
+    setImportingAll(true);
+    setImportError('');
+    const importedIds: string[] = [];
+    let lastError = '';
+    for (const entry of importable) {
+      try {
+        const res = await apiFetch('/api/playlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'import', url: entry.url }),
+        });
+        const data = await res.json();
+        if (data.playlist) {
+          importedIds.push(data.playlist.id);
+          setPlaylists((prev) => prev.some((p) => p.id === data.playlist.id) ? prev : [data.playlist, ...prev]);
+        }
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : 'Import failed';
+      }
+    }
+    // Persist all imported playlist IDs.
+    if (importedIds.length > 0) {
+      setImportedPlaylistIds((prev) => {
+        const next = [...prev, ...importedIds.filter((id) => !prev.includes(id))];
+        apiFetch('/api/user/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ importedPlaylists: next }),
+        }).catch(() => {});
+        return next;
+      });
+      // Refresh full playlist list.
+      apiFetch('/api/playlists').then((r) => r.json()).then((d) => {
+        if (Array.isArray(d?.playlists) && d.playlists.length > 0) {
+          setPlaylists(d.playlists);
+          playlistsRef.current = d.playlists;
+        }
+      }).catch(() => {});
+    }
+    if (lastError) {
+      setImportError(lastError);
+    } else {
+      setIsImportModalOpen(false);
+      setImportQueue([]);
+    }
+    setImportingAll(false);
+  }, [apiFetch, importQueue]);
 
   useEffect(() => {
     void fetch('/api/playlist/queue', { cache: 'no-store' }).catch(() => { });
@@ -460,25 +479,8 @@ export function Dashboard({ user }: Props) {
     } catch { }
   }, [currentTrack, queue, queuePosition, activePlaylistId, currentTime, isPlaying, isShuffle, repeatMode, volume, isMuted, isQueueOpen, isLyricsOpen, localSettingsHydrated]);
 
-  const nativeProgress = useNativeDownloadProgress();
   const [downloadJobs, setDownloadJobs] = useState<Map<string, DownloadJob>>(new Map());
   const downloadSources = useRef<Map<string, EventSource>>(new Map());
-
-  useEffect(() => {
-    if (!isNativeHost()) return;
-    setDownloadJobs((prev) => {
-      let changed = false;
-      const m = new Map(prev);
-      for (const [id, value] of Object.entries(nativeProgress)) {
-        const job = m.get(id);
-        if (job && job.done !== value) {
-          m.set(id, { ...job, done: value, status: value >= 100 ? 'done' : 'running' });
-          changed = true;
-        }
-      }
-      return changed ? m : prev;
-    });
-  }, [nativeProgress]);
 
   useEffect(() => {
     apiFetch('/api/user/settings')
@@ -492,7 +494,8 @@ export function Dashboard({ user }: Props) {
 
   const applyRoute = useCallback(
     (route: RouteState) => {
-      setShowPlaylistManagement(route.kind === 'management');
+      // Playlist management temporarily on standby — never activate it.
+      setShowPlaylistManagement(false);
       const q = route.kind === 'search' ? route.query : '';
       setSearchQuery(q);
       setTypedSearchInput(q);
@@ -570,12 +573,12 @@ export function Dashboard({ user }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoadingPlaylists(true);
-    const url = (navigator.onLine && !isOfflineMode) ? '/api/playlists?forceRefresh=1' : '/api/playlists';
+    const url = '/api/playlists?forceRefresh=1';
     apiFetch(url)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
-        if (!data?.playlists?.length && navigator.onLine && !isOfflineMode) {
+        if (!data?.playlists?.length) {
           return apiFetch('/api/playlists')
             .then((r) => r.json())
             .then((d) => {
@@ -615,11 +618,20 @@ export function Dashboard({ user }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [isOfflineMode]);
+  }, []);
+
+  // Download all metadata thumbnails on app launch so playlist view only uses local images.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/download-metadata-images', { method: 'POST' }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleOpenHiddenFolder = useCallback(() => {
-    navigateRoute({ kind: 'management' });
-  }, [navigateRoute]);
+    // Playlist management temporarily on standby — no-op.
+  }, []);
 
   const handleToggleImport = useCallback((id: string) => {
     setPendingImportIds((prev) => {
@@ -780,6 +792,25 @@ export function Dashboard({ user }: Props) {
     }
     if (tracks.length > 0) handlePlay(tracks[0], tracks, playlistId);
   }, [allTracks, handlePlay, playlists]);
+
+  // Shuffle play a playlist: enable shuffle, then play from a random track.
+  // The shuffle flag is set BEFORE handlePlay so handlePlay's own shuffle
+  // logic reshuffles the upcoming queue around the chosen starting track.
+  const handleShufflePlayPlaylist = useCallback(async (playlistId: string) => {
+    let tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId);
+    if (tracks.length === 0) {
+      const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlistId)}`);
+      const data = await response.json().catch(() => ({}));
+      tracks = Array.isArray(data.tracks) ? data.tracks : [];
+      if (tracks.length > 0) {
+        setAllTracks((prev) => ({ ...prev, ...Object.fromEntries(tracks.map((track: Track) => [track.videoId, { ...track, playlistId, playlistTitle: playlists.find((playlist) => playlist.id === playlistId)?.title || '' }])) }));
+      }
+    }
+    if (tracks.length === 0) return;
+    if (!isShuffle) setIsShuffle(true);
+    const startTrack = tracks[Math.floor(Math.random() * tracks.length)];
+    handlePlay(startTrack, tracks, playlistId);
+  }, [allTracks, handlePlay, isShuffle, playlists]);
 
   const playingPlaylistId = activePlaylistId;
   const moveToQueuePosition = useCallback((position: number, tracks = queueRef.current) => {
@@ -1133,9 +1164,6 @@ export function Dashboard({ user }: Props) {
       // PlaylistView handles the optimistic track state update — no reload needed
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to download song';
-      if (msg.includes('internet') || msg.includes('offline') || msg.includes('ENOTFOUND') || msg.includes('fetch failed')) {
-        setIsHardwareOffline(true);
-      }
       alert(msg);
     }
   }, []);
@@ -1152,9 +1180,6 @@ export function Dashboard({ user }: Props) {
       // PlaylistView handles the optimistic track state update — no reload needed
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete download';
-      if (msg.includes('internet') || msg.includes('offline') || msg.includes('ENOTFOUND') || msg.includes('fetch failed') || !navigator.onLine) {
-        setIsHardwareOffline(true);
-      }
       alert(msg);
     }
   }, []);
@@ -1177,15 +1202,6 @@ export function Dashboard({ user }: Props) {
     (playlistId: string) => {
       const pl = playlists.find((p) => p.id === playlistId);
       const title = pl ? pl.title : 'Playlist';
-      if (isNativeHost()) {
-        sendNativeDownloadRequest(playlistId);
-        setDownloadJobs((prev) => {
-          const next = new Map(prev);
-          next.set(playlistId, { playlistId, playlistTitle: title, total: 0, toDownload: 0, done: 0, status: 'starting', errorCount: 0, startedAt: Date.now() });
-          return next;
-        });
-        return;
-      }
       if (downloadSources.current.has(playlistId)) downloadSources.current.get(playlistId)?.close();
       setDownloadJobs((prev) => {
         const next = new Map(prev);
@@ -1266,11 +1282,15 @@ export function Dashboard({ user }: Props) {
   const globalSearchResults = useMemo(() => {
     const q = (typedSearchInput || searchQuery).trim().toLowerCase();
     if (!q) return [];
+    // Local library search — matches against both title and artist regardless
+    // of the online source mode (auto/spotify/ytmusic). The mode selector
+    // only affects the online search, not the local library filter.
     return Object.values(allTracks).filter((track) => {
-      const haystack = searchMode === 'artist' ? cleanArtistName(track.artist) : track.title;
-      return haystack.toLowerCase().includes(q);
+      const titleMatch = track.title.toLowerCase().includes(q);
+      const artistMatch = cleanArtistName(track.artist).toLowerCase().includes(q);
+      return titleMatch || artistMatch;
     });
-  }, [allTracks, searchMode, typedSearchInput, searchQuery]);
+  }, [allTracks, typedSearchInput, searchQuery]);
 
   const waitingForInitialPlaylist = initialRoute.kind === 'playlist' && !selectedPlaylist && playlists.length > 0;
 
@@ -1286,7 +1306,7 @@ export function Dashboard({ user }: Props) {
       return next;
     });
     const artworkTracks = tracks.slice(0, 4);
-    const thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`);
+    const thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl || `/api/thumbnail?v=${encodeURIComponent(track.videoId)}`);
     const thumbnailVideoIds = artworkTracks.map((track) => track.videoId);
     setPlaylists((prev) => prev.map((item) => item.id === playlist.id ? { ...item, trackCount: tracks.length, thumbnailUrls, thumbnailVideoIds } : item));
   }, []);
@@ -1306,13 +1326,10 @@ export function Dashboard({ user }: Props) {
           const response = await apiFetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=4`);
           const data = await response.json().catch(() => ({}));
           if (!cancelled && response.ok && Array.isArray(data.tracks) && data.tracks.length > 0) {
-            // Only update artwork thumbnails — do NOT overwrite trackCount with a partial result.
             const artworkTracks = (data.tracks as Track[]).slice(0, 4);
-            const thumbnailUrls = artworkTracks.map((t) => t.thumbnailUrl || `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`);
+            // thumbnailUrls are already local API URLs — no remote fetch needed.
+            const thumbnailUrls = artworkTracks.map((t) => t.thumbnailUrl || `/api/thumbnail?v=${encodeURIComponent(t.videoId)}`);
             const thumbnailVideoIds = artworkTracks.map((t) => t.videoId);
-            // Force the server to download/cache each local artwork even when
-            // the playlist itself is never opened.
-            await Promise.all(artworkTracks.map((track) => fetch(`/api/thumbnail?videoId=${encodeURIComponent(track.videoId)}&url=${encodeURIComponent(track.thumbnailUrl)}&crop=2`).catch(() => null)));
             setPlaylists((prev) => prev.map((item) =>
               item.id === playlist.id && (!item.thumbnailUrls || item.thumbnailUrls.length < 4)
                 ? { ...item, thumbnailUrls, thumbnailVideoIds }
@@ -1368,6 +1385,50 @@ export function Dashboard({ user }: Props) {
       setIsSearchIndexing(false);
     };
   }, [apiFetch, handleTracksLoaded, playlists, searchQuery]);
+
+  // Online search — when the local library has no matches, query the dual
+  // search engine (Spotify noauth + YTMusic via yt-dlp) using the selected
+  // mode (auto/spotify/ytmusic). Results are normalized Track objects; the
+  // renderer never sees tokens or secrets. In 'auto' mode both sources run
+  // in parallel, results are deduplicated, and Spotify takes priority.
+  useEffect(() => {
+    const q = (typedSearchInput || searchQuery).trim();
+    if (!q) {
+      setOnlineSearchResults([]);
+      setOnlineSearching(false);
+      return;
+    }
+    // Only hit the online sources when the local library has no matches —
+    // avoids redundant API calls and respects the "local first" principle.
+    if (globalSearchResults.length > 0) {
+      setOnlineSearchResults([]);
+      setOnlineSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOnlineSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/search?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(searchMode)}&limit=20`,
+          { cache: 'no-store' },
+        );
+        if (cancelled) return;
+        if (!res.ok) { setOnlineSearchResults([]); return; }
+        const data = await res.json();
+        if (cancelled) return;
+        setOnlineSearchResults(Array.isArray(data.tracks) ? data.tracks : []);
+      } catch {
+        if (!cancelled) setOnlineSearchResults([]);
+      } finally {
+        if (!cancelled) setOnlineSearching(false);
+      }
+    }, 350); // debounce — avoids hammering the online sources on every keystroke
+
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typedSearchInput, searchQuery, globalSearchResults.length, searchMode]);
 
   const handleDeletePlaylist = useCallback(
     async (playlistId: string) => {
@@ -1625,9 +1686,6 @@ export function Dashboard({ user }: Props) {
         onRedo={handleRedoNavigation}
         canUndo={historyPosition > 0}
         canRedo={historyPosition < historyLength}
-        isOfflineMode={isOfflineMode}
-        isHardwareOffline={isHardwareOffline}
-        onToggleOfflineMode={handleToggleOfflineMode}
         onHomeClick={() => {
           navigateRoute({ kind: 'home' });
         }}
@@ -1653,8 +1711,12 @@ export function Dashboard({ user }: Props) {
             onPinnedOrderChange={handlePinnedOrderChange}
             onUnpinnedOrderChange={handleUnpinnedOrderChange}
             onPlayPlaylist={handlePlayPlaylist}
+            onShufflePlayPlaylist={handleShufflePlayPlaylist}
+            onDownloadPlaylist={handleDownload}
+            onRemovePlaylist={handleDeletePlaylist}
             expanded={sidebarExpanded}
             onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
+            onAddPlaylist={handleOpenImportModal}
           />
         </aside>
 
@@ -1666,18 +1728,33 @@ export function Dashboard({ user }: Props) {
                 mode={searchMode}
                 results={globalSearchResults}
                 isIndexing={isSearchIndexing}
+                onlineResults={onlineSearchResults}
+                isOnlineSearching={onlineSearching}
                 onPlay={(track) => {
-                  handlePlay(track, globalSearchResults as Track[]);
-                  navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId });
+                  // For online tracks without a videoId (Spotify-only), the
+                  // player resolves on-demand via /api/spotify/resolve. For
+                  // local tracks or YTMusic results, the videoId is known.
+                  const queue = globalSearchResults.length > 0
+                    ? (globalSearchResults as Track[])
+                    : onlineSearchResults;
+                  handlePlay(track, queue);
+                  navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId || track.spotifyId || '' });
                 }}
               />
             ) : loadingPlaylists ? (
               selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
             ) : showPlaylistManagement ? (
-              <PlaylistManagementView
-                playlists={playlists}
-                importedIds={importedPlaylistIds}
-                onToggleImport={handleImportImmediate}
+              // Playlist management temporarily on standby — render grid as fallback.
+              <PlaylistGrid
+                playlists={filteredPlaylists}
+                pinnedIds={pinnedIds}
+                hiddenIds={[]}
+                onSelect={handleSelectPlaylist}
+                onTogglePin={handleTogglePin}
+                onPlay={handlePlayPlaylist}
+                onShufflePlay={handleShufflePlayPlaylist}
+                onDownload={handleDownload}
+                onRemove={handleDeletePlaylist}
               />
             ) : selectedPlaylist ? (
               <PlaylistView
@@ -1704,19 +1781,23 @@ export function Dashboard({ user }: Props) {
                 activePlaylistId={activePlaylistId}
                 isPlaying={isPlaying}
                 scrollToTrackRequest={playlistScrollRequest}
-                isHardwareOffline={isHardwareOffline}
                 onEditOrderChange={setIsPlaylistEditOrder}
                 recommendations={playlistRecommendations}
                 playlistMutation={playlistMutation}
               />
             ) : (
               importedPlaylists.length === 0 ? (
-                <PlaylistManagementView
-                  playlists={playlists}
-                  importedIds={pendingImportIds}
-                  onToggleImport={handleToggleImport}
-                  onDone={handleDoneImport}
-                  showDone
+                // Playlist management temporarily on standby — render grid instead.
+                <PlaylistGrid
+                  playlists={filteredPlaylists}
+                  pinnedIds={pinnedIds}
+                  hiddenIds={[]}
+                  onSelect={handleSelectPlaylist}
+                  onTogglePin={handleTogglePin}
+                  onPlay={handlePlayPlaylist}
+                  onShufflePlay={handleShufflePlayPlaylist}
+                  onDownload={handleDownload}
+                  onRemove={handleDeletePlaylist}
                 />
               ) : (
                 <PlaylistGrid
@@ -1726,6 +1807,9 @@ export function Dashboard({ user }: Props) {
                   onSelect={handleSelectPlaylist}
                   onTogglePin={handleTogglePin}
                   onPlay={handlePlayPlaylist}
+                  onShufflePlay={handleShufflePlayPlaylist}
+                  onDownload={handleDownload}
+                  onRemove={handleDeletePlaylist}
                 />
               )
             )}
@@ -1754,7 +1838,6 @@ export function Dashboard({ user }: Props) {
                   onAddToPlaylist={handleAddToPlaylist}
                   onSetSleepTimer={handleSetSleepTimer}
                   onOpenSleepTimer={handleOpenSleepTimer}
-                  isHardwareOffline={isHardwareOffline}
                 />
               </div>
             </>
@@ -1810,7 +1893,6 @@ export function Dashboard({ user }: Props) {
             : undefined
         }
         onToggleFullscreen={() => setIsFullscreenOpen(true)}
-        isOffline={isOfflineMode || isHardwareOffline}
         playlistMutation={playlistMutation}
         onTimeUpdate={(t) => setCurrentTime(t)}
         resumeTime={savedSession?.track?.videoId === currentTrack?.videoId ? savedSession?.time ?? 0 : 0}
@@ -1852,6 +1934,191 @@ export function Dashboard({ user }: Props) {
         </div>
       )}
 
+      {isImportModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setIsImportModalOpen(false); }}
+        >
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-[#181818] shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-white">Import Playlists</h2>
+                <p className="text-xs text-white/40">Paste a YouTube or Spotify playlist URL, add to queue, then import</p>
+              </div>
+              <button onClick={() => setIsImportModalOpen(false)} className="text-white/40 hover:text-white transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* URL input + Add button */}
+            <div className="flex gap-2 px-6 pt-4">
+              <input
+                autoFocus
+                type="url"
+                value={importUrl}
+                onChange={(e) => { setImportUrl(e.target.value); setImportError(''); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && importUrl.trim()) handleAddUrlToQueue(); if (e.key === 'Escape') setIsImportModalOpen(false); }}
+                placeholder="Enter link here"
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00F2FE]/60 focus:ring-1 focus:ring-[#00F2FE]/30 transition-colors"
+              />
+              <button
+                onClick={handleAddUrlToQueue}
+                disabled={!importUrl.trim()}
+                className="flex items-center gap-1.5 rounded-xl border border-[#00F2FE]/30 bg-[#00F2FE]/10 px-4 py-2.5 text-sm font-semibold text-[#00F2FE] hover:bg-[#00F2FE]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Plus className="h-4 w-4" /> Add
+              </button>
+            </div>
+
+            {importError && <p className="px-6 pt-2 text-xs text-red-400">{importError}</p>}
+
+            {/* Queue list */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
+              {importQueue.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] py-8 text-center text-sm text-white/30">
+                  No playlists in queue. Paste a URL above and click Add.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {importQueue.map((entry) => (
+                    <div key={entry.url} className="rounded-xl border border-white/5 bg-white/[0.02]">
+                      <div className="flex items-center gap-3 px-3 py-2.5">
+                        <button
+                          onClick={() => entry.tracks ? handleTogglePreview(entry.url) : handleRetryPreview(entry.url)}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          {/* Playlist artwork: 2x2 collage of first 4 track thumbnails, or cover image for Spotify */}
+                          <div className="flex h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/5">
+                            {entry.previewing ? (
+                              <div className="flex h-full w-full items-center justify-center">
+                                <Loader2 className="h-4 w-4 animate-spin text-white/40" />
+                              </div>
+                            ) : entry.coverUrl && !entry.tracks?.some((t) => t.videoId) ? (
+                              <img src={entry.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            ) : entry.tracks && entry.tracks.length > 0 && entry.tracks.some((t) => t.videoId) ? (
+                              <div className="grid h-full w-full grid-cols-2 grid-rows-2">
+                                {entry.tracks.slice(0, 4).map((track, i) => (
+                                  track.videoId ? (
+                                    <img
+                                      key={i}
+                                      src={getThumbnailUrl(track.videoId, track.title)}
+                                      alt=""
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div key={i} className="h-full w-full bg-white/5" />
+                                  )
+                                ))}
+                              </div>
+                            ) : entry.coverUrl ? (
+                              <img src={entry.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center">
+                                <Music className="h-4 w-4 text-white/20" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-white">{entry.title || entry.url}</p>
+                            <p className="truncate text-xs text-white/30">
+                              {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loading…' : entry.url}
+                            </p>
+                          </div>
+                          {entry.tracks && (
+                            <div className="shrink-0">
+                              {entry.previewOpen ? (
+                                <ChevronDown className="h-4 w-4 text-white/40" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 text-white/40" />
+                              )}
+                            </div>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleRemoveImportEntry(entry.url)}
+                          className="shrink-0 rounded-lg p-1.5 text-white/30 hover:bg-white/5 hover:text-white/60 transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      {/* Preview tracks */}
+                      {entry.previewOpen && entry.tracks && (
+                        <div className="border-t border-white/5 px-3 py-2">
+                          <div className="space-y-0.5">
+                            {entry.tracks.slice(0, 10).map((track, i) => (
+                              <div key={i} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+                                <span className="w-5 text-xs text-white/30">{i + 1}</span>
+                                {track.videoId ? (
+                                  <img
+                                    src={getThumbnailUrl(track.videoId, track.title)}
+                                    alt=""
+                                    className="h-8 w-8 rounded object-cover bg-white/5"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <div className="h-8 w-8 rounded bg-white/5" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm text-white/80">{track.title}</p>
+                                  <p className="truncate text-xs text-white/30">{track.artist}</p>
+                                </div>
+                              </div>
+                            ))}
+                            {entry.tracks.length > 10 && (
+                              <p className="px-2 pt-1 text-xs text-white/25">+{entry.tracks.length - 10} more tracks</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Error / not public message */}
+                      {entry.error && (
+                        <div className="border-t border-white/5 px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-red-400">{entry.error}</p>
+                            {entry.isPublic === false && (
+                              <button
+                                onClick={() => handleRetryPreview(entry.url)}
+                                className="text-xs text-[#00F2FE] hover:underline"
+                              >Retry</button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer with Import button */}
+            <div className="flex items-center justify-between border-t border-white/10 px-6 py-4">
+              <span className="text-xs text-white/30">
+                {importQueue.length > 0 ? `${importQueue.length} playlist${importQueue.length > 1 ? 's' : ''} queued` : ''}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsImportModalOpen(false)}
+                  className="rounded-xl px-4 py-2 text-sm text-white/60 hover:bg-white/5 transition-colors"
+                >Cancel</button>
+                <button
+                  onClick={() => void handleImportAll()}
+                  disabled={importingAll || importQueue.filter((e) => e.isPublic !== false && !e.error).length === 0}
+                  className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold bg-[#00F2FE]/10 text-[#00F2FE] border border-[#00F2FE]/30 hover:bg-[#00F2FE]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {importingAll ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</>
+                  ) : (
+                    <><Download className="h-4 w-4" /> Import {importQueue.filter((e) => e.isPublic !== false && !e.error).length > 0 ? `(${importQueue.filter((e) => e.isPublic !== false && !e.error).length})` : ''}</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(isFullscreenOpen || isFullscreenClosing) && currentTrack && (
         <ExpandedPlayerModal
           track={currentTrack}
@@ -1890,23 +2157,42 @@ function GlobalSearchResults({
   mode,
   results,
   isIndexing,
+  onlineResults,
+  isOnlineSearching,
   onPlay,
 }: {
   query: string;
   mode: SearchMode;
   results: Array<CachedTrack>;
   isIndexing: boolean;
+  onlineResults?: Track[];
+  isOnlineSearching?: boolean;
   onPlay: (track: Track) => void;
 }) {
+  const hasLocal = results.length > 0;
+  const showOnline = !hasLocal && onlineResults && onlineResults.length > 0;
+  const showOnlineSearching = !hasLocal && isOnlineSearching && (!onlineResults || onlineResults.length === 0);
+  const showEmpty = !hasLocal && !showOnline && !showOnlineSearching && !isIndexing;
+
+  const modeLabel = mode === 'auto' ? 'Auto (Spotify + YTMusic)' : mode === 'spotify' ? 'Spotify' : 'YTMusic';
+
   return (
     <div className="h-full min-h-0 overflow-y-auto px-8 py-8 scrollbar-thin animate-fadeIn">
       <div className="mb-5">
         <p className="text-xs uppercase tracking-[0.24em] text-white/35">Global Search</p>
         <h2 className="mt-2 text-2xl font-black text-white">
-          {mode === 'artist' ? 'Artist' : 'Name'} results for "{query}"
+          Results for "{query}"
         </h2>
         <p className="mt-1 text-sm text-white/40">
-          {isIndexing ? 'Loading songs from your playlists...' : `${results.length} matching tracks`}
+          {isIndexing
+            ? 'Loading songs from your playlists...'
+            : hasLocal
+              ? `${results.length} matching tracks in your library`
+              : showOnline
+                ? `${onlineResults!.length} tracks from ${modeLabel} (not yet in your library)`
+                : showOnlineSearching
+                  ? `Searching ${modeLabel}...`
+                  : `No local matches — searching ${modeLabel}...`}
         </p>
       </div>
 
@@ -1919,7 +2205,7 @@ function GlobalSearchResults({
           >
             <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
               <img
-                src={`/api/thumbnail?videoId=${track.videoId}&url=${encodeURIComponent(track.thumbnailUrl)}`}
+                src={getThumbnailUrl(track.videoId, track.title)}
                 alt={track.title}
                 className="w-full h-full object-cover"
               />
@@ -1939,10 +2225,55 @@ function GlobalSearchResults({
             </div>
           </button>
         ))}
-        {results.length === 0 && !isIndexing && (
+
+        {/* Online results — shown only when the local library has no matches.
+            In 'auto' mode these are merged Spotify + YTMusic results (Spotify
+            priority, deduped). Tracks from Spotify carry a spotifyId but may
+            have no videoId; the player resolves them to a YouTube video
+            on-demand via /api/spotify/resolve. YTMusic tracks already have a
+            videoId. */}
+        {showOnline && onlineResults!.map((track) => (
+          <button
+            key={track.videoId || track.spotifyId || track.title}
+            onClick={() => onPlay(track)}
+            className="w-full flex items-center gap-4 rounded-3xl border border-white/5 bg-white/[0.03] px-4 py-3 text-left hover:bg-white/[0.06] transition-all duration-300 ease-out"
+          >
+            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
+              <img
+                src={track.thumbnailUrl || getThumbnailUrl(track.videoId, track.title)}
+                alt={track.title}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white truncate">{track.title}</p>
+              <p className="text-xs text-white/45 truncate mt-0.5">{cleanArtistName(track.artist)}</p>
+              {track.album && <p className="text-xs text-white/30 truncate mt-0.5">{track.album}</p>}
+            </div>
+            <div className="hidden lg:block min-w-0 w-56">
+              <p className="text-xs text-white/40 truncate">{track.spotifyId ? 'Spotify' : 'YTMusic'}</p>
+            </div>
+            <div className="hidden md:block w-16 text-right text-xs text-white/35">
+              {track.duration ? formatDuration(track.duration) : '—'}
+            </div>
+            <div className="shrink-0 text-white/25">
+              <Play className="w-4 h-4" />
+            </div>
+          </button>
+        ))}
+
+        {showOnlineSearching && (
+          <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center text-white/35">
+            <Search className="w-5 h-5 mx-auto mb-3 text-white/20 animate-pulse" />
+            Searching {modeLabel} for "{query}"...
+          </div>
+        )}
+
+        {showEmpty && (
           <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center text-white/35">
             <Search className="w-5 h-5 mx-auto mb-3 text-white/20" />
-            No matching tracks found in loaded playlists.
+            No matching tracks found.
           </div>
         )}
       </div>

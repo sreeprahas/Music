@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import type { Playlist, Track } from '@/types';
-import { cleanArtistName } from './ytmusicApi';
+import { cleanArtistName, getThumbnailUrl } from './ytmusicFormat';
 import { getDataDir } from './nativeData';
 
 const croppedPlaylistIds = new Set<string>();
@@ -13,7 +13,7 @@ function accountFileKey(accountId = 'default') {
 }
 
 function getPaths(accountId = 'default') {
-const DATA_DIR = path.resolve(getDataDir());
+  const DATA_DIR = path.resolve(getDataDir());
   return {
     DATA_DIR,
     METADATA_PATH: path.join(DATA_DIR, `metadata_cache_${accountFileKey(accountId)}.json`),
@@ -60,7 +60,19 @@ interface MetadataCache {
   playlists: Playlist[];
   playlistTracks: Record<string, Track[]>;
   userSettings?: Record<string, UserSettings>;
+  /** Spotify track ID → YouTube video ID mapping cache. */
+  spotifyYoutubeMap?: Record<string, YoutubeMapping>;
   lastUpdated: number;
+}
+
+/** Cached Spotify→YouTube resolution, with metadata for invalidation. */
+export interface YoutubeMapping {
+  spotifyTrackId: string;
+  youtubeVideoId: string;
+  matchedTitle?: string;
+  matchedArtist?: string;
+  duration?: number;
+  resolvedAt: number;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -101,10 +113,7 @@ export function saveUserSettings(email: string, settings: Partial<UserSettings>)
   const key = email.toLowerCase().trim();
   if (!cache.userSettings) cache.userSettings = {};
   const current = getUserSettings(key);
-  const updated: UserSettings = {
-    ...current,
-    ...settings,
-  };
+  const updated: UserSettings = { ...current, ...settings };
   cache.userSettings[key] = updated;
   saveCache(cache);
   return updated;
@@ -120,10 +129,20 @@ export function getCachedPlaylists(accountId = 'default'): Playlist[] {
   return getCache(accountId).playlists;
 }
 
+/** Local playlist store. There is deliberately no account or remote-sync layer. */
+export function getLocalPlaylists(): Playlist[] {
+  return getCachedPlaylists('default');
+}
+
+/** Find an existing local playlist by its source URL (for deduplication). */
+export function findLocalPlaylistBySourceUrl(sourceUrl: string): Playlist | undefined {
+  const cache = getCache('default');
+  return cache.playlists.find((p) => p.sourceUrl === sourceUrl);
+}
+
 export function setCachedPlaylists(playlists: Playlist[], accountId = 'default') {
   const cache = getCache(accountId);
-  // Remove stale artwork when the upstream source changes (for example when
-  // replacing a first-track thumbnail with YouTube Music's playlist artwork).
+  // Remove stale artwork when the upstream source changes.
   for (const playlist of playlists) {
     const previous = cache.playlists.find((item) => item.id === playlist.id);
     if (previous && previous.thumbnailUrl !== playlist.thumbnailUrl) {
@@ -133,7 +152,6 @@ export function setCachedPlaylists(playlists: Playlist[], accountId = 'default')
   cache.playlists = playlists;
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
-  void prefetchPlaylistThumbnails(playlists);
 }
 
 export function deleteCachedPlaylist(playlistId: string, accountId = 'default') {
@@ -144,39 +162,74 @@ export function deleteCachedPlaylist(playlistId: string, accountId = 'default') 
   saveCache(cache, accountId);
 }
 
+export function upsertLocalPlaylist(playlist: Playlist, tracks?: Track[]): Playlist {
+  const cache = getCache('default');
+  const index = cache.playlists.findIndex((item) => item.id === playlist.id);
+  if (index >= 0) cache.playlists[index] = { ...cache.playlists[index], ...playlist };
+  else cache.playlists.push(playlist);
+  if (tracks) cache.playlistTracks[playlist.id] = tracks.map((track, position) => ({ ...track, playlistId: playlist.id, position }));
+  const stored = cache.playlists.find((item) => item.id === playlist.id)!;
+  stored.trackCount = cache.playlistTracks[playlist.id]?.length ?? stored.trackCount ?? 0;
+  cache.lastUpdated = Date.now();
+  saveCache(cache, 'default');
+  return stored;
+}
+
+export function reorderCachedTracks(playlistId: string, videoIds: string[]): Track[] {
+  const cache = getCache('default');
+  const tracks = cache.playlistTracks[playlistId] || [];
+  const byId = new Map(tracks.map((track) => [track.videoId, track]));
+  const ordered = [
+    ...videoIds.map((id) => byId.get(id)).filter((track): track is Track => Boolean(track)),
+    ...tracks.filter((track) => !videoIds.includes(track.videoId)),
+  ].map((track, position) => ({ ...track, position, playlistId }));
+  cache.playlistTracks[playlistId] = ordered;
+  cache.lastUpdated = Date.now();
+  saveCache(cache, 'default');
+  return ordered;
+}
+
 export function getCachedTracks(playlistId: string, accountId = 'default'): Track[] | null {
   return getCache(accountId).playlistTracks[playlistId] || null;
 }
 
+/**
+ * Persist tracks to the metadata cache.
+ * thumbnailUrl in each track must already be the final local API URL
+ * (i.e., /api/thumbnail?v=<videoId>) — call downloadAllTrackThumbnails()
+ * before this to ensure images are on disk.
+ */
 export function setCachedTracks(playlistId: string, tracks: Track[], accountId = 'default') {
   const cache = getCache(accountId);
   const cleanedTracks = tracks.map((t) => ({
     ...t,
     artist: cleanArtistName(t.artist),
+    // Preserve the thumbnailUrl as-is — it should already point to local API.
+    thumbnailUrl: t.thumbnailUrl,
   }));
   cache.playlistTracks[playlistId] = cleanedTracks;
   const pl = cache.playlists.find((p) => p.id === playlistId);
-  if (pl) {
-    pl.trackCount = cleanedTracks.length;
-  }
+  if (pl) pl.trackCount = cleanedTracks.length;
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 
-  // Background prefetch thumbnails and lyrics for all tracks
-  prefetchTrackMetadata(cleanedTracks);
+  // Background prefetch lyrics only (thumbnails are already downloaded at import time).
+  prefetchLyrics(cleanedTracks);
 }
 
 export function addCachedTrack(playlistId: string, track: Track, accountId = 'default') {
   const cache = getCache(accountId);
-  const cleanedTrack = { ...track, artist: cleanArtistName(track.artist) };
+  const cleanedTrack = {
+    ...track,
+    artist: cleanArtistName(track.artist),
+    thumbnailUrl: getThumbnailUrl(track.videoId, track.title),
+  };
   const existingTracks = cache.playlistTracks[playlistId] || [];
   if (!existingTracks.some((t) => t.videoId === track.videoId)) {
     cache.playlistTracks[playlistId] = [...existingTracks, cleanedTrack];
   }
   const pl = cache.playlists.find((p) => p.id === playlistId);
-  if (pl) {
-    pl.trackCount = cache.playlistTracks[playlistId].length;
-  }
+  if (pl) pl.trackCount = cache.playlistTracks[playlistId].length;
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 }
@@ -186,14 +239,41 @@ export function removeCachedTrack(playlistId: string, videoId: string, accountId
   const existingTracks = cache.playlistTracks[playlistId] || [];
   cache.playlistTracks[playlistId] = existingTracks.filter((t) => t.videoId !== videoId);
   const pl = cache.playlists.find((p) => p.id === playlistId);
-  if (pl) {
-    pl.trackCount = cache.playlistTracks[playlistId].length;
-  }
+  if (pl) pl.trackCount = cache.playlistTracks[playlistId].length;
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 }
 
-// Lyrics persistence
+// ─── Spotify → YouTube mapping cache ──────────────────────────────────────────
+// Avoids re-searching YouTube for a Spotify track every time it's played.
+
+/** Look up a cached YouTube video ID for a Spotify track ID. */
+export function getYoutubeMapping(spotifyTrackId: string): YoutubeMapping | undefined {
+  const cache = getCache('default');
+  return cache.spotifyYoutubeMap?.[spotifyTrackId];
+}
+
+/** Store a Spotify→YouTube mapping so future plays skip the search. */
+export function setYoutubeMapping(mapping: YoutubeMapping): void {
+  const cache = getCache('default');
+  if (!cache.spotifyYoutubeMap) cache.spotifyYoutubeMap = {};
+  cache.spotifyYoutubeMap[mapping.spotifyTrackId] = mapping;
+  cache.lastUpdated = Date.now();
+  saveCache(cache, 'default');
+}
+
+/** Remove a cached mapping (e.g., when the YouTube video becomes unavailable). */
+export function removeYoutubeMapping(spotifyTrackId: string): void {
+  const cache = getCache('default');
+  if (cache.spotifyYoutubeMap?.[spotifyTrackId]) {
+    delete cache.spotifyYoutubeMap[spotifyTrackId];
+    cache.lastUpdated = Date.now();
+    saveCache(cache, 'default');
+  }
+}
+
+// ─── Lyrics persistence ──────────────────────────────────────────────────────
+
 export function getSavedLyrics(artist: string, title: string) {
   ensureDirs();
   const { LYRICS_DIR } = getPaths();
@@ -217,11 +297,11 @@ export function saveLyrics(artist: string, title: string, data: any) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// Thumbnail path helper
+// ─── Thumbnail paths ──────────────────────────────────────────────────────────
+
 export function getLocalThumbnailPath(videoId: string): string {
   const { THUMBNAILS_DIR } = getPaths();
-  // Versioned name ensures older center-cropped/lossy caches are not reused.
-  return path.join(THUMBNAILS_DIR, `${videoId}.lossless.webp`);
+  return path.join(THUMBNAILS_DIR, `${videoId}.webp`);
 }
 
 export function hasLocalThumbnail(videoId: string): boolean {
@@ -232,92 +312,227 @@ function safeCacheKey(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+export function getLocalPlaylistThumbnailPath(playlistId: string): string {
+  const { PLAYLIST_THUMBNAILS_DIR } = getPaths();
+  return path.join(PLAYLIST_THUMBNAILS_DIR, `${safeCacheKey(playlistId)}.webp`);
+}
+
+export function hasLocalPlaylistThumbnail(playlistId: string): boolean {
+  return fs.existsSync(getLocalPlaylistThumbnailPath(playlistId));
+}
+
+// ─── Core image processing ────────────────────────────────────────────────────
+
+/**
+ * Normalize a remote thumbnail URL to the highest available resolution.
+ * Only used during the download phase — never stored in metadata.
+ * Preserve YouTube Music square artwork URLs from lh3.googleusercontent.com.
+ */
 function normalizeMusicThumbnailUrl(url: string): string {
-  // YT Music artwork is served as square googleusercontent images. Request
-  // the small square variant instead of the large source rendition.
+  if (url.includes('lh3.googleusercontent.com')) {
+    // YouTube Music square artwork — keep as-is to preserve original square image.
+    return url;
+  }
   if (url.includes('googleusercontent.com')) {
     return url.replace(/=w\d+-h\d+/i, '=w1200-h1200');
+  }
+  if (url.includes('i.ytimg.com')) {
+    return url.replace(/hqdefault\.jpg/i, 'maxresdefault.jpg');
   }
   return url;
 }
 
-export function getLocalPlaylistThumbnailPath(playlistId: string): string {
-  const { PLAYLIST_THUMBNAILS_DIR } = getPaths();
-  return path.join(PLAYLIST_THUMBNAILS_DIR, `${safeCacheKey(playlistId)}.lossless.webp`);
+function getThumbnailFallbackUrls(url: string): string[] {
+  // If the stored URL is already a local API URL, we cannot use it to fetch remotely.
+  // Derive YouTube thumbnail URLs from the videoId instead.
+  if (url.startsWith('/api/thumbnail')) {
+    const match = url.match(/[?&]v=([^&]+)/);
+    const videoId = match ? decodeURIComponent(match[1]) : '';
+    if (videoId) {
+      return [
+        `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+        `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+        `https://i.ytimg.com/vi/${videoId}/default.jpg`,
+      ];
+    }
+    return [];
+  }
+  const normalized = normalizeMusicThumbnailUrl(url);
+  if (normalized.includes('lh3.googleusercontent.com')) {
+    return [normalized];
+  }
+  if (normalized.includes('i.ytimg.com')) {
+    const base = normalized.replace(/\/\w+\.jpg$/i, '');
+    return [
+      `${base}/maxresdefault.jpg`,
+      `${base}/hqdefault.jpg`,
+      `${base}/mqdefault.jpg`,
+      `${base}/default.jpg`,
+    ];
+  }
+  return [normalized];
 }
+
+/**
+ * Convert any source image buffer to a lossless WebP.
+ * For images at least 1280x720, crop to exactly 720x720 by removing 280px
+ * from each side horizontally and centering vertically.
+ * For smaller or non-standard images, fall back to lossless WebP without crop.
+ */
+async function toLosslessWebp(source: Buffer): Promise<Buffer> {
+  const image = sharp(source);
+  const metadata = await image.metadata();
+  const width = metadata.width || 0;
+  const height = metadata.height || 0;
+
+  if (width >= 1280 && height >= 720) {
+    const left = 280;
+    const top = Math.max(0, Math.floor((height - 720) / 2));
+    return image.extract({ left, top, width: 720, height: 720 }).webp({ lossless: true }).toBuffer();
+  }
+
+  if (width && height && width > height) {
+    const cropSize = Math.floor(height / 1.35);
+    const left = Math.floor((width - cropSize) / 2);
+    const top = Math.floor((height - cropSize) / 2);
+    return image.extract({ left, top, width: cropSize, height: cropSize }).webp({ lossless: true }).toBuffer();
+  }
+
+  return image.webp({ lossless: true }).toBuffer();
+}
+
+// ─── Eager thumbnail download (called at import time) ─────────────────────────
+
+/**
+ * Download a single track thumbnail from its remote URL, apply lossless
+ * center-crop scaling, and write it to disk as <videoId>.webp.
+ * Returns the local API URL to store in metadata, or the original
+ * getThumbnailUrl() path if the download fails.
+ */
+export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: string): Promise<void> {
+  if (!videoId) return;
+  const localPath = getLocalThumbnailPath(videoId);
+  if (croppedTrackIds.has(videoId)) return;
+  if (fs.existsSync(localPath)) { croppedTrackIds.add(videoId); return; }
+
+  const urls = remoteUrl ? getThumbnailFallbackUrls(remoteUrl) : [];
+  if (!urls.length) return;
+  try {
+    let source: Buffer | null = null;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          source = Buffer.from(await res.arrayBuffer());
+          break;
+        }
+      } catch {
+        // try next fallback
+      }
+    }
+    if (!source) return;
+    ensureDirs();
+    const buffer = await toLosslessWebp(source);
+    fs.writeFileSync(localPath, buffer);
+    croppedTrackIds.add(videoId);
+  } catch {
+    // Non-blocking
+  }
+}
+
+/**
+ * Eagerly download ALL thumbnails for a list of tracks at import time.
+ * Each track's remote thumbnailUrl is downloaded, lossless-cropped, and saved.
+ * After this call every videoId has a local .webp file on disk.
+ * Returns a new tracks array with thumbnailUrl replaced by the local API URL.
+ */
+export async function downloadAllTrackThumbnails(tracks: Track[]): Promise<Track[]> {
+  ensureDirs();
+  // Use bounded concurrency to avoid overwhelming the network with hundreds of simultaneous fetches.
+  await runWithConcurrency(tracks, 10, (track) => downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl));
+  // Replace each track's thumbnailUrl with the stable local API URL.
+  return tracks.map((track) => ({
+    ...track,
+    thumbnailUrl: getThumbnailUrl(track.videoId, track.title),
+  }));
+}
+
+// ─── Playlist thumbnail download ──────────────────────────────────────────────
 
 export async function downloadAndCachePlaylistThumbnail(playlist: Playlist): Promise<void> {
   if (!playlist.id || !playlist.thumbnailUrl) return;
   const localPath = getLocalPlaylistThumbnailPath(playlist.id);
   if (croppedPlaylistIds.has(playlist.id)) return;
+  if (fs.existsSync(localPath)) { croppedPlaylistIds.add(playlist.id); return; }
   try {
-    const response = await fetch(normalizeMusicThumbnailUrl(playlist.thumbnailUrl));
-    if (!response.ok) return;
+    const urls = getThumbnailFallbackUrls(playlist.thumbnailUrl);
+    let source: Buffer | null = null;
+    for (const url of urls) {
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          source = Buffer.from(await response.arrayBuffer());
+          break;
+        }
+      } catch {
+        // try next
+      }
+    }
+    if (!source) return;
     ensureDirs();
-      const source = Buffer.from(await response.arrayBuffer());
-      const sourceMeta = await sharp(source).metadata();
-      if (sourceMeta.width !== sourceMeta.height) return;
-      // Keep the artwork intact. Cropping/trimming here used to remove edge
-      // content and the default WebP encoder introduced visible softness.
-      // A lossless WebP keeps the local cache fast while preserving pixels.
-      const lossless = await sharp(source).webp({ lossless: true }).toBuffer();
-      fs.writeFileSync(localPath, lossless);
+    const lossless = await toLosslessWebp(source);
+    fs.writeFileSync(localPath, lossless);
     croppedPlaylistIds.add(playlist.id);
   } catch {
-    // Keep the remote URL available as a fallback when offline caching is unavailable.
+    // Non-blocking background prefetch
   }
 }
 
-async function prefetchPlaylistThumbnails(playlists: Playlist[]): Promise<void> {
-  for (const playlist of playlists) {
-    await downloadAndCachePlaylistThumbnail(playlist);
+// ─── Bulk metadata image download ─────────────────────────────────────────────
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let index = 0;
+  const runners: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(limit, items.length); i++) {
+    runners.push((async () => {
+      while (index < items.length) {
+        const current = items[index++];
+        await worker(current);
+      }
+    })());
   }
+  await Promise.all(runners);
 }
 
-// Prefetch thumbnails and lyrics in background
-export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: string): Promise<void> {
-  if (!videoId) return;
-  const localPath = getLocalThumbnailPath(videoId);
-  if (croppedTrackIds.has(videoId)) return;
+export async function downloadAllMetadataImages(accountId = 'default'): Promise<{ playlists: number; tracks: number }> {
+  ensureDirs();
+  const cache = getCache(accountId);
+  const playlists = cache.playlists.filter((playlist) => playlist.thumbnailUrl);
+  const tracks = Object.values(cache.playlistTracks).flat().filter((track) => track.thumbnailUrl);
 
-  // Artwork must come from the thumbnail URL returned by Music. Do not
-  // synthesize a large YouTube video thumbnail when it is missing.
-  const url = remoteUrl ? normalizeMusicThumbnailUrl(remoteUrl) : undefined;
-  if (!url) return;
-  try {
-    const res = await fetch(url);
-    if (res.ok) {
-      const source = Buffer.from(await res.arrayBuffer());
-      const sourceMeta = await sharp(source).metadata();
-      // Never cache landscape video thumbnails. Music artwork is square;
-      // rejecting anything else prevents accidental crop-based replacements.
-      if (sourceMeta.width !== sourceMeta.height) return;
-      // Cache the original composition without center-cropping or lossy
-      // re-encoding so fullscreen artwork remains sharp.
-      const buffer = await sharp(source).webp({ lossless: true }).toBuffer();
-      ensureDirs();
-      fs.writeFileSync(localPath, buffer);
-      croppedTrackIds.add(videoId);
-    }
-  } catch (e) {
-    // Non-blocking catch
-  }
+  console.log(`[metadata-images] Downloading ${playlists.length} playlist + ${tracks.length} track thumbnails...`);
+
+  await runWithConcurrency(playlists, 4, (playlist) => downloadAndCachePlaylistThumbnail(playlist));
+  await runWithConcurrency(tracks, 8, (track) => downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl));
+
+  console.log(`[metadata-images] Done.`);
+  return {
+    playlists: playlists.length,
+    tracks: tracks.length,
+  };
 }
 
-export async function prefetchTrackMetadata(tracks: Track[]): Promise<void> {
-  // Asynchronous background prefetching of lyrics and thumbnails
+// ─── Background lyrics prefetch (thumbnails handled at import time) ───────────
+
+async function prefetchLyrics(tracks: Track[]): Promise<void> {
   setTimeout(async () => {
     for (const track of tracks) {
       try {
-        if (!hasLocalThumbnail(track.videoId)) {
-          await downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl);
-        }
         const cleanedArtist = cleanArtistName(track.artist);
         if (!getSavedLyrics(cleanedArtist, track.title)) {
           const lrclibUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(track.title)}&artist_name=${encodeURIComponent(cleanedArtist)}`;
-          const res = await fetch(lrclibUrl, {
-            headers: { 'Lrclib-Client': 'YTMusicPersonal/1.0.0' },
-          });
+          const res = await fetch(lrclibUrl, { headers: { 'Lrclib-Client': 'YTMusicPersonal/1.0.0' } });
           if (res.ok) {
             const data = await res.json();
             if (data.syncedLyrics || data.plainLyrics) {
@@ -331,8 +546,27 @@ export async function prefetchTrackMetadata(tracks: Track[]): Promise<void> {
           }
         }
       } catch {
-        // Ignore background prefetch errors
+        // Ignore background errors
       }
     }
   }, 100);
+}
+
+/**
+ * @deprecated Use downloadAllTrackThumbnails() at import time instead.
+ * Kept for any callers that may still exist outside the import flow.
+ */
+export async function prefetchTrackMetadata(tracks: Track[]): Promise<void> {
+  setTimeout(async () => {
+    for (const track of tracks) {
+      try {
+        if (!hasLocalThumbnail(track.videoId)) {
+          await downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl);
+        }
+      } catch {
+        // Ignore
+      }
+    }
+  }, 100);
+  await prefetchLyrics(tracks);
 }
