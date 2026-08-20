@@ -4,8 +4,9 @@ import sharp from 'sharp';
 import type { Playlist, Track } from '@/types';
 import { cleanArtistName, getThumbnailUrl } from './ytmusicFormat';
 import { getDataDir } from './nativeData';
+import { cacheKey } from './cache/keys';
+import { getPersistent, setPersistent } from './cache/persistent';
 
-const croppedPlaylistIds = new Set<string>();
 const croppedTrackIds = new Set<string>();
 
 function accountFileKey(accountId = 'default') {
@@ -19,13 +20,12 @@ function getPaths(accountId = 'default') {
     METADATA_PATH: path.join(DATA_DIR, `metadata_cache_${accountFileKey(accountId)}.json`),
     LYRICS_DIR: path.join(DATA_DIR, 'lyrics'),
     THUMBNAILS_DIR: path.join(DATA_DIR, 'thumbnails'),
-    PLAYLIST_THUMBNAILS_DIR: path.join(DATA_DIR, 'playlist-thumbnails'),
   };
 }
 
 export function ensureDirs() {
-  const { DATA_DIR, LYRICS_DIR, THUMBNAILS_DIR, PLAYLIST_THUMBNAILS_DIR } = getPaths();
-  [DATA_DIR, LYRICS_DIR, THUMBNAILS_DIR, PLAYLIST_THUMBNAILS_DIR].forEach((d) => {
+  const { DATA_DIR, LYRICS_DIR, THUMBNAILS_DIR } = getPaths();
+  [DATA_DIR, LYRICS_DIR, THUMBNAILS_DIR].forEach((d) => {
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   });
 }
@@ -73,6 +73,7 @@ export interface YoutubeMapping {
   matchedArtist?: string;
   duration?: number;
   resolvedAt: number;
+  matchMethod?: 'manual_override' | 'metadata' | 'artwork_fallback';
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -125,8 +126,20 @@ function saveCache(cache: MetadataCache, accountId = 'default') {
   fs.writeFileSync(METADATA_PATH, JSON.stringify(cache, null, 2));
 }
 
+function withPlaylistArtwork(playlist: Playlist, tracks: Track[]): Playlist {
+  const artworkTracks = tracks.slice(0, 4).filter((track) => Boolean(track.videoId));
+  playlist.thumbnailVideoIds = artworkTracks.map((track) => track.videoId);
+  playlist.thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl || getThumbnailUrl(track.videoId, track.title));
+  return playlist;
+}
+
 export function getCachedPlaylists(accountId = 'default'): Playlist[] {
-  return getCache(accountId).playlists;
+  const cache = getCache(accountId);
+  return cache.playlists.map((playlist) => {
+    const tracks = cache.playlistTracks[playlist.id] || [];
+    if (tracks.length === 0) return playlist;
+    return withPlaylistArtwork(playlist, tracks);
+  });
 }
 
 /** Local playlist store. There is deliberately no account or remote-sync layer. */
@@ -142,14 +155,7 @@ export function findLocalPlaylistBySourceUrl(sourceUrl: string): Playlist | unde
 
 export function setCachedPlaylists(playlists: Playlist[], accountId = 'default') {
   const cache = getCache(accountId);
-  // Remove stale artwork when the upstream source changes.
-  for (const playlist of playlists) {
-    const previous = cache.playlists.find((item) => item.id === playlist.id);
-    if (previous && previous.thumbnailUrl !== playlist.thumbnailUrl) {
-      try { fs.unlinkSync(getLocalPlaylistThumbnailPath(playlist.id)); } catch { /* already absent */ }
-    }
-  }
-  cache.playlists = playlists;
+  cache.playlists = playlists.map((playlist) => withPlaylistArtwork(playlist, cache.playlistTracks[playlist.id] || []));
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 }
@@ -169,6 +175,7 @@ export function upsertLocalPlaylist(playlist: Playlist, tracks?: Track[]): Playl
   else cache.playlists.push(playlist);
   if (tracks) cache.playlistTracks[playlist.id] = tracks.map((track, position) => ({ ...track, playlistId: playlist.id, position }));
   const stored = cache.playlists.find((item) => item.id === playlist.id)!;
+  if (tracks) withPlaylistArtwork(stored, cache.playlistTracks[playlist.id]);
   stored.trackCount = cache.playlistTracks[playlist.id]?.length ?? stored.trackCount ?? 0;
   cache.lastUpdated = Date.now();
   saveCache(cache, 'default');
@@ -184,6 +191,8 @@ export function reorderCachedTracks(playlistId: string, videoIds: string[]): Tra
     ...tracks.filter((track) => !videoIds.includes(track.videoId)),
   ].map((track, position) => ({ ...track, position, playlistId }));
   cache.playlistTracks[playlistId] = ordered;
+  const playlist = cache.playlists.find((item) => item.id === playlistId);
+  if (playlist) withPlaylistArtwork(playlist, ordered);
   cache.lastUpdated = Date.now();
   saveCache(cache, 'default');
   return ordered;
@@ -209,7 +218,10 @@ export function setCachedTracks(playlistId: string, tracks: Track[], accountId =
   }));
   cache.playlistTracks[playlistId] = cleanedTracks;
   const pl = cache.playlists.find((p) => p.id === playlistId);
-  if (pl) pl.trackCount = cleanedTracks.length;
+  if (pl) {
+    pl.trackCount = cleanedTracks.length;
+    withPlaylistArtwork(pl, cleanedTracks);
+  }
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 
@@ -229,7 +241,10 @@ export function addCachedTrack(playlistId: string, track: Track, accountId = 'de
     cache.playlistTracks[playlistId] = [...existingTracks, cleanedTrack];
   }
   const pl = cache.playlists.find((p) => p.id === playlistId);
-  if (pl) pl.trackCount = cache.playlistTracks[playlistId].length;
+  if (pl) {
+    pl.trackCount = cache.playlistTracks[playlistId].length;
+    withPlaylistArtwork(pl, cache.playlistTracks[playlistId]);
+  }
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 }
@@ -239,7 +254,10 @@ export function removeCachedTrack(playlistId: string, videoId: string, accountId
   const existingTracks = cache.playlistTracks[playlistId] || [];
   cache.playlistTracks[playlistId] = existingTracks.filter((t) => t.videoId !== videoId);
   const pl = cache.playlists.find((p) => p.id === playlistId);
-  if (pl) pl.trackCount = cache.playlistTracks[playlistId].length;
+  if (pl) {
+    pl.trackCount = cache.playlistTracks[playlistId].length;
+    withPlaylistArtwork(pl, cache.playlistTracks[playlistId]);
+  }
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
 }
@@ -250,7 +268,11 @@ export function removeCachedTrack(playlistId: string, videoId: string, accountId
 /** Look up a cached YouTube video ID for a Spotify track ID. */
 export function getYoutubeMapping(spotifyTrackId: string): YoutubeMapping | undefined {
   const cache = getCache('default');
-  return cache.spotifyYoutubeMap?.[spotifyTrackId];
+  const legacy = cache.spotifyYoutubeMap?.[spotifyTrackId];
+  if (legacy) return legacy;
+  const record = getPersistent<{ youtubeVideoId?: string; matchedAt?: number; sourceTitle?: string; sourceArtist?: string; sourceDuration?: number; matchMethod?: YoutubeMapping['matchMethod'] }>(cacheKey.match(spotifyTrackId));
+  if (!record?.youtubeVideoId) return undefined;
+  return { spotifyTrackId, youtubeVideoId: record.youtubeVideoId, matchedTitle: record.sourceTitle, matchedArtist: record.sourceArtist, duration: record.sourceDuration, resolvedAt: record.matchedAt || Date.now(), matchMethod: record.matchMethod };
 }
 
 /** Store a Spotify→YouTube mapping so future plays skip the search. */
@@ -260,6 +282,7 @@ export function setYoutubeMapping(mapping: YoutubeMapping): void {
   cache.spotifyYoutubeMap[mapping.spotifyTrackId] = mapping;
   cache.lastUpdated = Date.now();
   saveCache(cache, 'default');
+  setPersistent(cacheKey.match(mapping.spotifyTrackId), { spotifyTrackId: mapping.spotifyTrackId, youtubeVideoId: mapping.youtubeVideoId, matchMethod: mapping.matchMethod || 'metadata', diagnostics: [], matchedAt: mapping.resolvedAt, sourceTitle: mapping.matchedTitle, sourceArtist: mapping.matchedArtist, sourceDuration: mapping.duration }, 0);
 }
 
 /** Remove a cached mapping (e.g., when the YouTube video becomes unavailable). */
@@ -306,19 +329,6 @@ export function getLocalThumbnailPath(videoId: string): string {
 
 export function hasLocalThumbnail(videoId: string): boolean {
   return fs.existsSync(getLocalThumbnailPath(videoId));
-}
-
-function safeCacheKey(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
-export function getLocalPlaylistThumbnailPath(playlistId: string): string {
-  const { PLAYLIST_THUMBNAILS_DIR } = getPaths();
-  return path.join(PLAYLIST_THUMBNAILS_DIR, `${safeCacheKey(playlistId)}.webp`);
-}
-
-export function hasLocalPlaylistThumbnail(playlistId: string): boolean {
-  return fs.existsSync(getLocalPlaylistThumbnailPath(playlistId));
 }
 
 // ─── Core image processing ────────────────────────────────────────────────────
@@ -458,37 +468,6 @@ export async function downloadAllTrackThumbnails(tracks: Track[]): Promise<Track
   }));
 }
 
-// ─── Playlist thumbnail download ──────────────────────────────────────────────
-
-export async function downloadAndCachePlaylistThumbnail(playlist: Playlist): Promise<void> {
-  if (!playlist.id || !playlist.thumbnailUrl) return;
-  const localPath = getLocalPlaylistThumbnailPath(playlist.id);
-  if (croppedPlaylistIds.has(playlist.id)) return;
-  if (fs.existsSync(localPath)) { croppedPlaylistIds.add(playlist.id); return; }
-  try {
-    const urls = getThumbnailFallbackUrls(playlist.thumbnailUrl);
-    let source: Buffer | null = null;
-    for (const url of urls) {
-      try {
-        const response = await fetch(url);
-        if (response.ok) {
-          source = Buffer.from(await response.arrayBuffer());
-          break;
-        }
-      } catch {
-        // try next
-      }
-    }
-    if (!source) return;
-    ensureDirs();
-    const lossless = await toLosslessWebp(source);
-    fs.writeFileSync(localPath, lossless);
-    croppedPlaylistIds.add(playlist.id);
-  } catch {
-    // Non-blocking background prefetch
-  }
-}
-
 // ─── Bulk metadata image download ─────────────────────────────────────────────
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
@@ -508,17 +487,16 @@ async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T
 export async function downloadAllMetadataImages(accountId = 'default'): Promise<{ playlists: number; tracks: number }> {
   ensureDirs();
   const cache = getCache(accountId);
-  const playlists = cache.playlists.filter((playlist) => playlist.thumbnailUrl);
   const tracks = Object.values(cache.playlistTracks).flat().filter((track) => track.thumbnailUrl);
 
-  console.log(`[metadata-images] Downloading ${playlists.length} playlist + ${tracks.length} track thumbnails...`);
-
-  await runWithConcurrency(playlists, 4, (playlist) => downloadAndCachePlaylistThumbnail(playlist));
+  console.log(`[metadata-images] Downloading ${tracks.length} track thumbnails...`);
   await runWithConcurrency(tracks, 8, (track) => downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl));
 
   console.log(`[metadata-images] Done.`);
   return {
-    playlists: playlists.length,
+    // Kept for compatibility with the existing response shape. Playlist art is
+    // now composed from the first four cached track thumbnails.
+    playlists: 0,
     tracks: tracks.length,
   };
 }

@@ -17,4 +17,5 @@ services/__pycache__/
 services/ytmusic-sidecar.exe
 scratch/
 bin/
-services
+services/
+.npmrc

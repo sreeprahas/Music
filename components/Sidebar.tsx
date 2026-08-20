@@ -161,14 +161,14 @@ export function Sidebar({
     const allPlaylists = [...pinnedPlaylists, ...unpinnedPlaylists];
 
     return (
-      <div ref={sidebarRef} className="relative h-full w-[72px] flex flex-col select-none overflow-hidden bg-[#161513] transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
+      <div ref={sidebarRef} className="relative h-full w-[72px] flex flex-col select-none overflow-hidden bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
         {/* Collapsed Header */}
-        <div className="z-10 shrink-0 flex flex-col items-center justify-start gap-2 pt-3 pb-1 bg-[#161513]">
+        <div className="z-10 shrink-0 flex flex-col items-center justify-start gap-2 pt-3 pb-1 bg-sidebar">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onToggleExpanded}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface hover:text-accent outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Expand playlist sidebar"
             title="Expand playlist sidebar"
           >
@@ -178,7 +178,7 @@ export function Sidebar({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onAddPlaylist}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#242424] text-white/60 transition-colors hover:bg-[#303030] hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-text-secondary transition-colors hover:bg-surface-hover hover:text-accent outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Add playlist"
           >
             <Plus className="h-5 w-5" />
@@ -220,10 +220,10 @@ export function Sidebar({
                     })
                   }
                   onMouseLeave={() => setHoveredPlaylist(null)}
-                  className="flex h-12 w-12 mx-auto shrink-0 items-center justify-center rounded-xl p-1 transition-all duration-200 hover:bg-white/10 border-0 outline-none ring-0 focus:outline-none focus-visible:outline-none active:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+                  className="flex h-12 w-12 mx-auto shrink-0 items-center justify-center rounded-xl p-1 transition-all duration-200 hover:bg-surface-hover border-0 outline-none ring-0 focus:outline-none focus-visible:outline-none active:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
                 >
-                  <div className="flex h-full w-full items-center justify-center rounded-lg bg-white/5">
-                    <FolderLock className="h-4 w-4 text-[#00F2FE]" />
+                  <div className="flex h-full w-full items-center justify-center rounded-lg bg-surface">
+                    <FolderLock className="h-4 w-4 text-accent" />
                   </div>
                 </button>
                 */}
@@ -251,15 +251,15 @@ export function Sidebar({
         {/* Hover Tooltip */}
         {hoveredPlaylist && (
           <div
-            className="pointer-events-none fixed z-[120] flex flex-col justify-center -translate-y-1/2 rounded-md bg-[#282828] px-3.5 py-2 shadow-xl min-w-max"
+            className="pointer-events-none fixed z-[120] flex flex-col justify-center -translate-y-1/2 rounded-md bg-surface-elevated px-3.5 py-2 shadow-xl min-w-max"
             style={{ left: hoveredPlaylist.x, top: hoveredPlaylist.y }}
           >
-            <span className="truncate text-[15px] font-semibold tracking-wide text-[#00F2FE] mb-0.5">
+            <span className="truncate text-[15px] font-semibold tracking-wide text-accent mb-0.5">
               {hoveredPlaylist.playlist.title}
             </span>
-            <div className="flex items-center text-[13px] font-medium text-[#a7a7a7]">
+            <div className="flex items-center text-[13px] font-medium text-text-muted">
               {hoveredPlaylist.isPinned && (
-                <Pin className="mr-1 h-3.5 w-3.5 fill-[#00F2FE] text-[#00F2FE]" />
+                <Pin className="mr-1 h-3.5 w-3.5 fill-accent text-accent" />
               )}
               <span>
                 Playlist {hoveredPlaylist.playlist.trackCount > 0 ? `• ${hoveredPlaylist.playlist.trackCount} tracks` : ''}
@@ -273,26 +273,26 @@ export function Sidebar({
 
   // Expanded Sidebar
   return (
-    <div ref={sidebarRef} className="relative h-full w-full flex flex-col select-none overflow-hidden bg-[#161513] py-3 transition-[width,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
+    <div ref={sidebarRef} className="relative h-full w-full flex flex-col select-none overflow-hidden bg-sidebar py-3 transition-[width,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
       <div className="relative shrink-0 h-12">
         <div className="absolute inset-0 flex items-center gap-3 px-3 opacity-100 translate-y-0 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onToggleExpanded}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface hover:text-accent outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Collapse playlist sidebar"
             title="Collapse playlist sidebar"
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
-          <span className="truncate text-base font-bold tracking-tight text-white">Your Library</span>
+          <span className="truncate text-base font-bold tracking-tight text-text">Your Library</span>
           <div className="flex-1" />
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onAddPlaylist}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#242424] text-white/60 transition-colors hover:bg-[#303030] hover:text-[#00F2FE] outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-text-secondary transition-colors hover:bg-surface-hover hover:text-accent outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
             aria-label="Add playlist"
           >
             <Plus className="h-5 w-5" />
@@ -335,7 +335,7 @@ export function Sidebar({
       >
         {pinnedPlaylists.length > 0 && (
           <div>
-            <div className="flex max-h-8 items-center justify-between overflow-hidden text-white/30 text-[11px] font-bold uppercase tracking-wider px-3 pb-2 opacity-100 translate-x-0">
+            <div className="flex max-h-8 items-center justify-between overflow-hidden text-text-disabled text-[11px] font-bold uppercase tracking-wider px-3 pb-2 opacity-100 translate-x-0">
               <span>Pinned</span>
             </div>
             <div className="space-y-1">
@@ -368,7 +368,7 @@ export function Sidebar({
         )}
 
         <div>
-          <div className="max-h-8 overflow-hidden text-white/30 text-[11px] font-bold uppercase tracking-wider px-3 pb-2 opacity-100 translate-x-0">
+          <div className="max-h-8 overflow-hidden text-text-disabled text-[11px] font-bold uppercase tracking-wider px-3 pb-2 opacity-100 translate-x-0">
             Library
           </div>
           <div className="space-y-1">
@@ -405,16 +405,16 @@ export function Sidebar({
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpenHiddenFolder}
           className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group cursor-pointer outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${selectedId === '__management__'
-            ? 'bg-white/10 text-white border border-white/10'
-            : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
+            ? 'bg-surface-hover text-text border border-border'
+            : 'text-text-secondary hover:bg-surface hover:text-text border border-transparent'
             }`}
         >
-          <div className="h-9 w-9 rounded-xl relative flex shrink-0 items-center justify-center overflow-hidden bg-white/5">
-            <FolderLock className="w-4 h-4 text-[#00F2FE]" />
+          <div className="h-9 w-9 rounded-xl relative flex shrink-0 items-center justify-center overflow-hidden bg-surface">
+            <FolderLock className="w-4 h-4 text-accent" />
           </div>
           <div className="min-w-0 flex-1 max-w-[240px] overflow-hidden">
             <p className="text-sm font-semibold truncate">Playlist Management</p>
-            <p className="text-xs text-white/30 truncate">Import playlists</p>
+            <p className="text-xs text-text-disabled truncate">Import playlists</p>
           </div>
         </button>
         */}
@@ -464,9 +464,9 @@ function CollapsedNavItem({
       onContextMenu={onContextMenu}
       onMouseEnter={(e) => onHover(playlist, isPinned, e.currentTarget.getBoundingClientRect())}
       onMouseLeave={onLeave}
-      className="group flex h-12 w-12 mx-auto shrink-0 items-center justify-center p-0 transition-all duration-200 bg-transparent hover:bg-white/10 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent [webkit-tap-highlight-color:transparent]"
+      className="group flex h-12 w-12 mx-auto shrink-0 items-center justify-center p-0 transition-all duration-200 bg-transparent hover:bg-surface-hover border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent [webkit-tap-highlight-color:transparent]"
     >
-      <div className="relative h-full w-full aspect-square overflow-hidden rounded-[4px] border border-transparent bg-white/5 transition-all duration-200 group-hover:border-[#00F2FE]/35 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.32),0_0_18px_rgba(0,242,254,0.28),0_12px_36px_rgba(110,72,180,0.3)]">
+      <div className="relative h-full w-full aspect-square overflow-hidden rounded-[4px] border border-transparent bg-surface transition-all duration-200 group-hover:border-accent/35 group-hover:bg-accent/15 group-hover:shadow-accent-card-strong">
         <PlaylistArtwork playlist={playlist} />
       </div>
     </button>
@@ -597,24 +597,24 @@ function PlaylistNavItem({
       className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left cursor-pointer transition-all duration-100 ease-in-out outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0 active:bg-transparent active:border-transparent active:shadow-none [webkit-tap-highlight-color:transparent] ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer active:cursor-pointer'
         } ${draggingPlaylistId === playlist.id ? 'opacity-40 cursor-grabbing' : ''
         } ${dropTargetPlaylistId === playlist.id && insertBefore
-          ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-[#00F2FE] before:shadow-[0_0_8px_rgba(0,242,254,0.9)]'
+          ? 'before:absolute before:-top-px before:left-2 before:right-2 before:z-10 before:h-0.5 before:rounded-full before:bg-accent before:shadow-accent-line'
           : dropTargetPlaylistId === playlist.id && !insertBefore
-            ? 'after:absolute after:-bottom-px after:left-2 after:right-2 after:z-10 after:h-0.5 after:rounded-full after:bg-[#00F2FE] after:shadow-[0_0_8px_rgba(0,242,254,0.9)]'
+            ? 'after:absolute after:-bottom-px after:left-2 after:right-2 after:z-10 after:h-0.5 after:rounded-full after:bg-accent after:shadow-accent-line'
             : ''
         } ${isPlaying && !isGlowDimmed
-          ? 'border border-[#00F2FE]/25 bg-[#00F2FE]/10 text-[#00F2FE] shadow-[0_0_12px_rgba(0,242,254,0.15)] hover:bg-[#00F2FE]/15'
+          ? 'border border-accent/25 bg-accent/10 text-accent shadow-accent-subtle hover:bg-accent/15'
           : active
-            ? 'border border-transparent bg-white/[0.05] text-white hover:bg-white/[0.12]'
-            : 'border border-transparent text-white/75 hover:border-transparent hover:bg-white/[0.12] hover:text-white'
+            ? 'border border-transparent bg-surface text-text hover:bg-surface-active'
+            : 'border border-transparent text-text-secondary hover:border-transparent hover:bg-surface-active hover:text-text'
         }`}
     >
-      <div className="h-9 w-9 aspect-square rounded-[4px] relative shrink-0 overflow-hidden bg-white/5 shadow-sm group/art">
+      <div className="h-9 w-9 aspect-square rounded-[4px] relative shrink-0 overflow-hidden bg-surface shadow-sm group/art">
         <PlaylistArtwork playlist={playlist} />
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(event) => { event.stopPropagation(); onPlay(); }}
-          className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-black/70 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
+          className="absolute inset-0 flex items-center justify-center bg-overlay/55 text-text opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-overlay/70 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent]"
           aria-label={`Play ${playlist.title}`}
         >
           <Play className="h-5 w-5 fill-current" />
@@ -626,11 +626,11 @@ function PlaylistNavItem({
           {playlist.title}
         </p>
         {playlist.trackCount > 0 && (
-          <p className="text-xs text-white/30 whitespace-nowrap">{playlist.trackCount} tracks</p>
+          <p className="text-xs text-text-disabled whitespace-nowrap">{playlist.trackCount} tracks</p>
         )}
       </div>
 
-      {isPlaying && isPlaybackActive && <Volume2 className="h-4 w-4 shrink-0 text-[#00F2FE]" aria-label="Playing" />}
+      {isPlaying && isPlaybackActive && <Volume2 className="h-4 w-4 shrink-0 text-accent" aria-label="Playing" />}
 
       <button
         type="button"
@@ -639,7 +639,7 @@ function PlaylistNavItem({
           e.stopPropagation();
           onTogglePin();
         }}
-        className={`p-1.5 rounded-xl text-white hover:text-[#00F2FE] transition-all duration-200 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent] ${isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        className={`p-1.5 rounded-xl text-text hover:text-accent transition-all duration-200 outline-none border-0 ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none active:bg-transparent [webkit-tap-highlight-color:transparent] ${isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
         title={isPinned ? 'Unpin playlist' : 'Pin playlist'}
       >

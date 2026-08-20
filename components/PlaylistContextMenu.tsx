@@ -143,22 +143,22 @@ export function PlaylistContextMenu({
         aria-label={`Actions for ${playlist.title}`}
         onMouseEnter={cancelMenuClose}
         onMouseLeave={scheduleMenuClose}
-        className={`fixed z-[100] w-[280px] overflow-visible rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl shadow-black/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
+        className={`fixed z-[100] w-[280px] overflow-visible rounded-xl border border-border bg-surface p-1.5 shadow-2xl shadow-shadow/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
         style={{ left, top: menuTop }}
       >
         <button onClick={() => run(() => onPlay(playlist.id))} className={menuAction}>
-          <Play className="h-5 w-5 text-[#00F2FE]" /> Play
+          <Play className="h-5 w-5 text-accent" /> Play
         </button>
 
         <button onClick={() => run(() => onShufflePlay(playlist.id))} className={menuAction}>
-          <Shuffle className="h-5 w-5 text-[#00F2FE]" /> Shuffle play
+          <Shuffle className="h-5 w-5 text-accent" /> Shuffle play
         </button>
 
         <button onClick={() => run(() => onDownload(playlist.id))} className={menuAction}>
-          <Download className="h-5 w-5 text-[#00F2FE]" /> Download all songs
+          <Download className="h-5 w-5 text-accent" /> Download all songs
         </button>
 
-        <div className="border-t border-white/10 my-1" />
+        <div className="border-t border-border my-1" />
 
         <button onClick={() => run(() => onTogglePin(playlist.id))} className={menuAction}>
           {isPinned ? (
@@ -172,8 +172,8 @@ export function PlaylistContextMenu({
           )}
         </button>
 
-        <button onClick={() => run(() => onRemove(playlist.id))} className={`${menuAction} hover:text-red-400`}>
-          <Trash2 className="h-5 w-5 text-red-400" /> Remove playlist
+        <button onClick={() => run(() => onRemove(playlist.id))} className={`${menuAction} hover:text-error`}>
+          <Trash2 className="h-5 w-5 text-error" /> Remove playlist
         </button>
       </div>
     </div>

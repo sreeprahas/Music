@@ -2,22 +2,26 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DownloadJob, UserProfile, Track } from '@/types';
-import { Download, LogOut, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home } from 'lucide-react';
+import { Download, LogOut, Radio, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home, Settings, ChevronDown, Layers3, FolderOpen } from 'lucide-react';
 import { cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 
 interface HeaderProps {
+  spotifyConnected?: boolean;
+  onConnectSpotify?: () => void;
+  onDisconnectSpotify?: () => Promise<void> | void;
   user: UserProfile;
   activeDownloadCount: number;
   downloadJobs: DownloadJob[];
   onOpenPlaylist: (playlistId: string) => void;
   onHomeClick?: () => void;
+  onOpenSettings?: () => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onCommitSearch?: (query: string) => void;
   searchResults?: Track[];
   onResultClick?: (track: Track) => void;
-  searchMode?: 'auto' | 'spotify' | 'ytmusic';
-  onSearchModeChange?: (mode: 'auto' | 'spotify' | 'ytmusic') => void;
+  searchMode?: 'auto' | 'spotify' | 'ytmusic' | 'local';
+  onSearchModeChange?: (mode: 'auto' | 'spotify' | 'ytmusic' | 'local') => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -25,11 +29,15 @@ interface HeaderProps {
 }
 
 export function Header({
+  spotifyConnected = false,
+  onConnectSpotify,
+  onDisconnectSpotify,
   user,
   activeDownloadCount,
   downloadJobs,
   onOpenPlaylist,
   onHomeClick,
+  onOpenSettings,
   searchQuery = '',
   onSearchChange,
   onCommitSearch,
@@ -49,6 +57,8 @@ export function Header({
   const [localInput, setLocalInput] = useState(searchQuery);
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const [isSearchClosing, setIsSearchClosing] = useState(false);
+  const [searchModeOpen, setSearchModeOpen] = useState(false);
+  const [isSearchModeClosing, setIsSearchModeClosing] = useState(false);
   const [activeResultIdx, setActiveResultIdx] = useState(-1);
   const [cachedProfilePicture, setCachedProfilePicture] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -60,6 +70,7 @@ export function Header({
   const inputRef = useRef<HTMLInputElement>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchModeCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelPopoverClose = () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
@@ -89,6 +100,7 @@ export function Header({
   useEffect(() => () => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
     if (searchCloseTimeoutRef.current) clearTimeout(searchCloseTimeoutRef.current);
+    if (searchModeCloseTimeoutRef.current) clearTimeout(searchModeCloseTimeoutRef.current);
   }, []);
 
   const cancelSearchClose = () => {
@@ -106,6 +118,23 @@ export function Header({
       setSearchDropdownOpen(false);
       setIsSearchClosing(false);
     }, 160);
+  };
+
+  const closeSearchModeMenu = () => {
+    if (!searchModeOpen) return;
+    setIsSearchModeClosing(true);
+    if (searchModeCloseTimeoutRef.current) clearTimeout(searchModeCloseTimeoutRef.current);
+    searchModeCloseTimeoutRef.current = setTimeout(() => {
+      setSearchModeOpen(false);
+      setIsSearchModeClosing(false);
+      searchModeCloseTimeoutRef.current = null;
+    }, 160);
+  };
+
+  const cancelSearchModeClose = () => {
+    if (searchModeCloseTimeoutRef.current) clearTimeout(searchModeCloseTimeoutRef.current);
+    searchModeCloseTimeoutRef.current = null;
+    setIsSearchModeClosing(false);
   };
 
   useEffect(() => {
@@ -149,6 +178,8 @@ export function Header({
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
         setSearchDropdownOpen(false);
         setActiveResultIdx(-1);
+        setSearchModeOpen(false);
+        setIsSearchModeClosing(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -177,18 +208,18 @@ export function Header({
   const finishedJobs = downloadJobs.filter((j) => j.status === 'done' || j.status === 'error');
 
   return (
-    <header className="music-header w-full h-[72px] bg-[#0A0A0A] border-b border-white/5 pl-6 pr-40 flex items-center justify-between select-none shrink-0 z-30 relative">
+    <header className="music-header w-full h-[72px] bg-background-secondary border-b border-border-subtle pl-6 pr-40 flex items-center justify-between select-none shrink-0 z-30 relative">
       {/* Left branding */}
       <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={handleLogoClick}
-          className="flex items-center gap-3 cursor-pointer group"
+          className="flex items-center gap-2 cursor-pointer group"
           title="Music"
         >
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-all duration-500 ease-out bg-[#0A0A0A] border border-transparent group-hover:border-[#00F2FE]/30 group-hover:bg-[#00F2FE]/10 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] group-active:border-transparent group-active:bg-[#0A0A0A] group-active:shadow-none">
-            <img src="/music-icon.png" alt="" className="w-8 h-8 object-cover" />
+          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg shadow-md group-hover:scale-105 group-hover:shadow-accent-card transition-all duration-500 ease-out">
+            <span aria-hidden="true" className="music-logo-mark block h-8 w-8" />
           </div>
-          <span className="text-white font-black text-lg tracking-tight group-hover:text-[#00F2FE] transition-colors">
+          <span className="text-text font-black text-lg tracking-tight group-hover:text-accent transition-colors">
             Music
           </span>
         </button>
@@ -197,7 +228,7 @@ export function Header({
             onClick={onUndo}
             disabled={!canUndo}
             title="Back"
-            className="p-2 rounded-xl text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] hover:shadow-[0_0_16px_rgba(0,242,254,0.16)] disabled:text-white/25 disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
+            className="p-2 rounded-xl text-text hover:text-accent hover:bg-surface-hover hover:shadow-accent-soft disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
             <Undo2 className="w-4 h-4" />
           </button>
@@ -205,7 +236,7 @@ export function Header({
             onClick={onRedo}
             disabled={!canRedo}
             title="Forward"
-            className="p-2 rounded-xl text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] hover:shadow-[0_0_16px_rgba(0,242,254,0.16)] disabled:text-white/25 disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
+            className="p-2 rounded-xl text-text hover:text-accent hover:bg-surface-hover hover:shadow-accent-soft disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
             <Redo2 className="w-4 h-4" />
           </button>
@@ -218,7 +249,7 @@ export function Header({
         <button
           onClick={onHomeClick}
           title="Home"
-          className="shrink-0 p-2.5 rounded-full bg-white/5 border border-transparent text-white hover:text-[#00F2FE] hover:bg-[#00F2FE]/10 hover:border-[#00F2FE]/30 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] transition-all duration-500 ease-out"
+          className="shrink-0 p-2.5 rounded-full bg-surface border border-transparent text-text hover:text-accent hover:bg-accent/10 hover:border-accent/30 hover:shadow-accent-card transition-all duration-500 ease-out"
         >
           <Home className="w-4 h-4" />
         </button>
@@ -226,7 +257,7 @@ export function Header({
         {/* Search bar + dropdown */}
         <div ref={searchContainerRef} onMouseEnter={cancelSearchClose} className="flex-1 flex items-center gap-2 relative">
           <div className="flex-1 relative">
-            <Search className="w-4 h-4 text-white/50 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-text-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={inputRef}
               type="text"
@@ -259,7 +290,7 @@ export function Header({
                 }
               }}
               placeholder="What do you want to listen to?"
-              className="w-full bg-white/5 border border-transparent rounded-full pl-10 pr-9 py-2.5 text-sm text-white placeholder-white/40 outline-none focus:outline-none hover:border-[#00F2FE]/30 hover:bg-[#00F2FE]/10 hover:shadow-[0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] focus:border-[#00F2FE]/45 focus:bg-[#00F2FE]/14 focus:shadow-[0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)] caret-[#00F2FE] transition-[background-color,box-shadow] duration-500 ease-out"
+              className="w-full bg-surface border border-transparent rounded-full pl-10 pr-9 py-2.5 text-sm text-text placeholder:text-text-muted outline-none focus:outline-none hover:border-accent/30 hover:bg-accent/10 hover:shadow-accent-soft focus:border-accent/45 focus:bg-accent/14 focus:shadow-accent-medium caret-accent transition-[background-color,box-shadow] duration-500 ease-out"
             />
             {localInput && (
               <button
@@ -270,7 +301,7 @@ export function Header({
                   setSearchDropdownOpen(false);
                   inputRef.current?.focus();
                 }}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-0.5 transition-colors"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text p-0.5 transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -281,7 +312,7 @@ export function Header({
             <div
               onMouseEnter={cancelSearchClose}
               onMouseLeave={scheduleSearchClose}
-              className={`absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 ${isSearchClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+              className={`absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden z-50 ${isSearchClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
             >
                 <div className="py-1.5">
                   {visibleResults.map((track, idx) => (
@@ -290,30 +321,30 @@ export function Header({
                       onMouseDown={(e) => { e.preventDefault(); commitResult(track); }}
                       onMouseEnter={() => setActiveResultIdx(idx)}
                       className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 ${
-                        idx === activeResultIdx ? 'bg-white/8 text-white' : 'hover:bg-white/5 text-white/80'
+                        idx === activeResultIdx ? 'bg-surface-hover text-text' : 'hover:bg-surface text-text-secondary'
                       }`}
                     >
                       <img
                         src={getThumbnailUrl(track.videoId, track.title)}
                         alt=""
-                        className="w-9 h-9 rounded-lg object-cover shrink-0 bg-white/5"
+                        className="w-9 h-9 rounded-lg object-cover shrink-0 bg-surface"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold truncate">{track.title}</p>
-                        <p className="text-[11px] text-white/40 truncate">{cleanArtistName(track.artist)}</p>
+                        <p className="text-[11px] text-text-muted truncate">{cleanArtistName(track.artist)}</p>
                       </div>
                       {track.downloaded && (
-                        <span className="shrink-0 text-[10px] font-bold text-[#00F2FE]/70 bg-[#00F2FE]/10 px-2 py-0.5 rounded-full">Downloaded</span>
+                        <span className="shrink-0 text-[10px] font-bold text-accent/70 bg-accent/10 px-2 py-0.5 rounded-full">Downloaded</span>
                       )}
                     </button>
                   ))}
                   {localInput.trim() && (
                     <button
                       onMouseDown={(e) => { e.preventDefault(); onCommitSearch?.(localInput); setSearchDropdownOpen(false); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 border-t border-white/5 mt-1 text-white/60 hover:text-white transition-colors"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface border-t border-border-subtle mt-1 text-text-secondary hover:text-text transition-colors"
                     >
                       <Search className="w-3.5 h-3.5 shrink-0" />
-                      <span className="text-xs">Search all results for <strong className="text-white">&ldquo;{localInput}&rdquo;</strong></span>
+                      <span className="text-xs">Search all results for <strong className="text-text">&ldquo;{localInput}&rdquo;</strong></span>
                     </button>
                   )}
                 </div>
@@ -321,35 +352,75 @@ export function Header({
             )}
           </div>
 
-          {/* Auto / YTMusic / Spotify search source toggle */}
-          <div className="flex items-center rounded-2xl border border-white/10 bg-white/5 p-1 text-[11px] font-semibold shrink-0">
+          {/* Search source dropdown */}
+          <div className="relative w-[104px] flex-none">
             <button
-              onClick={() => onSearchModeChange?.('auto')}
-              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'auto' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
-              title="Search both Spotify and YTMusic, merge & dedupe (Spotify priority)"
+              type="button"
+              onClick={() => {
+                if (searchModeOpen) closeSearchModeMenu();
+                else { cancelSearchModeClose(); setSearchModeOpen(true); }
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-surface px-3 py-2 text-[11px] font-semibold text-text transition-all duration-300 hover:border-accent/30 hover:bg-accent/10 hover:text-accent"
+              aria-expanded={searchModeOpen}
+              aria-haspopup="menu"
             >
-              Auto
+              {searchMode === 'ytmusic' ? <img src="/youtube-mark.svg" alt="" className="h-4 w-4 object-contain" /> : searchMode === 'spotify' ? <img src="/spotify-logo.png" alt="" className="h-4 w-4 rounded-full object-cover" /> : searchMode === 'local' ? <FolderOpen className="h-3.5 w-3.5 text-accent" /> : <Layers3 className="h-3.5 w-3.5 text-accent" />}
+              <span>{searchMode === 'ytmusic' ? 'YTMusic' : searchMode === 'spotify' ? 'Spotify' : searchMode === 'local' ? 'Local' : 'Auto'}</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${searchModeOpen ? 'rotate-180' : ''}`} />
             </button>
-            <button
-              onClick={() => onSearchModeChange?.('ytmusic')}
-              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'ytmusic' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
-              title="Search YouTube Music via yt-dlp only"
-            >
-              YTMusic
-            </button>
-            <button
-              onClick={() => onSearchModeChange?.('spotify')}
-              className={`px-3 py-1.5 rounded-xl transition-all duration-300 hover:shadow-[0_0_16px_rgba(0,242,254,0.22)] ${searchMode === 'spotify' ? 'bg-[#00F2FE] text-black shadow-lg' : 'text-white hover:text-[#00F2FE]'}`}
-              title="Search Spotify metadata anonymously (noauth) only"
-            >
-              Spotify
-            </button>
+            {searchModeOpen && (
+              <div onMouseEnter={cancelSearchModeClose} onMouseLeave={closeSearchModeMenu} className={`absolute left-0 top-full mt-2 z-50 w-36 overflow-hidden rounded-2xl border border-border bg-surface p-1.5 shadow-2xl ${isSearchModeClosing ? 'animate-popover-out' : 'animate-fadeIn'}`} role="menu">
+                {([
+                  ['auto', 'Auto', Layers3],
+                  ['ytmusic', 'YTMusic', '/youtube-mark.svg'],
+                  ['spotify', 'Spotify', '/spotify-logo.png'],
+                  ['local', 'Local', FolderOpen],
+                ] as const).map(([id, label, Icon]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { onSearchModeChange?.(id); closeSearchModeMenu(); }}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${searchMode === id ? 'bg-accent/15 text-accent' : 'text-text hover:bg-surface-hover'}`}
+                  >
+                    {typeof Icon === 'string' ? <img src={Icon} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" /> : <Icon className={`h-3.5 w-3.5 shrink-0 ${searchMode === id ? 'text-accent' : 'text-text-muted'}`} />}
+                    <span className="text-xs font-bold">{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Right section: Download Center + Account */}
-      <div className="flex items-center gap-3 relative shrink-0">
+      <div className="flex items-center gap-2.5 relative shrink-0">
+        {/* Spotify Connect / Status Button */}
+        <div className="relative shrink-0">
+          {spotifyConnected ? (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-surface border border-accent/30 text-xs font-semibold text-text hover:bg-accent/10 hover:border-accent/50 transition-all cursor-pointer"
+              title="Spotify connected. Click to open settings."
+            >
+              <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+              <Radio className="w-3.5 h-3.5 text-accent" />
+              <span className="hidden md:inline text-[11px] font-bold text-accent">Spotify Connected</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onConnectSpotify || (() => { window.location.href = '/api/auth/spotify/start'; })}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-accent text-background text-xs font-bold shadow-md hover:bg-accent-hover hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              title="Connect Spotify account"
+            >
+              <Radio className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Connect Spotify</span>
+              <span className="sm:hidden">Connect</span>
+            </button>
+          )}
+        </div>
         {/* Download Center Button & Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
@@ -358,16 +429,16 @@ export function Header({
               setIsDownloadOpen((prev) => !prev);
             }}
             className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-500 ease-out border ${isDownloadOpen
-                ? 'bg-[#00F2FE]/14 text-white border-[#00F2FE]/45 shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)]'
-                : 'bg-white/5 text-white border-transparent hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] hover:border-[#00F2FE]/30 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)]'
+                ? 'bg-accent/14 text-text border-accent/45 shadow-accent-card-strong'
+                : 'bg-surface text-text border-transparent hover:bg-accent/10 hover:text-accent hover:border-accent/30 hover:shadow-accent-card'
               }`}
             title="Download Center"
           >
             <div className="relative shrink-0 flex items-center justify-center">
-              <Download className="w-4 h-4 text-[#00F2FE]" />
+              <Download className="w-4 h-4 text-accent" />
               {activeDownloadCount > 0 && (
-                <div className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-md bg-[#00F2FE] flex items-center justify-center">
-                  <span className="text-[8px] font-bold text-white leading-none">
+                <div className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-md bg-accent flex items-center justify-center">
+                  <span className="text-[8px] font-bold text-text leading-none">
                     {activeDownloadCount}
                   </span>
                 </div>
@@ -375,7 +446,7 @@ export function Header({
             </div>
             <span className="hidden sm:inline">Downloads</span>
             {activeDownloadCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-lg bg-[#00F2FE]/20 text-[#00F2FE] text-[10px] font-bold">
+              <span className="px-1.5 py-0.5 rounded-lg bg-accent/20 text-accent text-[10px] font-bold">
                 {activeDownloadCount} active
               </span>
             )}
@@ -386,19 +457,19 @@ export function Header({
             <div
               onMouseEnter={cancelPopoverClose}
               onMouseLeave={() => schedulePopoverClose('download')}
-              className={`absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-[#181818] border border-white/10 rounded-3xl shadow-2xl overflow-hidden z-50 ${isDownloadClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+              className={`absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-surface border border-border rounded-3xl shadow-2xl overflow-hidden z-50 ${isDownloadClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
             >
               {/* Dropdown Header */}
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/5 bg-black/20">
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border-subtle bg-overlay/20">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-xl bg-[#00F2FE]/10 flex items-center justify-center">
-                    <Download className="w-3.5 h-3.5 text-[#00F2FE]" />
+                  <div className="w-7 h-7 rounded-xl bg-accent/10 flex items-center justify-center">
+                    <Download className="w-3.5 h-3.5 text-accent" />
                   </div>
-                  <h3 className="text-sm font-bold text-white tracking-tight">Download Center</h3>
+                  <h3 className="text-sm font-bold text-text tracking-tight">Download Center</h3>
                 </div>
                 <button
                   onClick={() => setIsDownloadOpen(false)}
-                  className="p-1.5 rounded-xl text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                  className="p-1.5 rounded-xl text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -408,9 +479,9 @@ export function Header({
               <div className="p-4 max-h-[26rem] overflow-y-auto scrollbar-thin space-y-3">
                 {downloadJobs.length === 0 && (
                   <div className="py-8 text-center">
-                    <Download className="w-8 h-8 text-white/10 mx-auto mb-2" />
-                    <p className="text-xs text-white font-medium">No downloads yet</p>
-                    <p className="text-[11px] text-white mt-0.5">
+                    <Download className="w-8 h-8 text-text-disabled mx-auto mb-2" />
+                    <p className="text-xs text-text font-medium">No downloads yet</p>
+                    <p className="text-[11px] text-text mt-0.5">
                       Open a playlist and click "Download All"
                     </p>
                   </div>
@@ -418,7 +489,7 @@ export function Header({
 
                 {activeJobs.length > 0 && (
                   <div>
-                    <p className="text-[10px] text-white font-bold uppercase tracking-wider mb-2 px-1">
+                    <p className="text-[10px] text-text font-bold uppercase tracking-wider mb-2 px-1">
                       Active ({activeJobs.length})
                     </p>
                     <div className="space-y-2">
@@ -438,7 +509,7 @@ export function Header({
 
                 {finishedJobs.length > 0 && (
                   <div>
-                    <p className="text-[10px] text-white font-bold uppercase tracking-wider mb-2 px-1 mt-3">
+                    <p className="text-[10px] text-text font-bold uppercase tracking-wider mb-2 px-1 mt-3">
                       Completed ({finishedJobs.length})
                     </p>
                     <div className="space-y-2">
@@ -468,8 +539,8 @@ export function Header({
               setIsAccountMenuOpen((prev) => !prev);
             }}
             className={`flex items-center gap-2.5 p-1.5 pl-2 pr-3 rounded-2xl border transition-all duration-500 ease-out cursor-pointer ${isAccountMenuOpen
-              ? 'bg-[#00F2FE]/14 border-[#00F2FE]/45 shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)]'
-              : 'bg-white/5 border-transparent hover:bg-[#00F2FE]/10 hover:border-[#00F2FE]/30 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)]'
+              ? 'bg-accent/14 border-accent/45 shadow-accent-card-strong'
+              : 'bg-surface border-transparent hover:bg-accent/10 hover:border-accent/30 hover:shadow-accent-card'
             }`}
           >
             {(cachedProfilePicture || user.picture || user.image) ? (
@@ -479,13 +550,13 @@ export function Header({
                 className="w-7 h-7 rounded-xl object-cover shrink-0"
               />
             ) : (
-              <div className="w-7 h-7 rounded-xl bg-[#00F2FE]/20 flex items-center justify-center shrink-0">
-                <span className="text-xs text-[#00F2FE] font-bold">
+              <div className="w-7 h-7 rounded-xl bg-accent/20 flex items-center justify-center shrink-0">
+                <span className="text-xs text-accent font-bold">
                   {user.name.charAt(0).toUpperCase()}
                 </span>
               </div>
             )}
-            <span className="text-xs font-semibold text-white/90 truncate max-w-[120px]">
+            <span className="text-xs font-semibold text-text truncate max-w-[120px]">
               {user.name}
             </span>
           </button>
@@ -495,11 +566,24 @@ export function Header({
             <div
               onMouseEnter={cancelPopoverClose}
               onMouseLeave={() => schedulePopoverClose('account')}
-              className={`absolute right-0 top-full mt-2 w-56 bg-[#181818] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 p-2 space-y-1 ${isAccountMenuClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+              className={`absolute right-0 top-full mt-2 w-56 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden z-50 p-2 space-y-1 ${isAccountMenuClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
             >
-              <div className="px-3 py-2 border-b border-white/5 mb-1">
-                <p className="text-xs font-bold text-white truncate">{user.name}</p>
-                <p className="text-[11px] text-white/40 truncate">{user.email}</p>
+              <div className="px-3 py-2 border-b border-border-subtle mb-1">
+                <p className="text-xs font-bold text-text truncate">{user.name}</p>
+                <p className="text-[11px] text-text-muted truncate">{user.email}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { setIsAccountMenuOpen(false); onOpenSettings?.(); }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-text hover:bg-accent/10 hover:text-accent transition-all duration-300 w-full font-semibold"
+              >
+                <Settings className="w-4 h-4" />
+                Settings & connections
+              </button>
+
+              <div className="px-3 py-2 text-[11px] leading-5 text-text-muted">
+                Provider sign-in is unavailable in GraphQL-only mode. Configure provider GraphQL contracts on the server instead.
               </div>
 
               <button
@@ -509,7 +593,7 @@ export function Header({
                   try { await caches.delete('music-profile-v1'); } catch { /* ignore */ }
                   window.location.reload();
                 }}
-                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-white hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] transition-all duration-300 w-full font-semibold"
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-text hover:bg-accent/10 hover:text-accent transition-all duration-300 w-full font-semibold"
               >
                 <LogOut className="w-4 h-4" />
                 Sign Out
@@ -527,13 +611,13 @@ function DropdownJobRow({ job, onSelect }: { job: DownloadJob; onSelect: () => v
 
   return (
     <div
-      className="p-3 rounded-2xl bg-white/5 hover:bg-[#1A1A1A] border border-white/5 transition-all cursor-default hover:shadow-[0_0_20px_rgba(0,242,254,0.14)]"
+      className="p-3 rounded-2xl bg-surface hover:bg-surface-hover border border-border-subtle transition-all cursor-default hover:shadow-accent-soft"
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold text-white truncate">{job.playlistTitle}</p>
+          <p className="text-xs font-bold text-text truncate">{job.playlistTitle}</p>
           {job.status === 'running' && job.currentTitle && (
-            <p className="text-[11px] text-white/40 truncate">
+            <p className="text-[11px] text-text-muted truncate">
               {job.currentTitle}
             </p>
           )}
@@ -541,22 +625,22 @@ function DropdownJobRow({ job, onSelect }: { job: DownloadJob; onSelect: () => v
 
         <div className="shrink-0">
           {(job.status === 'running' || job.status === 'starting') && (
-            <Loader2 className="w-3.5 h-3.5 text-[#00F2FE] animate-spin" />
+            <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />
           )}
-          {job.status === 'done' && <CheckCircle className="w-3.5 h-3.5 text-[#00F2FE]" />}
-          {job.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-red-400" />}
+          {job.status === 'done' && <CheckCircle className="w-3.5 h-3.5 text-accent" />}
+          {job.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-error" />}
         </div>
       </div>
 
       {job.toDownload > 0 && (
         <div className="space-y-1">
-          <div className="h-1.5 w-full bg-white/10 rounded-xl overflow-hidden">
+          <div className="h-1.5 w-full bg-surface-hover rounded-xl overflow-hidden">
             <div
-              className="h-full bg-[#00F2FE] rounded-xl transition-all duration-300"
+              className="h-full bg-accent rounded-xl transition-all duration-300"
               style={{ width: `${job.status === 'done' ? 100 : pct}%` }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-white/30 font-medium">
+          <div className="flex justify-between text-[10px] text-text-disabled font-medium">
             <span>{job.done} / {job.toDownload} tracks</span>
             <span>{job.status === 'done' ? '100%' : `${pct}%`}</span>
           </div>

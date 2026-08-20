@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { Track, RepeatMode } from '@/types';
 import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { LyricsDrawer } from './LyricsDrawer';
@@ -59,21 +59,25 @@ export function ExpandedPlayerModal({
   onClose,
   isClosing = false,
 }: Props) {
+  const [volumeHover, setVolumeHover] = useState<number | null>(null);
   if (!track) return null;
 
+  const actualVolume = isMuted ? 0 : volume * 100;
+  const previewVolume = volumeHover ?? actualVolume;
+
   return (
-    <div className={`fixed inset-0 z-50 bg-[#08090B] overflow-hidden flex flex-col ${
+    <div className={`fixed inset-0 z-50 bg-background overflow-hidden flex flex-col ${
       isClosing ? 'animate-slide-down-full' : 'animate-slide-up-full'
     }`}>
       {/* Header bar */}
-      <div className="fullscreen-modal-header relative z-10 flex h-[72px] min-h-[72px] max-h-[72px] items-center justify-between border-b border-white/10 bg-[#0A0D10] px-6 shrink-0">
+      <div className="fullscreen-modal-header relative z-10 flex h-[72px] min-h-[72px] max-h-[72px] items-center justify-between border-b border-border bg-header px-6 shrink-0">
         <button
           onClick={onClose}
-          className="p-2 rounded-full bg-[#0A0A0A] hover:bg-[#1A1A1A] text-white hover:text-[#00F2FE] hover:shadow-[0_0_16px_rgba(0,242,254,0.16)] transition-all duration-300"
+          className="p-2 rounded-full bg-background-secondary hover:bg-surface-hover text-text hover:text-accent hover:shadow-accent-soft transition-all duration-300"
         >
           <ChevronDown className="w-5 h-5" />
         </button>
-        <p className="text-sm font-bold text-white tracking-widest uppercase text-center">
+        <p className="text-sm font-bold text-text tracking-widest uppercase text-center">
           Now Playing
         </p>
         <div className="w-9" />
@@ -98,10 +102,10 @@ export function ExpandedPlayerModal({
           <div className="shrink-0 space-y-4 pb-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <h2 className="text-xl sm:text-2xl font-black text-white truncate tracking-tight leading-tight">
+                <h2 className="text-xl sm:text-2xl font-black text-text truncate tracking-tight leading-tight">
                   {track.title}
                 </h2>
-                <p className="text-sm text-white/60 truncate mt-0.5 font-medium">{cleanArtistName(track.artist)}</p>
+                <p className="text-sm text-text-secondary truncate mt-0.5 font-medium">{cleanArtistName(track.artist)}</p>
               </div>
             </div>
 
@@ -117,14 +121,14 @@ export function ExpandedPlayerModal({
                   onChange={(e) => onSeek(parseFloat(e.target.value))}
                   className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
                 />
-                <div className="h-1.5 w-full bg-white/15 rounded-full overflow-hidden">
+                <div className="h-1.5 w-full bg-surface-active rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-white rounded-full"
+                    className="h-full bg-text rounded-full"
                     style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
                   />
                 </div>
               </div>
-              <div className="flex justify-between text-[11px] font-semibold text-white/60">
+              <div className="flex justify-between text-[11px] font-semibold text-text-secondary">
                 <span>{formatDuration(Math.floor(currentTime))}</span>
                 <span>{formatDuration(Math.floor(duration))}</span>
               </div>
@@ -135,33 +139,33 @@ export function ExpandedPlayerModal({
               <button
                 onClick={onToggleShuffle}
                 className={`p-2.5 rounded-2xl transition-all duration-300 ${
-                  isShuffle ? 'text-[#00F2FE] bg-[#00F2FE]/10' : 'text-white/70 hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+                  isShuffle ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-accent hover:bg-surface-hover'
                 }`}
               >
                 <Shuffle className="w-5 h-5" />
               </button>
               <button
                 onClick={onPrev}
-                className="p-2 rounded-xl text-white/80 hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300"
+                className="p-2 rounded-xl text-text-secondary hover:text-accent hover:bg-surface-hover transition-all duration-300"
               >
                 <SkipBack className="w-7 h-7" />
               </button>
               <button
                 onClick={onPlayPause}
-                className="w-14 h-14 rounded-3xl bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-xl"
+                className="w-14 h-14 rounded-3xl bg-text text-background flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-xl"
               >
-                {isPlaying ? <Pause className="w-6 h-6 fill-black" /> : <Play className="w-6 h-6 fill-black ml-0.5" />}
+                {isPlaying ? <Pause className="w-6 h-6 fill-background" /> : <Play className="w-6 h-6 fill-background ml-0.5" />}
               </button>
               <button
                 onClick={onNext}
-                className="p-2 rounded-xl text-white/80 hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300"
+                className="p-2 rounded-xl text-text-secondary hover:text-accent hover:bg-surface-hover transition-all duration-300"
               >
                 <SkipForward className="w-7 h-7" />
               </button>
               <button
                 onClick={onToggleRepeat}
                 className={`p-2.5 rounded-2xl transition-all duration-300 ${
-                  repeatMode !== 'off' ? 'text-[#00F2FE] bg-[#00F2FE]/10' : 'text-white/70 hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+                  repeatMode !== 'off' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-accent hover:bg-surface-hover'
                 }`}
               >
                 {repeatMode === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
@@ -172,11 +176,19 @@ export function ExpandedPlayerModal({
             <div className="flex items-center gap-2 max-w-[150px] w-full">
               <button
                 onClick={onToggleMute}
-                className="text-white/70 hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300 p-1 rounded-lg shrink-0"
+                className="text-text-secondary hover:text-accent hover:bg-surface-hover transition-all duration-300 p-1 rounded-lg shrink-0"
               >
-                {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
+                {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-error" /> : <Volume2 className="w-4 h-4" />}
               </button>
-              <div className="relative flex-1 h-1 flex items-center group">
+              <div
+                className="relative flex-1 h-1 flex items-center group"
+                onMouseEnter={() => setVolumeHover(0)}
+                onMouseLeave={() => setVolumeHover(null)}
+                onMouseMove={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setVolumeHover(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)));
+                }}
+              >
                 <input
                   type="range"
                   min={0}
@@ -187,11 +199,12 @@ export function ExpandedPlayerModal({
                   className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
                   aria-label="Volume"
                 />
-                <div className="h-1 w-full bg-white/15 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
+                <div className="relative h-1 w-full bg-surface-active rounded-full overflow-visible group-hover:h-1.5 transition-all">
                   <div
-                    className="h-full bg-[#00F2FE] group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] rounded-full transition-colors"
-                    style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
+                    className={`h-full rounded-full transition-colors ${volumeHover !== null ? 'bg-accent shadow-accent-strong' : 'bg-accent'}`}
+                    style={{ width: `${previewVolume}%` }}
                   />
+                  {volumeHover !== null && <span className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface" style={{ left: `${previewVolume}%` }} />}
                 </div>
               </div>
             </div>
@@ -199,7 +212,7 @@ export function ExpandedPlayerModal({
         </div>
 
         {/* Right column: Embedded Lyrics Panel using shared LyricsDrawer component */}
-        <div className="hidden lg:block w-1/2 h-full border-l border-white/10 overflow-hidden rounded-2xl bg-black/55">
+        <div className="hidden lg:block w-1/2 h-full border-l border-border overflow-hidden rounded-2xl bg-overlay/55">
           <LyricsDrawer
             track={track}
             currentTime={currentTime}

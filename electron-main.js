@@ -1,7 +1,8 @@
-const { app, BrowserWindow, Menu, utilityProcess } = require('electron');
+const { app, BrowserWindow, Menu, utilityProcess, ipcMain, nativeImage } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
+const sharp = require('sharp');
 
 const musicIconPath = path.join(__dirname, 'public', 'music-icon.png');
 const musicUserDataPath = path.join(app.getPath('appData'), 'music');
@@ -11,6 +12,24 @@ const isElectronDev = process.argv.includes('--dev');
 let mainWindow = null;
 let nextProcess = null;
 let nextServerPort = null;
+let iconUpdateSerial = 0;
+
+const THEME_HUES = { cyan: 0, purple: 85, green: -40, amber: -140, rose: 160 };
+
+async function updateWindowIcon(theme) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const hue = THEME_HUES[theme];
+  if (hue === undefined) return;
+  const serial = ++iconUpdateSerial;
+  try {
+    const buffer = await sharp(musicIconPath).modulate({ hue }).png().toBuffer();
+    if (serial === iconUpdateSerial && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setIcon(nativeImage.createFromBuffer(buffer));
+    }
+  } catch (error) {
+    console.warn('[icon] Theme icon update unavailable:', error.message);
+  }
+}
 
 app.setName('Music');
 app.setAppUserModelId('com.prahas.music');
@@ -18,31 +37,6 @@ app.setPath('userData', musicUserDataPath);
 fs.mkdirSync(path.join(musicUserDataPath, 'data'), { recursive: true });
 
 const appOrigin = () => isElectronDev ? 'http://127.0.0.1:3000' : `http://127.0.0.1:${nextServerPort}`;
-
-/**
- * Discover a Python interpreter that has spotdl installed.
- * Probes common Windows locations, then PATH. Returns null if none found —
- * the spotdl bridge will surface a clear error to the user in that case.
- */
-function findSpotdlPython() {
-  const fsSync = require('fs');
-  const candidates = [];
-  if (process.env.SPOTDL_PYTHON && fsSync.existsSync(process.env.SPOTDL_PYTHON)) {
-    return process.env.SPOTDL_PYTHON;
-  }
-  if (process.platform === 'win32') {
-    candidates.push(
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python310', 'python.exe'),
-    );
-  }
-  for (const c of candidates) {
-    if (c && fsSync.existsSync(c)) return c;
-  }
-  // Fall back to `python` on PATH; the bridge handles the not-found case.
-  return null;
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -70,20 +64,22 @@ function createWindow() {
   mainWindow.on('blur', () => mainWindow?.webContents.setFrameRate(15));
   mainWindow.on('focus', () => mainWindow?.webContents.setFrameRate(30));
   mainWindow.loadURL(appOrigin());
+  updateWindowIcon('cyan');
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+ipcMain.on('music-theme-changed', (_event, theme) => {
+  if (typeof theme === 'string') updateWindowIcon(theme);
+});
+
 function startNextServer() {
   return new Promise((resolve, reject) => {
-    const spotdlPython = findSpotdlPython();
     const childEnv = {
       ...process.env,
       PORT: String(ELECTRON_SERVER_PORT),
       MUSIC_ELECTRON_TOKEN: ELECTRON_SERVER_TOKEN,
       DATA_DIR: path.join(app.getPath('userData'), 'data'),
-      YTDLP_PATH: path.join(__dirname, 'bin', 'yt-dlp.exe'),
     };
-    if (spotdlPython) childEnv.SPOTDL_PYTHON = spotdlPython;
     nextProcess = utilityProcess.fork(path.join(__dirname, 'electron-next-server.js'), [], {
       serviceName: 'Music',
       stdio: 'pipe',

@@ -353,7 +353,7 @@ export function PlayerBar({
         // If the track came from Spotify and hasn't been resolved to a YouTube
         // video yet, resolve it on-demand via /api/spotify/resolve. The
         // resolver checks the Spotify→YouTube cache first, then searches
-        // YouTube via yt-dlp. The player itself never knows how Spotify auth
+          // YouTube Music through the in-process matcher. The player itself never knows how Spotify auth
         // works — it just asks for a playable videoId.
         let videoId = track.videoId;
         if (!videoId && track.spotifyId) {
@@ -367,6 +367,7 @@ export function PlayerBar({
                 artist: track.artist,
                 duration: track.duration,
                 spotifyId: track.spotifyId,
+                thumbnailUrl: track.thumbnailUrl,
               }),
             });
             if (cancelled || loadGeneration !== loadGenerationRef.current) return;
@@ -397,8 +398,7 @@ export function PlayerBar({
           // Local MP3 exists — play it directly.
           audio.src = mp3Url;
         } else {
-          // Not downloaded — fall back to live yt-dlp stream extraction.
-          // The /api/stream route resolves a direct audio URL via yt-dlp.
+          // Not downloaded — resolve a live GraphQL stream.
           const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
           if (cancelled || loadGeneration !== loadGenerationRef.current) return;
           if (!streamRes || !streamRes.ok) {
@@ -553,6 +553,9 @@ export function PlayerBar({
     return null;
   }
 
+  const actualVolumePercent = isMuted ? 0 : volume * 100;
+  const displayedVolumePercent = volumeHover ?? actualVolumePercent;
+
   return (
     <>
       <audio
@@ -575,27 +578,27 @@ export function PlayerBar({
         onPause={() => setIsPlaying(false)}
       />
 
-      <div className="music-player relative w-full h-[88px] min-h-[88px] bg-[#0A0A0A] border-t border-white/10 flex items-center gap-2 px-3 lg:px-5 justify-between z-30 select-none shrink-0">
+      <div className="music-player relative w-full h-[88px] min-h-[88px] bg-background-secondary border-t border-border flex items-center gap-2 px-3 lg:px-5 justify-between z-30 select-none shrink-0">
         {/* Left Section: Track Info & Heart */}
         <div key={navigationTick} className={`flex items-center gap-2 w-56 lg:w-64 min-w-0 shrink-0 ${navigationDirection === 'next' ? 'animate-track-next' : navigationDirection === 'prev' ? 'animate-track-prev' : ''}`}>
           <div
             onClick={onToggleFullscreen}
-              className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 cursor-pointer group relative shadow-md"
+              className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 cursor-pointer group relative shadow-md"
           >
             <img
               src={getThumbnailUrl(track.videoId, track.title)}
               alt={track.title}
               className="w-full h-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
             />
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-              <Maximize2 className="w-4 h-4 text-white" />
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-overlay/40">
+              <Maximize2 className="w-4 h-4 text-text" />
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">
+            <p className="text-sm font-medium text-text truncate">
               {track.title}
             </p>
-            <p className="text-xs text-white truncate">
+            <p className="text-xs text-text truncate">
               {cleanArtistName(track.artist)}
             </p>
           </div>
@@ -605,10 +608,10 @@ export function PlayerBar({
             <button
               onClick={handleOpenPlaylist}
               disabled={!onOpenPlaylist}
-              className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-white/25 disabled:hover:bg-transparent ${
+              className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-text-disabled disabled:hover:bg-transparent ${
                 playlistFeedback
-                  ? 'text-white/40 bg-transparent'
-                  : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+                  ? 'text-text-muted bg-transparent'
+                  : 'text-text hover:text-accent hover:bg-surface-hover'
               }`}
               title="Show Playlist"
               aria-label="Show Playlist"
@@ -624,16 +627,16 @@ export function PlayerBar({
                 setAddPlaylistMenuOpen((prev) => !prev);
               }}
               disabled={!track}
-              className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-white/25 disabled:hover:bg-transparent ${
+              className={`relative shrink-0 p-1.5 rounded-md transition-all duration-75 disabled:text-text-disabled disabled:hover:bg-transparent ${
                 addPlaylistMenuOpen
-                  ? 'text-[#00F2FE] bg-[#00F2FE]/10'
-                  : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+                  ? 'text-accent bg-accent/10'
+                  : 'text-text hover:text-accent hover:bg-surface-hover'
               }`}
               title="Add to Playlist"
               aria-label="Add to Playlist"
             >
               {trackPlaylistIds.size > 0 ? (
-                <CheckCircle2 className="w-4 h-4 text-[#00F2FE]" strokeWidth={2.5} />
+                <CheckCircle2 className="w-4 h-4 text-accent" strokeWidth={2.5} />
               ) : (
                 <PlusCircle className="w-4 h-4" />
               )}
@@ -669,19 +672,19 @@ export function PlayerBar({
         {/* Center Section: Controls & Progress */}
         <div className="flex-1 min-w-[220px] flex flex-col items-center gap-2 max-w-2xl px-2 lg:px-5">
           {/* Top Control Buttons */}
-          <div className="playerbar-control-icons flex items-center gap-4 text-white">
+          <div className="playerbar-control-icons flex items-center gap-4 text-text">
             {/* Shuffle */}
             <button
               onClick={onToggleShuffle}
               className={`transition-colors relative p-1 ${isShuffle
-                ? 'text-[#00F2FE]'
-                : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+                ? 'text-accent'
+                : 'text-text hover:text-accent hover:bg-surface-hover'
                 }`}
               title="Enable shuffle"
             >
               <Shuffle className="w-4 h-4" />
               {isShuffle && (
-                <div className="w-1 h-1 rounded-full bg-[#00F2FE] absolute -bottom-1 left-1/2 -translate-x-1/2" />
+                <div className="w-1 h-1 rounded-full bg-accent absolute -bottom-1 left-1/2 -translate-x-1/2" />
               )}
             </button>
 
@@ -689,7 +692,7 @@ export function PlayerBar({
             <button
               onClick={onPrev}
               disabled={!computedCanPrev}
-              className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] disabled:text-white/25 transition-all duration-300 p-1 rounded-lg"
+              className="text-text hover:text-accent hover:bg-surface-hover disabled:text-text-disabled transition-all duration-300 p-1 rounded-lg"
               title="Previous"
             >
               <SkipBack className="w-5 h-5 fill-current" />
@@ -698,13 +701,13 @@ export function PlayerBar({
             {/* Play / Pause */}
             <button
               onClick={handlePlayPause}
-              className="playerbar-primary w-8 h-8 rounded-2xl bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+              className="playerbar-primary w-8 h-8 rounded-2xl bg-text text-background flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
               title={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
-                <Pause className="w-4 h-4 fill-black text-black" />
+                <Pause className="w-4 h-4 fill-background text-background" />
               ) : (
-                <Play className="w-4 h-4 fill-black text-black ml-0.5" />
+                <Play className="w-4 h-4 fill-background text-background ml-0.5" />
               )}
             </button>
 
@@ -712,7 +715,7 @@ export function PlayerBar({
             <button
               onClick={onNext}
               disabled={!computedCanNext}
-              className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] disabled:text-white/25 transition-all duration-300 p-1 rounded-lg"
+              className="text-text hover:text-accent hover:bg-surface-hover disabled:text-text-disabled transition-all duration-300 p-1 rounded-lg"
               title="Next"
             >
               <SkipForward className="w-5 h-5 fill-current" />
@@ -722,8 +725,8 @@ export function PlayerBar({
             <button
               onClick={onToggleRepeat}
               className={`transition-colors relative p-1 ${repeatMode !== 'off'
-                ? 'text-[#00F2FE]'
-                : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+                ? 'text-accent'
+                : 'text-text hover:text-accent hover:bg-surface-hover'
                 }`}
               title={`Repeat: ${repeatMode}`}
             >
@@ -733,14 +736,14 @@ export function PlayerBar({
                 <Repeat className="w-4 h-4" />
               )}
               {repeatMode !== 'off' && (
-                <div className="w-1 h-1 rounded-full bg-[#00F2FE] absolute -bottom-1 left-1/2 -translate-x-1/2" />
+                <div className="w-1 h-1 rounded-full bg-accent absolute -bottom-1 left-1/2 -translate-x-1/2" />
               )}
             </button>
           </div>
 
           {/* Bottom Progress Bar */}
           <div className="flex items-center gap-2 w-full">
-            <span className="text-[11px] font-medium text-white w-9 text-right shrink-0">
+            <span className="text-[11px] font-medium text-text w-9 text-right shrink-0">
               {formatDuration(Math.floor(currentTime))}
             </span>
             <div
@@ -764,10 +767,10 @@ export function PlayerBar({
                 className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
                 aria-label="Seek"
               />
-              <div className="relative h-1 w-full min-w-0 bg-white/20 rounded-full overflow-visible">
+              <div className="relative h-1 w-full min-w-0 bg-surface-active rounded-full overflow-visible">
                 {progressHover !== null && (
                   <div
-                    className="absolute inset-y-0 z-[1] rounded-full bg-white/55"
+                    className="absolute inset-y-0 z-[1] rounded-full bg-surface-active"
                     style={{
                       left: `${Math.min(progressHover, duration > 0 ? (currentTime / duration) * 100 : 0)}%`,
                       width: `${Math.abs(progressHover - (duration > 0 ? (currentTime / duration) * 100 : 0))}%`,
@@ -775,27 +778,27 @@ export function PlayerBar({
                   />
                 )}
                 <div
-                  className={`relative z-[2] h-full rounded-full transition-colors duration-150 ${progressHover !== null ? 'bg-[#00F2FE] shadow-[0_0_12px_rgba(0,242,254,0.8)]' : 'bg-[#FFFFFF]'}`}
+                  className={`relative z-[2] h-full rounded-full transition-colors duration-150 ${progressHover !== null ? 'bg-accent shadow-accent-strong' : 'bg-text'}`}
                   style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
                 />
                 {progressHover !== null && duration > 0 && (
                   <>
                     <span
-                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_5px_rgba(0,0,0,0.55)]"
+                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface"
                       style={{ left: `${(currentTime / duration) * 100}%` }}
                     />
                     <span
-                      className="absolute bottom-3 z-[4] -translate-x-1/2 rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold leading-none text-black whitespace-nowrap"
+                      className="absolute bottom-3 z-[4] -translate-x-1/2 rounded bg-text px-1.5 py-0.5 text-[11px] font-semibold leading-none text-background whitespace-nowrap"
                       style={{ left: `${progressHover}%` }}
                     >
                       {formatDuration(Math.floor((progressHover / 100) * duration))}
                     </span>
-                    <span className="absolute inset-y-0 z-[2] w-px bg-white/55" style={{ left: `${progressHover}%` }} />
+                    <span className="absolute inset-y-0 z-[2] w-px bg-surface-active" style={{ left: `${progressHover}%` }} />
                   </>
                 )}
               </div>
             </div>
-            <span className="text-[11px] font-medium text-white w-9 shrink-0">
+            <span className="text-[11px] font-medium text-text w-9 shrink-0">
               {formatDuration(Math.floor(duration))}
             </span>
           </div>
@@ -806,7 +809,7 @@ export function PlayerBar({
           {/* Lyrics toggle */}
           <button
             onClick={onToggleLyrics}
-            className={`p-1.5 rounded-md transition-colors ${isLyricsOpen ? 'text-[#00F2FE]' : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+            className={`p-1.5 rounded-md transition-colors ${isLyricsOpen ? 'text-accent' : 'text-text hover:text-accent hover:bg-surface-hover'
               }`}
             title="Lyrics"
           >
@@ -816,7 +819,7 @@ export function PlayerBar({
           {/* Queue toggle */}
           <button
             onClick={onToggleQueue}
-            className={`p-1.5 rounded-md transition-colors ${isQueueOpen ? 'text-[#00F2FE]' : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'
+            className={`p-1.5 rounded-md transition-colors ${isQueueOpen ? 'text-accent' : 'text-text hover:text-accent hover:bg-surface-hover'
               }`}
             title="Queue"
           >
@@ -829,11 +832,11 @@ export function PlayerBar({
               onClick={() => {
                 if (onMuteChange) onMuteChange(!isMuted);
               }}
-              className="text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-all duration-300 p-1 rounded-lg shrink-0"
+              className="text-text hover:text-accent hover:bg-surface-hover transition-all duration-300 p-1 rounded-lg shrink-0"
               title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted || volume === 0 ? (
-                <VolumeX className="w-4 h-4 text-red-400" />
+                <VolumeX className="w-4 h-4 text-error" />
               ) : (
                 <Volume2 className="w-4 h-4" />
               )}
@@ -862,26 +865,18 @@ export function PlayerBar({
                 aria-label="Volume"
               />
               {/* Background Track */}
-              <div className="relative w-full h-1 bg-white/20 rounded-full overflow-visible">
+              <div className="relative w-full h-1 bg-surface-active rounded-full overflow-visible">
                 {/* Active Volume Fill */}
                 <div
-                  className={`h-full rounded-full transition-colors duration-150 ${volumeHover !== null ? 'bg-[#00F2FE] shadow-[0_0_10px_rgba(0,242,254,0.6)]' : 'bg-[#FFFFFF]'}`}
-                  style={{ width: `${isMuted ? 0 : volume * 100}%` }}
+                  className={`h-full rounded-full transition-colors duration-150 ${volumeHover !== null ? 'bg-accent shadow-accent-small' : 'bg-text'}`}
+                  style={{ width: `${displayedVolumePercent}%` }}
                 />
                 {volumeHover !== null && (
                   <>
                     <span
-                      className="absolute inset-y-0 z-[1] rounded-full bg-white/55"
-                      style={{
-                        left: `${Math.min(volumeHover, isMuted ? 0 : volume * 100)}%`,
-                        width: `${Math.abs(volumeHover - (isMuted ? 0 : volume * 100))}%`,
-                      }}
+                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface"
+                      style={{ left: `${displayedVolumePercent}%` }}
                     />
-                    <span
-                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_5px_rgba(0,0,0,0.55)]"
-                      style={{ left: `${isMuted ? 0 : volume * 100}%` }}
-                    />
-                    <span className="absolute inset-y-0 z-[1] w-px bg-white/55" style={{ left: `${volumeHover}%` }} />
                   </>
                 )}
               </div>
@@ -894,7 +889,7 @@ export function PlayerBar({
                 cancelPopoverClose();
                 setTimerMenuOpen((p) => !p);
               }}
-              className={`p-1.5 rounded-md transition-all duration-300 ${sleepTimer.isActive ? 'text-[#00F2FE]' : 'text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A]'}`}
+              className={`p-1.5 rounded-md transition-all duration-300 ${sleepTimer.isActive ? 'text-accent' : 'text-text hover:text-accent hover:bg-surface-hover'}`}
               title="Sleep timer"
             >
               <Timer className="w-4 h-4" />
@@ -903,22 +898,22 @@ export function PlayerBar({
               <div
                 onMouseEnter={cancelPopoverClose}
                 onMouseLeave={() => schedulePopoverClose('timer')}
-                className={`absolute bottom-11 right-0 w-80 rounded-3xl border border-white/10 bg-[#121212]/95 shadow-2xl shadow-black/60 p-4 backdrop-blur-xl ${isTimerMenuClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+                className={`absolute bottom-11 right-0 w-80 rounded-3xl border border-border bg-surface shadow-2xl shadow-shadow/60 p-4 backdrop-blur-xl ${isTimerMenuClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
               >
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <Timer className="w-4 h-4 text-[#00F2FE]" />
-                      <p className="text-sm font-bold text-white">Sleep timer</p>
+                      <Timer className="w-4 h-4 text-accent" />
+                      <p className="text-sm font-bold text-text">Sleep timer</p>
                     </div>
-                    <p className="text-xs text-white/45 mt-1">
+                    <p className="text-xs text-text-muted mt-1">
                       {sleepTimer.isActive ? `Playback stops in ${formatDuration(sleepTimer.remainingTime)}` : 'Choose when playback should stop'}
                     </p>
                   </div>
                   {sleepTimer.isActive && (
                     <button
                       onClick={clearSleepTimer}
-                      className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-red-300 hover:bg-red-400/15 hover:text-red-200 transition-all duration-300"
+                      className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-error hover:bg-error/15 hover:text-error transition-all duration-300"
                       title="Clear sleep timer"
                     >
                       Clear
@@ -926,40 +921,40 @@ export function PlayerBar({
                   )}
                 </div>
 
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35 mb-2">Quick presets</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-2">Quick presets</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[5, 10, 15, 30, 45, 60].map((mins) => (
                     <button
                       key={mins}
                       onClick={() => startSleepTimer(mins)}
-                      className="rounded-xl border border-white/5 bg-[#0A0A0A] hover:border-[#00F2FE]/25 hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] hover:shadow-[0_0_14px_rgba(0,242,254,0.14)] px-3 py-2.5 text-sm text-white transition-all duration-300"
+                      className="rounded-xl border border-border-subtle bg-background-secondary hover:border-accent/25 hover:bg-accent/10 hover:text-accent hover:shadow-accent-soft px-3 py-2.5 text-sm text-text transition-all duration-300"
                     >
                       {mins === 60 ? '1 hour' : `${mins} minutes`}
                     </button>
                   ))}
                   <button
                     onClick={() => startSleepTimer(Math.max(1, Math.ceil((duration - currentTime) / 60)))}
-                    className="col-span-2 rounded-xl border border-white/5 bg-[#0A0A0A] hover:border-[#00F2FE]/25 hover:bg-[#00F2FE]/10 hover:text-[#00F2FE] hover:shadow-[0_0_14px_rgba(0,242,254,0.14)] px-3 py-2.5 text-sm text-white transition-all duration-300"
+                    className="col-span-2 rounded-xl border border-border-subtle bg-background-secondary hover:border-accent/25 hover:bg-accent/10 hover:text-accent hover:shadow-accent-soft px-3 py-2.5 text-sm text-text transition-all duration-300"
                   >
                     End of track
                   </button>
                 </div>
 
-                <div className="mt-3 border-t border-white/5 pt-3">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/35 mb-2">Custom duration</p>
+                <div className="mt-3 border-t border-border-subtle pt-3">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-2">Custom duration</p>
                   <div className="flex items-center gap-2">
                     <input
                       value={customHours}
                       onChange={(e) => setCustomHours(e.target.value.replace(/[^0-9]/g, ''))}
                       placeholder="hr"
-                      className="w-16 rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-[#00F2FE]/40 focus:outline-none caret-[#00F2FE] transition-colors"
+                      className="w-16 rounded-lg bg-overlay/30 border border-border px-3 py-2 text-sm text-text placeholder:text-text-disabled outline-none focus:border-accent/40 focus:outline-none caret-accent transition-colors"
                     />
-                    <span className="text-white">:</span>
+                    <span className="text-text">:</span>
                     <input
                       value={customMinutes}
                       onChange={(e) => setCustomMinutes(e.target.value.replace(/[^0-9]/g, ''))}
                       placeholder="mins"
-                      className="w-20 rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-[#00F2FE]/40 focus:outline-none caret-[#00F2FE] transition-colors"
+                      className="w-20 rounded-lg bg-overlay/30 border border-border px-3 py-2 text-sm text-text placeholder:text-text-disabled outline-none focus:border-accent/40 focus:outline-none caret-accent transition-colors"
                     />
                     <button
                       onClick={() => {
@@ -968,7 +963,7 @@ export function PlayerBar({
                         if (hrs === 0 && mins === 0) return;
                         startSleepTimer(hrs * 60 + mins);
                       }}
-                      className="ml-auto rounded-lg bg-[#00F2FE] px-3 py-2 text-sm font-semibold text-black hover:shadow-[0_0_18px_rgba(0,242,254,0.45)] transition-all duration-300"
+                      className="ml-auto rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-background hover:shadow-accent-medium transition-all duration-300"
                     >
                       Set
                     </button>
@@ -979,7 +974,7 @@ export function PlayerBar({
           </div>
           <button
             onClick={onToggleFullscreen}
-            className="p-1.5 rounded-md text-white hover:text-[#00F2FE] hover:bg-[#1A1A1A] transition-colors"
+            className="p-1.5 rounded-md text-text hover:text-accent hover:bg-surface-hover transition-colors"
             title="Fullscreen"
             aria-label="Fullscreen"
           >

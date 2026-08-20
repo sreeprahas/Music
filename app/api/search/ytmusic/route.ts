@@ -1,17 +1,14 @@
 /**
- * YTMusic search — search YouTube Music via yt-dlp and normalize results.
+ * YTMusic search — search YouTube Music through the configured GraphQL contract.
  *
- * This is the YTMusic source for the dual search engine. yt-dlp's flat-playlist
- * search returns candidates with videoId, title, channel, duration, and
- * thumbnails. We normalize these into the app's internal Track model so the
- * UI can treat YTMusic and Spotify results uniformly.
- *
- * Security: yt-dlp is invoked via `execFile` with an argument ARRAY — never
- * shell interpolation. The search query is passed as a single argument.
+ * This is the YouTube Music source for the dual search engine. GraphQL
+ * returns candidates with videoId, title, channel, duration, and thumbnails.
+ * We normalize these into the app's internal Track model so the UI can treat
+ * YouTube Music and Spotify results uniformly.
  */
 
 import { NextResponse } from 'next/server';
-import { searchYouTube } from '@/lib/ytdlp/resolver';
+import { searchYouTubeMusic } from '@/lib/youtube/search';
 import { getThumbnailUrl } from '@/lib/ytmusicFormat';
 import type { Track } from '@/types';
 import { toUiMessage } from '@/lib/spotify/errors';
@@ -26,7 +23,7 @@ export async function GET(request: Request) {
   if (!q.trim()) return NextResponse.json({ tracks: [] });
 
   try {
-    const candidates = await searchYouTube(q, limit);
+    const candidates = await searchYouTubeMusic(q, limit);
     const tracks: Track[] = candidates.map((c, i) => ({
       videoId: c.videoId,
       title: c.title,

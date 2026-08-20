@@ -15,8 +15,15 @@ export interface Track {
   spotifyId?: string;
   /** Spotify track URI (spotify:track:...). */
   spotifyUri?: string;
+  /** Spotify album and primary artist identities for browsing. */
+  spotifyAlbumId?: string;
+  spotifyArtistId?: string;
   /** Cached YouTube video ID resolved from Spotify metadata. */
   youtubeId?: string;
+  /** Stable source identity used by linked playlist synchronization. */
+  sourceTrackId?: string;
+  /** Source platform for this track when it belongs to a linked playlist. */
+  source?: 'spotify' | 'youtube' | 'local';
 }
 
 export interface Playlist {
@@ -37,6 +44,16 @@ export interface Playlist {
   spotifyOwnerId?: string;
   /** Spotify snapshot ID — used to detect playlist changes. */
   spotifySnapshotId?: string;
+  /** Source platform. Local playlists never synchronize remotely. */
+  source?: 'local' | 'spotify' | 'youtube';
+  /** Source playlist identifier on Spotify or YouTube. */
+  sourcePlaylistId?: string;
+  /** Last known source revision or canonical content hash. */
+  sourceRevision?: string;
+  /** Current background synchronization state. */
+  syncStatus?: 'idle' | 'syncing' | 'pending' | 'readonly' | 'conflict' | 'error';
+  syncError?: string;
+  lastSyncedAt?: string;
 }
 
 export interface UserProfile {
@@ -100,4 +117,49 @@ export interface SessionData {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+}
+
+export interface MatchDiagnostic {
+  code: string;
+  message?: string;
+  videoId?: string;
+  details?: Record<string, unknown>;
+  at: number;
+}
+
+export interface MatchRecord {
+  spotifyTrackId: string;
+  youtubeVideoId: string | null;
+  matchMethod: 'manual_override' | 'metadata' | 'artwork_fallback' | 'no_match';
+  score?: number;
+  diagnostics: MatchDiagnostic[];
+  matchedAt: number;
+  sourceTitle?: string;
+  sourceArtist?: string;
+  sourceDuration?: number;
+}
+
+export interface PlaylistSyncState {
+  playlistId: string;
+  source: 'spotify' | 'youtube';
+  sourcePlaylistId: string;
+  lastCommonRevision?: string;
+  remoteRevision?: string;
+  pendingOperations: Array<{
+    id: string;
+    type: 'add' | 'remove' | 'reorder' | 'rename' | 'replace';
+    payload: Record<string, unknown>;
+    createdAt: number;
+    attempts: number;
+  }>;
+  status: 'idle' | 'syncing' | 'pending' | 'readonly' | 'conflict' | 'error';
+  error?: string;
+  conflicts?: Array<{
+    id: string;
+    type: string;
+    local: unknown;
+    remote: unknown;
+    createdAt: number;
+  }>;
+  updatedAt: number;
 }

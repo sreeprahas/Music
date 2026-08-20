@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, local: true, playlist: existing, tracks: existingTracks, duplicate: true });
     }
 
-    // 1. Fetch playlist metadata (tracks carry raw remote thumbnailUrl from yt-dlp)
+    // 1. Fetch playlist metadata (tracks carry raw remote thumbnailUrl from the source adapter)
     const imported = await import('@/lib/playlistImporter').then((m) => m.importPlaylistUrl(body.url!));
 
     // 2. Replace thumbnailUrls with local API URLs immediately — the actual

@@ -1,6 +1,6 @@
-/** Spotify playlist [id] — fetch a single playlist with all its tracks (paginated, noauth). */
+/** Spotify playlist [id] — fetch a single playlist with all its tracks through GraphQL. */
 import { NextResponse } from 'next/server';
-import { getPlaylistNoauth, getPlaylistTracksNoauth } from '@/lib/spotify/noauthApi';
+import { getPlaylistGraphQl, getPlaylistTracksGraphQl } from '@/lib/spotify/graphqlApi';
 import { normalizePlaylist, normalizePlaylistItems } from '@/lib/spotify/normalize';
 import { toUiMessage } from '@/lib/spotify/errors';
 
@@ -12,8 +12,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   try {
     const [playlist, items] = await Promise.all([
-      getPlaylistNoauth(id),
-      getPlaylistTracksNoauth(id),
+      getPlaylistGraphQl(id),
+      getPlaylistTracksGraphQl(id),
     ]);
     const normalized = normalizePlaylist(playlist);
     const tracks = normalizePlaylistItems(items, normalized.id);

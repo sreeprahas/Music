@@ -1,5 +1,5 @@
 /**
- * Normalize Spotify API responses into the app's internal models.
+ * Normalize Spotify GraphQL responses into the app's internal models.
  *
  * The app has ONE canonical track representation (`types/index.ts` Track).
  * Spotify-specific fields are preserved as optional extensions so the UI never
@@ -44,8 +44,10 @@ export function normalizeTrack(
     duration: Math.round(spotifyTrack.duration_ms / 1000),
     position,
     playlistId,
+    source: 'spotify',
+    sourceTrackId: spotifyTrack.id,
     // Spotify-specific extensions (optional, not in the base Track type yet).
-    ...({ spotifyId: spotifyTrack.id, spotifyUri: spotifyTrack.uri } as object),
+    ...({ spotifyId: spotifyTrack.id, spotifyUri: spotifyTrack.uri, spotifyAlbumId: album?.id, spotifyArtistId: artists[0]?.id } as object),
   } as Track;
 }
 
@@ -81,6 +83,9 @@ export function normalizePlaylist(
     importedAt: nowIso,
     createdAt: nowIso,
     sourceUrl: sourceUrl || `https://open.spotify.com/playlist/${spotifyPlaylist.id}`,
+    source: 'spotify',
+    sourcePlaylistId: spotifyPlaylist.id,
+    sourceRevision: spotifyPlaylist.snapshot_id,
     // Spotify-specific extensions.
     ...({ spotifyId: spotifyPlaylist.id, spotifyOwnerId: spotifyPlaylist.owner?.id } as object),
   } as Playlist;

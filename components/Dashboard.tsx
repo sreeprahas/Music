@@ -8,6 +8,9 @@ import { PlaylistGrid, PlaylistGridSkeleton } from './PlaylistGrid';
 import { PlaylistView, PlaylistViewSkeleton } from './PlaylistView';
 import { PlaylistManagementView } from './HiddenPlaylistsView';
 import { PlayerBar } from './PlayerBar';
+import { SettingsPanel } from './SettingsPanel';
+import { SpotifyHomePanel } from './SpotifyHomePanel';
+import { SpotifyDetailsModal } from './SpotifyDetailsModal';
 import { QueueDrawer } from './QueueDrawer';
 import { LyricsDrawer } from './LyricsDrawer';
 import { ExpandedPlayerModal } from './ExpandedPlayerModal';
@@ -31,7 +34,7 @@ interface Props {
   user: UserProfile;
 }
 
-type SearchMode = 'auto' | 'spotify' | 'ytmusic';
+type SearchMode = 'auto' | 'spotify' | 'ytmusic' | 'local';
 type CachedTrack = Track & { playlistId: string; playlistTitle: string };
 type RouteState =
   | { kind: 'home' }
@@ -116,8 +119,7 @@ export function Dashboard({ user }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typedSearchInput, setTypedSearchInput] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('auto');
-  // Online search results — fetched from the dual search engine (Spotify
-  // noauth + YTMusic via yt-dlp) when the user commits a search. The renderer
+  // Online search results — fetched from the dual GraphQL search engine when the user commits a search. The renderer
   // only receives normalized Track objects (no tokens, no secrets).
   const [onlineSearchResults, setOnlineSearchResults] = useState<Track[]>([]);
   const [onlineSearching, setOnlineSearching] = useState(false);
@@ -163,6 +165,31 @@ export function Dashboard({ user }: Props) {
   const [isFullscreenClosing, setIsFullscreenClosing] = useState(false);
   const handleOpenFullscreen = useCallback(() => setIsFullscreenOpen(true), []);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [spotifyConnected, setSpotifyConnected] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/spotify/status', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => setSpotifyConnected(Boolean(d?.connected)))
+      .catch(() => undefined);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('spotify_auth') === 'ok') {
+      setSpotifyConnected(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  const handleConnectSpotify = useCallback(() => {
+    window.location.href = '/api/auth/spotify/start';
+  }, []);
+
+  const handleDisconnectSpotify = useCallback(async () => {
+    await fetch('/api/auth/spotify/disconnect', { method: 'POST' });
+    setSpotifyConnected(false);
+  }, []);
+  const [spotifyDetails, setSpotifyDetails] = useState<{ kind: 'album' | 'artist'; id: string } | null>(null);
   const [importUrl, setImportUrl] = useState('');
   const [importError, setImportError] = useState('');
   // Bulk import queue: each entry is a URL with optional preview data.
@@ -309,9 +336,6 @@ export function Dashboard({ user }: Props) {
     setImportingAll(false);
   }, [apiFetch, importQueue]);
 
-  useEffect(() => {
-    void fetch('/api/playlist/queue', { cache: 'no-store' }).catch(() => { });
-  }, []);
 
   useEffect(() => {
     if (!currentTrack) {
@@ -1184,6 +1208,18 @@ export function Dashboard({ user }: Props) {
     }
   }, []);
 
+  const handleSetMatchOverride = useCallback(async (track: Track) => {
+    if (!track.spotifyId) return;
+    const value = window.prompt(`Paste the correct YouTube URL for “${track.title}”`);
+    if (!value?.trim()) return;
+    const response = await apiFetch('/api/matching/override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spotifyId: track.spotifyId, youtubeUrl: value.trim() }),
+    });
+    if (!response.ok) throw new Error('Could not save the YouTube match override');
+  }, [apiFetch]);
+
   // Called by PlaylistView after a track is deleted — stops the player if it was playing
   const handleTrackDeleted = useCallback((videoId: string) => {
     setCurrentTrack((prev) => {
@@ -1387,7 +1423,7 @@ export function Dashboard({ user }: Props) {
   }, [apiFetch, handleTracksLoaded, playlists, searchQuery]);
 
   // Online search — when the local library has no matches, query the dual
-  // search engine (Spotify noauth + YTMusic via yt-dlp) using the selected
+  // GraphQL search engine using the selected
   // mode (auto/spotify/ytmusic). Results are normalized Track objects; the
   // renderer never sees tokens or secrets. In 'auto' mode both sources run
   // in parallel, results are deduplicated, and Spotify takes priority.
@@ -1401,6 +1437,11 @@ export function Dashboard({ user }: Props) {
     // Only hit the online sources when the local library has no matches —
     // avoids redundant API calls and respects the "local first" principle.
     if (globalSearchResults.length > 0) {
+      setOnlineSearchResults([]);
+      setOnlineSearching(false);
+      return;
+    }
+    if (searchMode === 'local') {
       setOnlineSearchResults([]);
       setOnlineSearching(false);
       return;
@@ -1689,6 +1730,10 @@ export function Dashboard({ user }: Props) {
         onHomeClick={() => {
           navigateRoute({ kind: 'home' });
         }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        spotifyConnected={spotifyConnected}
+        onConnectSpotify={handleConnectSpotify}
+        onDisconnectSpotify={handleDisconnectSpotify}
       />
 
       <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
@@ -1771,7 +1816,8 @@ export function Dashboard({ user }: Props) {
                 playlists={playlists}
                 onDownload={handleDownload}
                 onDownloadTrack={handleDownloadTrack}
-                onDeleteTrack={handleDeleteTrack}
+                 onDeleteTrack={handleDeleteTrack}
+                 onSetMatchOverride={handleSetMatchOverride}
                 onTrackDeleted={handleTrackDeleted}
                 onTogglePin={handleTogglePin}
                 onTracksLoaded={handleTracksLoaded}
@@ -1786,32 +1832,29 @@ export function Dashboard({ user }: Props) {
                 playlistMutation={playlistMutation}
               />
             ) : (
-              importedPlaylists.length === 0 ? (
-                // Playlist management temporarily on standby — render grid instead.
-                <PlaylistGrid
-                  playlists={filteredPlaylists}
-                  pinnedIds={pinnedIds}
-                  hiddenIds={[]}
-                  onSelect={handleSelectPlaylist}
-                  onTogglePin={handleTogglePin}
-                  onPlay={handlePlayPlaylist}
-                  onShufflePlay={handleShufflePlayPlaylist}
-                  onDownload={handleDownload}
-                  onRemove={handleDeletePlaylist}
+              <div className="h-full min-h-0 overflow-y-auto scrollbar-thin">
+                <SpotifyHomePanel
+                  onSelectPlaylist={handleSelectPlaylist}
+                  onPlayPlaylist={handlePlayPlaylist}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                  spotifyConnected={spotifyConnected}
+                  onConnectSpotify={handleConnectSpotify}
+                  onDisconnectSpotify={handleDisconnectSpotify}
                 />
-              ) : (
-                <PlaylistGrid
-                  playlists={filteredPlaylists}
-                  pinnedIds={pinnedIds}
-                  hiddenIds={[]}
-                  onSelect={handleSelectPlaylist}
-                  onTogglePin={handleTogglePin}
-                  onPlay={handlePlayPlaylist}
-                  onShufflePlay={handleShufflePlayPlaylist}
-                  onDownload={handleDownload}
-                  onRemove={handleDeletePlaylist}
-                />
-              )
+                <div className="min-h-[520px]">
+                  <PlaylistGrid
+                    playlists={filteredPlaylists}
+                    pinnedIds={pinnedIds}
+                    hiddenIds={[]}
+                    onSelect={handleSelectPlaylist}
+                    onTogglePin={handleTogglePin}
+                    onPlay={handlePlayPlaylist}
+                    onShufflePlay={handleShufflePlayPlaylist}
+                    onDownload={handleDownload}
+                    onRemove={handleDeletePlaylist}
+                  />
+                </div>
+              </div>
             )}
           </div>
 
@@ -1819,7 +1862,7 @@ export function Dashboard({ user }: Props) {
             <>
               <ResizeDivider onDelta={(d) => setQueueWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, QUEUE_MIN, QUEUE_MAX))} />
               <div
-                className={`h-full shrink-0 border-l border-white/10 overflow-hidden transition-[width] duration-300 ease-out ${isQueueClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                className={`h-full shrink-0 border-l border-border overflow-hidden transition-[width] duration-300 ease-out ${isQueueClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
                 style={{ width: `${queueWidth}%` }}
               >
@@ -1847,7 +1890,7 @@ export function Dashboard({ user }: Props) {
             <>
               <ResizeDivider onDelta={(d) => setLyricsWidth((w) => clamp(w - (d / Math.max(window.innerWidth, 1)) * 100, LYRICS_MIN, LYRICS_MAX))} />
               <div
-                className={`h-full shrink-0 border-l border-white/10 overflow-hidden transition-[width] duration-300 ease-out ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
+                className={`h-full shrink-0 border-l border-border overflow-hidden transition-[width] duration-300 ease-out ${isLyricsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'
                   }`}
                 style={{ width: `${lyricsWidth}%` }}
               >
@@ -1921,32 +1964,45 @@ export function Dashboard({ user }: Props) {
       />
 
       {feedbackToast && (
-        <div className="fixed bottom-[112px] left-1/2 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-[#00F2FE]/30 bg-[#161616] px-4 py-3 text-sm font-medium text-white shadow-2xl shadow-black/80 animate-fadeIn">
-          <span className="h-2 w-2 rounded-full bg-[#00F2FE] shadow-[0_0_8px_#00F2FE]" />
+        <div className="fixed bottom-[112px] left-1/2 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-accent/30 bg-surface-elevated px-4 py-3 text-sm font-medium text-text shadow-2xl shadow-shadow/80 animate-fadeIn">
+          <span className="h-2 w-2 rounded-full bg-accent shadow-accent-line" />
           <span>{feedbackToast}</span>
         </div>
       )}
 
+      {isSettingsOpen && (
+        <SettingsPanel user={user} onClose={() => setIsSettingsOpen(false)} />
+      )}
+
+      {spotifyDetails && (
+        <SpotifyDetailsModal
+          kind={spotifyDetails.kind}
+          id={spotifyDetails.id}
+          onClose={() => setSpotifyDetails(null)}
+          onPlay={(track, queue) => handlePlay(track, queue)}
+        />
+      )}
+
       {undoAction && (
-        <div className="fixed bottom-[112px] left-1/2 z-[120] flex -translate-x-1/2 items-center gap-4 rounded-xl border border-white/10 bg-[#292929] px-4 py-3 text-sm text-white shadow-2xl shadow-black/50">
+        <div className="fixed bottom-[112px] left-1/2 z-[120] flex -translate-x-1/2 items-center gap-4 rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-text shadow-2xl shadow-shadow/50">
           <span>Removed “{undoAction.track.title}” from the playlist</span>
-          <button onClick={handleUndoRemove} className="rounded-md px-2 py-1 font-semibold text-[#00F2FE] hover:bg-white/10">Undo</button>
+          <button onClick={handleUndoRemove} className="rounded-md px-2 py-1 font-semibold text-accent hover:bg-surface-hover">Undo</button>
         </div>
       )}
 
       {isImportModalOpen && (
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-overlay/70 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) setIsImportModalOpen(false); }}
         >
-          <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-[#181818] shadow-2xl">
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-surface shadow-2xl">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <div>
-                <h2 className="text-lg font-bold text-white">Import Playlists</h2>
-                <p className="text-xs text-white/40">Paste a YouTube or Spotify playlist URL, add to queue, then import</p>
+                <h2 className="text-lg font-bold text-text">Import Playlists</h2>
+                <p className="text-xs text-text-muted">Paste a YouTube or Spotify playlist URL, add to queue, then import</p>
               </div>
-              <button onClick={() => setIsImportModalOpen(false)} className="text-white/40 hover:text-white transition-colors">
+              <button onClick={() => setIsImportModalOpen(false)} className="text-text-muted hover:text-text transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1960,39 +2016,39 @@ export function Dashboard({ user }: Props) {
                 onChange={(e) => { setImportUrl(e.target.value); setImportError(''); }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && importUrl.trim()) handleAddUrlToQueue(); if (e.key === 'Escape') setIsImportModalOpen(false); }}
                 placeholder="Enter link here"
-                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00F2FE]/60 focus:ring-1 focus:ring-[#00F2FE]/30 transition-colors"
+                className="flex-1 rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text placeholder:text-text-muted outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
               <button
                 onClick={handleAddUrlToQueue}
                 disabled={!importUrl.trim()}
-                className="flex items-center gap-1.5 rounded-xl border border-[#00F2FE]/30 bg-[#00F2FE]/10 px-4 py-2.5 text-sm font-semibold text-[#00F2FE] hover:bg-[#00F2FE]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-1.5 rounded-xl border border-accent/30 bg-accent/10 px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <Plus className="h-4 w-4" /> Add
               </button>
             </div>
 
-            {importError && <p className="px-6 pt-2 text-xs text-red-400">{importError}</p>}
+            {importError && <p className="px-6 pt-2 text-xs text-error">{importError}</p>}
 
             {/* Queue list */}
             <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
               {importQueue.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] py-8 text-center text-sm text-white/30">
+                <div className="rounded-xl border border-dashed border-border bg-background-secondary py-8 text-center text-sm text-text-disabled">
                   No playlists in queue. Paste a URL above and click Add.
                 </div>
               ) : (
                 <div className="space-y-2">
                   {importQueue.map((entry) => (
-                    <div key={entry.url} className="rounded-xl border border-white/5 bg-white/[0.02]">
+                    <div key={entry.url} className="rounded-xl border border-border-subtle bg-background-secondary">
                       <div className="flex items-center gap-3 px-3 py-2.5">
                         <button
                           onClick={() => entry.tracks ? handleTogglePreview(entry.url) : handleRetryPreview(entry.url)}
                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
                           {/* Playlist artwork: 2x2 collage of first 4 track thumbnails, or cover image for Spotify */}
-                          <div className="flex h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/5">
+                          <div className="flex h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface">
                             {entry.previewing ? (
                               <div className="flex h-full w-full items-center justify-center">
-                                <Loader2 className="h-4 w-4 animate-spin text-white/40" />
+                                <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
                               </div>
                             ) : entry.coverUrl && !entry.tracks?.some((t) => t.videoId) ? (
                               <img src={entry.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -2008,7 +2064,7 @@ export function Dashboard({ user }: Props) {
                                       loading="lazy"
                                     />
                                   ) : (
-                                    <div key={i} className="h-full w-full bg-white/5" />
+                                    <div key={i} className="h-full w-full bg-surface" />
                                   )
                                 ))}
                               </div>
@@ -2016,71 +2072,71 @@ export function Dashboard({ user }: Props) {
                               <img src={entry.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center">
-                                <Music className="h-4 w-4 text-white/20" />
+                                <Music className="h-4 w-4 text-text-disabled" />
                               </div>
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-white">{entry.title || entry.url}</p>
-                            <p className="truncate text-xs text-white/30">
+                            <p className="truncate text-sm font-medium text-text">{entry.title || entry.url}</p>
+                            <p className="truncate text-xs text-text-disabled">
                               {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loading…' : entry.url}
                             </p>
                           </div>
                           {entry.tracks && (
                             <div className="shrink-0">
                               {entry.previewOpen ? (
-                                <ChevronDown className="h-4 w-4 text-white/40" />
+                                <ChevronDown className="h-4 w-4 text-text-muted" />
                               ) : (
-                                <ChevronRight className="h-4 w-4 text-white/40" />
+                                <ChevronRight className="h-4 w-4 text-text-muted" />
                               )}
                             </div>
                           )}
                         </button>
                         <button
                           onClick={() => handleRemoveImportEntry(entry.url)}
-                          className="shrink-0 rounded-lg p-1.5 text-white/30 hover:bg-white/5 hover:text-white/60 transition-colors"
+                          className="shrink-0 rounded-lg p-1.5 text-text-disabled hover:bg-surface hover:text-text-secondary transition-colors"
                         >
                           <X className="h-4 w-4" />
                         </button>
                       </div>
                       {/* Preview tracks */}
                       {entry.previewOpen && entry.tracks && (
-                        <div className="border-t border-white/5 px-3 py-2">
+                        <div className="border-t border-border-subtle px-3 py-2">
                           <div className="space-y-0.5">
                             {entry.tracks.slice(0, 10).map((track, i) => (
                               <div key={i} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-                                <span className="w-5 text-xs text-white/30">{i + 1}</span>
+                                <span className="w-5 text-xs text-text-disabled">{i + 1}</span>
                                 {track.videoId ? (
                                   <img
                                     src={getThumbnailUrl(track.videoId, track.title)}
                                     alt=""
-                                    className="h-8 w-8 rounded object-cover bg-white/5"
+                                    className="h-8 w-8 rounded object-cover bg-surface"
                                     loading="lazy"
                                   />
                                 ) : (
-                                  <div className="h-8 w-8 rounded bg-white/5" />
+                                  <div className="h-8 w-8 rounded bg-surface" />
                                 )}
                                 <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm text-white/80">{track.title}</p>
-                                  <p className="truncate text-xs text-white/30">{track.artist}</p>
+                                  <p className="truncate text-sm text-text-secondary">{track.title}</p>
+                                  <p className="truncate text-xs text-text-disabled">{track.artist}</p>
                                 </div>
                               </div>
                             ))}
                             {entry.tracks.length > 10 && (
-                              <p className="px-2 pt-1 text-xs text-white/25">+{entry.tracks.length - 10} more tracks</p>
+                              <p className="px-2 pt-1 text-xs text-text-disabled">+{entry.tracks.length - 10} more tracks</p>
                             )}
                           </div>
                         </div>
                       )}
                       {/* Error / not public message */}
                       {entry.error && (
-                        <div className="border-t border-white/5 px-3 py-2">
+                        <div className="border-t border-border-subtle px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <p className="text-xs text-red-400">{entry.error}</p>
+                            <p className="text-xs text-error">{entry.error}</p>
                             {entry.isPublic === false && (
                               <button
                                 onClick={() => handleRetryPreview(entry.url)}
-                                className="text-xs text-[#00F2FE] hover:underline"
+                                className="text-xs text-accent hover:underline"
                               >Retry</button>
                             )}
                           </div>
@@ -2093,19 +2149,19 @@ export function Dashboard({ user }: Props) {
             </div>
 
             {/* Footer with Import button */}
-            <div className="flex items-center justify-between border-t border-white/10 px-6 py-4">
-              <span className="text-xs text-white/30">
+            <div className="flex items-center justify-between border-t border-border px-6 py-4">
+              <span className="text-xs text-text-disabled">
                 {importQueue.length > 0 ? `${importQueue.length} playlist${importQueue.length > 1 ? 's' : ''} queued` : ''}
               </span>
               <div className="flex gap-3">
                 <button
                   onClick={() => setIsImportModalOpen(false)}
-                  className="rounded-xl px-4 py-2 text-sm text-white/60 hover:bg-white/5 transition-colors"
+                  className="rounded-xl px-4 py-2 text-sm text-text-secondary hover:bg-surface transition-colors"
                 >Cancel</button>
                 <button
                   onClick={() => void handleImportAll()}
                   disabled={importingAll || importQueue.filter((e) => e.isPublic !== false && !e.error).length === 0}
-                  className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold bg-[#00F2FE]/10 text-[#00F2FE] border border-[#00F2FE]/30 hover:bg-[#00F2FE]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {importingAll ? (
                     <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</>
@@ -2174,23 +2230,25 @@ function GlobalSearchResults({
   const showOnlineSearching = !hasLocal && isOnlineSearching && (!onlineResults || onlineResults.length === 0);
   const showEmpty = !hasLocal && !showOnline && !showOnlineSearching && !isIndexing;
 
-  const modeLabel = mode === 'auto' ? 'Auto (Spotify + YTMusic)' : mode === 'spotify' ? 'Spotify' : 'YTMusic';
+  const modeLabel = mode === 'auto' ? 'Auto (Spotify + YTMusic)' : mode === 'spotify' ? 'Spotify' : mode === 'local' ? 'Local' : 'YTMusic';
 
   return (
     <div className="h-full min-h-0 overflow-y-auto px-8 py-8 scrollbar-thin animate-fadeIn">
       <div className="mb-5">
-        <p className="text-xs uppercase tracking-[0.24em] text-white/35">Global Search</p>
-        <h2 className="mt-2 text-2xl font-black text-white">
+        <p className="text-xs uppercase tracking-[0.24em] text-text-muted">Global Search</p>
+        <h2 className="mt-2 text-2xl font-black text-text">
           Results for "{query}"
         </h2>
-        <p className="mt-1 text-sm text-white/40">
+        <p className="mt-1 text-sm text-text-muted">
           {isIndexing
             ? 'Loading songs from your playlists...'
             : hasLocal
               ? `${results.length} matching tracks in your library`
               : showOnline
                 ? `${onlineResults!.length} tracks from ${modeLabel} (not yet in your library)`
-                : showOnlineSearching
+                : mode === 'local'
+                  ? 'No matches in your local library'
+                  : showOnlineSearching
                   ? `Searching ${modeLabel}...`
                   : `No local matches — searching ${modeLabel}...`}
         </p>
@@ -2201,9 +2259,9 @@ function GlobalSearchResults({
           <button
             key={track.videoId}
             onClick={() => onPlay(track)}
-            className="w-full flex items-center gap-4 rounded-3xl border border-white/5 bg-white/[0.03] px-4 py-3 text-left hover:bg-white/[0.06] transition-all duration-300 ease-out"
+            className="w-full flex items-center gap-4 rounded-3xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover transition-all duration-300 ease-out"
           >
-            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
+            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
               <img
                 src={getThumbnailUrl(track.videoId, track.title)}
                 alt={track.title}
@@ -2211,16 +2269,16 @@ function GlobalSearchResults({
               />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate">{track.title}</p>
-              <p className="text-xs text-white/45 truncate mt-0.5">{cleanArtistName(track.artist)}</p>
+              <p className="text-sm font-semibold text-text truncate">{track.title}</p>
+              <p className="text-xs text-text-muted truncate mt-0.5">{cleanArtistName(track.artist)}</p>
             </div>
             <div className="hidden lg:block min-w-0 w-56">
-              <p className="text-xs text-white/40 truncate">{track.playlistTitle}</p>
+              <p className="text-xs text-text-muted truncate">{track.playlistTitle}</p>
             </div>
-            <div className="hidden md:block w-16 text-right text-xs text-white/35">
+            <div className="hidden md:block w-16 text-right text-xs text-text-muted">
               {track.duration ? formatDuration(track.duration) : '—'}
             </div>
-            <div className="shrink-0 text-white/25">
+            <div className="shrink-0 text-text-disabled">
               <Play className="w-4 h-4" />
             </div>
           </button>
@@ -2236,9 +2294,9 @@ function GlobalSearchResults({
           <button
             key={track.videoId || track.spotifyId || track.title}
             onClick={() => onPlay(track)}
-            className="w-full flex items-center gap-4 rounded-3xl border border-white/5 bg-white/[0.03] px-4 py-3 text-left hover:bg-white/[0.06] transition-all duration-300 ease-out"
+            className="w-full flex items-center gap-4 rounded-3xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover transition-all duration-300 ease-out"
           >
-            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white/5 shrink-0 border border-white/5">
+            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
               <img
                 src={track.thumbnailUrl || getThumbnailUrl(track.videoId, track.title)}
                 alt={track.title}
@@ -2247,32 +2305,32 @@ function GlobalSearchResults({
               />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate">{track.title}</p>
-              <p className="text-xs text-white/45 truncate mt-0.5">{cleanArtistName(track.artist)}</p>
-              {track.album && <p className="text-xs text-white/30 truncate mt-0.5">{track.album}</p>}
+              <p className="text-sm font-semibold text-text truncate">{track.title}</p>
+              <p className="text-xs text-text-muted truncate mt-0.5">{cleanArtistName(track.artist)}</p>
+              {track.album && <p className="text-xs text-text-disabled truncate mt-0.5">{track.album}</p>}
             </div>
             <div className="hidden lg:block min-w-0 w-56">
-              <p className="text-xs text-white/40 truncate">{track.spotifyId ? 'Spotify' : 'YTMusic'}</p>
+              <p className="text-xs text-text-muted truncate">{track.spotifyId ? 'Spotify' : 'YTMusic'}</p>
             </div>
-            <div className="hidden md:block w-16 text-right text-xs text-white/35">
+            <div className="hidden md:block w-16 text-right text-xs text-text-muted">
               {track.duration ? formatDuration(track.duration) : '—'}
             </div>
-            <div className="shrink-0 text-white/25">
+            <div className="shrink-0 text-text-disabled">
               <Play className="w-4 h-4" />
             </div>
           </button>
         ))}
 
         {showOnlineSearching && (
-          <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center text-white/35">
-            <Search className="w-5 h-5 mx-auto mb-3 text-white/20 animate-pulse" />
+          <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+            <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled animate-pulse" />
             Searching {modeLabel} for "{query}"...
           </div>
         )}
 
         {showEmpty && (
-          <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center text-white/35">
-            <Search className="w-5 h-5 mx-auto mb-3 text-white/20" />
+          <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+            <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled" />
             No matching tracks found.
           </div>
         )}

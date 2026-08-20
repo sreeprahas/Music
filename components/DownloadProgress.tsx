@@ -90,7 +90,7 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
 
   return (
-    <div className="absolute inset-0 z-20 bg-[#0a0a0a]/95 backdrop-blur-md flex flex-col items-center justify-start pt-16 px-8">
+    <div className="absolute inset-0 z-20 bg-background-secondary backdrop-blur-md flex flex-col items-center justify-start pt-16 px-8">
       {/* Animated waveform */}
       <div className="flex items-end gap-[3px] h-10 mb-8">
         {Array.from({ length: 28 }).map((_, i) => (
@@ -98,7 +98,7 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
             key={i}
             className="w-[3px] rounded-full"
             style={{
-              background: phase === 'done' ? '#00F2FE' : 'rgba(0,242,254,0.6)',
+              background: phase === 'done' ? 'var(--color-accent)' : 'color-mix(in srgb, var(--color-accent) 60%, transparent)',
               height: phase === 'downloading'
                 ? `${20 + Math.sin((i / 28) * Math.PI * 2) * 16}px`
                 : '4px',
@@ -110,17 +110,17 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
       </div>
 
       {/* Status text */}
-      <h2 className="text-2xl font-bold text-white mb-1">
+      <h2 className="text-2xl font-bold text-text mb-1">
         {phase === 'connecting' && 'Connectingâ€¦'}
         {phase === 'downloading' && 'Downloading'}
         {phase === 'done' && 'All Done'}
         {phase === 'error' && 'Download Error'}
       </h2>
-      <p className="text-sm text-white/40 mb-8">{playlistTitle}</p>
+      <p className="text-sm text-text-muted mb-8">{playlistTitle}</p>
 
       {/* Current track */}
       {currentTrack && phase === 'downloading' && (
-        <div className="flex items-center gap-4 w-full max-w-sm mb-6 bg-white/5 rounded-xl p-3">
+        <div className="flex items-center gap-4 w-full max-w-sm mb-6 bg-surface rounded-xl p-3">
           {currentTrack.thumbnailUrl && (
             <img
               src={currentTrack.thumbnailUrl}
@@ -129,25 +129,25 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
             />
           )}
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{currentTrack.title}</p>
+            <p className="text-sm font-medium text-text truncate">{currentTrack.title}</p>
             {currentTrack.artist && (
-              <p className="text-xs text-white/40 truncate">{currentTrack.artist}</p>
+              <p className="text-xs text-text-muted truncate">{currentTrack.artist}</p>
             )}
           </div>
-          <div className="w-5 h-5 rounded-full border-2 border-[#00F2FE]/40 border-t-[#00F2FE] animate-spin shrink-0" />
+          <div className="w-5 h-5 rounded-full border-2 border-accent/40 border-t-accent animate-spin shrink-0" />
         </div>
       )}
 
       {/* Progress bar */}
       {total > 0 && (
         <div className="w-full max-w-sm mb-2">
-          <div className="flex justify-between text-xs text-white/40 mb-2">
+          <div className="flex justify-between text-xs text-text-muted mb-2">
             <span>{current} of {total} songs</span>
             <span>{pct}%</span>
           </div>
-          <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-1 bg-surface-hover rounded-full overflow-hidden">
             <div
-              className="h-full bg-[#00F2FE] rounded-full transition-all duration-500"
+              className="h-full bg-accent rounded-full transition-all duration-500"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -156,11 +156,11 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
 
       {/* Error message */}
       {phase === 'error' && (
-        <div className="text-sm text-red-400 mt-4 text-center max-w-xs">
+        <div className="text-sm text-error mt-4 text-center max-w-xs">
           {errorMsg}
           <button
             onClick={onComplete}
-            className="block mx-auto mt-4 px-5 py-2 rounded-full border border-white/20 text-white/60 hover:text-white text-sm transition-colors"
+            className="block mx-auto mt-4 px-5 py-2 rounded-full border border-border-strong text-text-secondary hover:text-text text-sm transition-colors"
           >
             Dismiss
           </button>
@@ -169,7 +169,7 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
 
       {/* Done state */}
       {phase === 'done' && total === 0 && (
-        <p className="text-sm text-white/40 mt-2">All tracks were already downloaded.</p>
+        <p className="text-sm text-text-muted mt-2">All tracks were already downloaded.</p>
       )}
 
       {/* Completed list */}
@@ -182,20 +182,20 @@ export function DownloadProgress({ playlistId, playlistTitle, onComplete }: Prop
             <div key={`${t.videoId}-${i}`} className="flex items-center gap-2.5 py-1.5 px-1">
               <div
                 className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
-                  t.status === 'done' ? 'bg-[#00F2FE]/20' : 'bg-red-500/20'
+                  t.status === 'done' ? 'bg-accent/20' : 'bg-error/20'
                 }`}
               >
                 {t.status === 'done' ? (
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#00F2FE">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" className="text-accent">
                     <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
                   </svg>
                 ) : (
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#ef4444">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" className="text-error">
                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
                   </svg>
                 )}
               </div>
-              <p className="text-xs text-white/50 truncate">{t.title}</p>
+              <p className="text-xs text-text-muted truncate">{t.title}</p>
             </div>
           ))}
         </div>

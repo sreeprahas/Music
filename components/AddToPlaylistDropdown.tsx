@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Playlist, Track } from '@/types';
 import { Search, Circle, CheckCircle2 } from 'lucide-react';
+import { PlaylistArtwork } from './PlaylistArtwork';
 
 const membershipCache = new Map<string, Set<string>>();
 
@@ -136,22 +137,22 @@ export function AddToPlaylistDropdown({
     <div
       ref={containerRef}
       style={style}
-      className={`z-[200] w-[280px] rounded-2xl border border-white/[0.10] bg-[#1a1a1a] shadow-xl shadow-black/60 flex flex-col overflow-hidden ${className}`}
+      className={`z-[200] w-[280px] rounded-2xl border border-border bg-surface shadow-xl shadow-shadow/60 flex flex-col overflow-hidden ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}
       <div className="px-4 pt-4 pb-2 shrink-0">
-        <p className="text-[13px] font-bold text-white mb-3">Add to playlist</p>
+        <p className="text-[13px] font-bold text-text mb-3">Add to playlist</p>
         {/* Search */}
-        <div className="flex items-center gap-2 rounded-lg bg-white/[0.07] border border-white/[0.08] px-2.5 py-1.5">
-          <Search className="w-3.5 h-3.5 text-white/40 shrink-0" />
+        <div className="flex items-center gap-2 rounded-lg bg-surface-hover border border-border px-2.5 py-1.5">
+          <Search className="w-3.5 h-3.5 text-text-muted shrink-0" />
           <input
             type="text"
             autoFocus
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Find a playlist"
-            className="flex-1 bg-transparent text-xs text-white placeholder:text-white/30 outline-none border-none"
+            className="flex-1 bg-transparent text-xs text-text placeholder:text-text-disabled outline-none border-none"
           />
         </div>
       </div>
@@ -159,7 +160,7 @@ export function AddToPlaylistDropdown({
       {/* Playlist list */}
       <div className="flex-1 overflow-y-auto min-h-0 max-h-[260px] px-1 pb-1">
         {orderedPlaylists.length === 0 ? (
-          <p className="px-4 py-3 text-xs text-white/40 italic">No playlists found</p>
+          <p className="px-4 py-3 text-xs text-text-muted italic">No playlists found</p>
         ) : (
           orderedPlaylists.map((pl) => {
             const isChecked = localChecked.has(pl.id);
@@ -168,35 +169,25 @@ export function AddToPlaylistDropdown({
                 key={pl.id}
                 onClick={() => toggle(pl)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-colors ${
-                  isChecked ? 'bg-white/[0.06] hover:bg-white/[0.09]' : 'hover:bg-white/[0.06]'
+                  isChecked ? 'bg-surface-hover hover:bg-surface-active' : 'hover:bg-surface-hover'
                 }`}
               >
                 {/* Thumbnail */}
-                <div className="w-9 h-9 rounded-lg overflow-hidden bg-white/5 shrink-0 border border-white/[0.06]">
-                  {pl.thumbnailUrl ? (
-                    <img
-                      src={`/api/playlist-thumbnail?playlistId=${encodeURIComponent(pl.id)}&url=${encodeURIComponent(pl.thumbnailUrl)}`}
-                      alt={pl.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-white/5">
-                      <span className="text-[10px] text-white/30">♪</span>
-                    </div>
-                  )}
+                <div className="w-9 h-9 rounded-lg overflow-hidden bg-surface shrink-0 border border-border-subtle">
+                  <PlaylistArtwork playlist={pl} />
                 </div>
 
                 {/* Title */}
-                <span className={`flex-1 min-w-0 text-sm truncate ${isChecked ? 'text-white font-medium' : 'text-white/70'}`}>
+                <span className={`flex-1 min-w-0 text-sm truncate ${isChecked ? 'text-text font-medium' : 'text-text-secondary'}`}>
                   {pl.title}
                 </span>
 
                 {/* Check icon — filled green circle when checked, outlined circle with + when not */}
                 <div className="shrink-0 flex items-center justify-center w-5 h-5">
                   {isChecked ? (
-                    <CheckCircle2 className="w-5 h-5 text-[#00F2FE]" strokeWidth={2.5} />
+                    <CheckCircle2 className="w-5 h-5 text-accent" strokeWidth={2.5} />
                   ) : (
-                    <Circle className="w-5 h-5 text-white/30" strokeWidth={1.5} />
+                    <Circle className="w-5 h-5 text-text-disabled" strokeWidth={1.5} />
                   )}
                 </div>
               </button>
@@ -206,10 +197,10 @@ export function AddToPlaylistDropdown({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 flex items-center justify-end gap-2 px-3 py-2.5 border-t border-white/[0.08]">
+      <div className="shrink-0 flex items-center justify-end gap-2 px-3 py-2.5 border-t border-border">
         <button
           onClick={hasChanges ? commitChanges : onClose}
-          className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          className="px-4 py-1.5 rounded-lg text-xs font-semibold text-text-secondary hover:text-text hover:bg-surface-hover transition-colors"
         >
           {hasChanges ? 'Done' : 'Cancel'}
         </button>

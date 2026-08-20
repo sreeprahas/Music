@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { getMp3Path, isDownloaded } from '@/lib/downloader';
+import { getAudioMimeType } from '@/lib/cache/audio';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,7 @@ export async function GET(request: Request): Promise<Response> {
   const rangeHeader = request.headers.get('range');
 
   const headers: Record<string, string> = {
-    'Content-Type': 'audio/mpeg',
+    'Content-Type': getAudioMimeType(videoId),
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store, no-cache, must-revalidate, private',
     'Pragma': 'no-cache',

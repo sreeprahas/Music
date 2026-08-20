@@ -1,9 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  allowedDevOrigins: ['127.0.0.1:3000', 'localhost:3000'],
   outputFileTracingExcludes: {
     '/*': ['./data/**/*'],
   },
+  transpilePackages: ['lucide-react'],
   trailingSlash: false,
   reactStrictMode: false,
   images: {

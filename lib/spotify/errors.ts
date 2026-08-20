@@ -1,12 +1,12 @@
 /**
- * Structured Spotify + yt-dlp error hierarchy.
+ * Structured Spotify + YouTube error hierarchy.
  *
  * Every error carries a UI-safe `message` and a machine-readable `code`.
  * Errors NEVER carry secrets (tokens, client_secret, PKCE verifier, cookies).
  */
 
-/** Base class for all Spotify API errors. */
-export class SpotifyApiError extends Error {
+/** Base class for Spotify GraphQL transport errors. */
+export class SpotifyGraphQlError extends Error {
   /** HTTP status code (0 for network failures). */
   readonly status: number;
   /** Machine-readable error code. */
@@ -16,7 +16,7 @@ export class SpotifyApiError extends Error {
 
   constructor(message: string, status: number, code = 'spotify_api_error', retryAfterMs = 0) {
     super(message);
-    this.name = 'SpotifyApiError';
+    this.name = 'SpotifyGraphQlError';
     this.status = status;
     this.code = code;
     this.retryAfterMs = retryAfterMs;
@@ -24,7 +24,7 @@ export class SpotifyApiError extends Error {
 }
 
 /** 401 — access token is missing, invalid, or expired. */
-export class SpotifyAuthenticationError extends SpotifyApiError {
+export class SpotifyAuthenticationError extends SpotifyGraphQlError {
   constructor(message = 'Spotify authentication required') {
     super(message, 401, 'spotify_auth_error');
     this.name = 'SpotifyAuthenticationError';
@@ -32,7 +32,7 @@ export class SpotifyAuthenticationError extends SpotifyApiError {
 }
 
 /** 403 — token valid but lacks the required scope, or action forbidden. */
-export class SpotifyAuthorizationError extends SpotifyApiError {
+export class SpotifyAuthorizationError extends SpotifyGraphQlError {
   constructor(message = 'Spotify authorization insufficient for this action') {
     super(message, 403, 'spotify_authorization_error');
     this.name = 'SpotifyAuthorizationError';
@@ -40,7 +40,7 @@ export class SpotifyAuthorizationError extends SpotifyApiError {
 }
 
 /** Access token expired — distinct from invalid so the client can refresh. */
-export class SpotifyTokenExpiredError extends SpotifyApiError {
+export class SpotifyTokenExpiredError extends SpotifyGraphQlError {
   constructor(message = 'Spotify access token expired') {
     super(message, 401, 'spotify_token_expired');
     this.name = 'SpotifyTokenExpiredError';
@@ -48,7 +48,7 @@ export class SpotifyTokenExpiredError extends SpotifyApiError {
 }
 
 /** 429 — rate limited. Always carries retryAfterMs. */
-export class SpotifyRateLimitError extends SpotifyApiError {
+export class SpotifyRateLimitError extends SpotifyGraphQlError {
   constructor(retryAfterMs: number, message = 'Spotify rate limit exceeded') {
     super(message, 429, 'spotify_rate_limit', retryAfterMs);
     this.name = 'SpotifyRateLimitError';
@@ -56,25 +56,25 @@ export class SpotifyRateLimitError extends SpotifyApiError {
 }
 
 /** 404 — resource not found. */
-export class SpotifyNotFoundError extends SpotifyApiError {
+export class SpotifyNotFoundError extends SpotifyGraphQlError {
   constructor(message = 'Spotify resource not found') {
     super(message, 404, 'spotify_not_found');
     this.name = 'SpotifyNotFoundError';
   }
 }
 
-/** yt-dlp errors — media resolution / download / stream. */
-export class YtDlpError extends Error {
+/** YouTube errors — media resolution / download / stream. */
+export class YouTubeError extends Error {
   readonly code: string;
-  constructor(message: string, code = 'ytdlp_error') {
+  constructor(message: string, code = 'youtube_error') {
     super(message);
-    this.name = 'YtDlpError';
+    this.name = 'YouTubeError';
     this.code = code;
   }
 }
 
 /** YouTube search/resolution failed entirely. */
-export class YouTubeResolutionError extends YtDlpError {
+export class YouTubeResolutionError extends YouTubeError {
   constructor(message = 'Failed to resolve a YouTube match') {
     super(message, 'youtube_resolution_error');
     this.name = 'YouTubeResolutionError';
@@ -82,7 +82,7 @@ export class YouTubeResolutionError extends YtDlpError {
 }
 
 /** Download failed. */
-export class DownloadError extends YtDlpError {
+export class DownloadError extends YouTubeError {
   constructor(message = 'Download failed') {
     super(message, 'download_error');
     this.name = 'DownloadError';
@@ -90,7 +90,7 @@ export class DownloadError extends YtDlpError {
 }
 
 /** Stream URL extraction failed. */
-export class StreamResolutionError extends YtDlpError {
+export class StreamResolutionError extends YouTubeError {
   constructor(message = 'Failed to extract audio stream URL') {
     super(message, 'stream_resolution_error');
     this.name = 'StreamResolutionError';
@@ -106,11 +106,11 @@ export function toUiMessage(error: unknown): string {
   if (error instanceof SpotifyAuthenticationError) return 'Spotify is temporarily unavailable. Please try again in a moment.';
   if (error instanceof SpotifyAuthorizationError) return 'Your Spotify account lacks permission for this action.';
   if (error instanceof SpotifyNotFoundError) return 'This Spotify resource was not found.';
-  if (error instanceof SpotifyApiError) return error.message;
+  if (error instanceof SpotifyGraphQlError) return error.message;
   if (error instanceof YouTubeResolutionError) return 'Could not find a matching YouTube video for this track.';
   if (error instanceof DownloadError) return error.message;
   if (error instanceof StreamResolutionError) return 'Could not start playback for this track.';
-  if (error instanceof YtDlpError) return error.message;
+  if (error instanceof YouTubeError) return error.message;
   if (error instanceof Error) return error.message;
   return 'An unexpected error occurred.';
 }

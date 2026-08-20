@@ -44,7 +44,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const activeRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastFetchKey = useRef('');
-  const [palette, setPalette] = useState(['#17121f', '#101827', '#0b1118']);
+  const [palette, setPalette] = useState(['var(--color-background-tertiary)', 'var(--color-background-secondary)', 'var(--color-background)']);
   const [imageTheme, setImageTheme] = useState(true);
 
   useEffect(() => {
@@ -155,7 +155,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const hasPlain = !!lyricsData?.plainLyrics;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden relative select-none" style={{ background: imageTheme ? `linear-gradient(135deg, ${palette[0]} 0%, #090b10 58%, ${palette[1] || palette[0]} 100%)` : '#090b10' }}>
+    <div className="h-full flex flex-col overflow-hidden relative select-none" style={{ background: imageTheme ? `linear-gradient(135deg, ${palette[0]} 0%, var(--color-background) 58%, ${palette[1] || palette[0]} 100%)` : 'var(--color-background)' }}>
       {/* Ambient bg */}
       <div className={`ambient-art absolute inset-0 opacity-[0.18] pointer-events-none z-0 ${imageTheme ? '' : 'hidden'}`}>
         {track.thumbnailUrl && (
@@ -168,24 +168,24 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       </div>
 
       {/* Header */}
-      <div className="relative z-10 flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+      <div className="relative z-10 flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <Music2 className="w-4 h-4 text-[#00F2FE]" />
-          <span className="text-sm font-bold text-white tracking-tight">Lyrics</span>
+          <Music2 className="w-4 h-4 text-accent" />
+          <span className="text-sm font-bold text-text tracking-tight">Lyrics</span>
           {lyricsData?.artistName && (
-            <span className="text-xs text-white/30 truncate max-w-[120px]">— {lyricsData.artistName}</span>
+            <span className="text-xs text-text-disabled truncate max-w-[120px]">— {lyricsData.artistName}</span>
           )}
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setImageTheme((enabled) => !enabled)}
-            className={`p-1.5 rounded-full transition-all ${imageTheme ? 'text-[#00F2FE] bg-white/5' : 'text-white/30 hover:text-white hover:bg-white/5'}`}
+            className={`p-1.5 rounded-full transition-all ${imageTheme ? 'text-accent bg-surface' : 'text-text-disabled hover:text-text hover:bg-surface'}`}
             title={imageTheme ? 'Use normal lyrics theme' : 'Use song image theme'}
             aria-label="Toggle lyrics background theme"
           >
             <ImageIcon className="w-4 h-4" />
           </button>
-          <button onClick={onClose} className="p-1.5 rounded-full text-white/30 hover:text-white hover:bg-white/5 transition-all" aria-label="Close lyrics">
+          <button onClick={onClose} className="p-1.5 rounded-full text-text-disabled hover:text-text hover:bg-surface transition-all" aria-label="Close lyrics">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -207,8 +207,8 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
               />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white/50">{track.title}</p>
-              <p className="text-xs text-white/25 mt-1">No lyrics found</p>
+              <p className="text-sm font-semibold text-text-muted">{track.title}</p>
+              <p className="text-xs text-text-disabled mt-1">No lyrics found</p>
             </div>
           </div>
         )}
@@ -225,16 +225,16 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
                   ref={isActive ? activeRef : undefined}
                   onClick={() => onSeek?.(line.time)}
                   className={`group px-3 py-2 rounded-xl cursor-pointer transition-all duration-300 ease-out origin-left border border-transparent break-words ${
-                    isActive ? 'bg-white/5 border-white/5 shadow-inner' : 'hover:bg-white/5'
+                    isActive ? 'bg-surface border-border-subtle shadow-inner' : 'hover:bg-surface'
                   }`}
                 >
                   <p
                     className={`text-base sm:text-lg font-bold leading-snug tracking-tight transition-all duration-300 ease-out break-words ${
                       isActive
-                        ? 'text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.45)]'
+                        ? 'text-text drop-shadow-text'
                         : isPast
-                        ? 'text-white/20 group-hover:text-white/50'
-                        : 'text-white/35 group-hover:text-white/70'
+                        ? 'text-text-disabled group-hover:text-text-muted'
+                        : 'text-text-muted group-hover:text-text-secondary'
                     }`}
                   >
                     {line.text}
@@ -249,15 +249,15 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
         {!loading && !hasSynced && hasPlain && (
           <div className="pb-8 pt-2 space-y-3">
             <div className="flex items-center gap-2 mb-5">
-              <div className="h-px flex-1 bg-white/5" />
-              <span className="text-[10px] text-white/20 uppercase tracking-widest font-semibold">Plain Lyrics</span>
-              <div className="h-px flex-1 bg-white/5" />
+              <div className="h-px flex-1 bg-surface" />
+              <span className="text-[10px] text-text-disabled uppercase tracking-widest font-semibold">Plain Lyrics</span>
+              <div className="h-px flex-1 bg-surface" />
             </div>
             {lyricsData!.plainLyrics!.split('\n').map((line, i) => (
               <p
                 key={i}
                 className={`text-base font-semibold leading-relaxed transition-colors ${
-                  line.trim() === '' ? 'my-2' : 'text-white/60 hover:text-white cursor-default'
+                  line.trim() === '' ? 'my-2' : 'text-text-secondary hover:text-text cursor-default'
                 }`}
               >
                 {line.trim() === '' ? '\u00A0' : line}
@@ -268,7 +268,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       </div>
 
       {/* Now playing footer */}
-      <div className="relative z-10 border-t border-white/10 px-5 py-3 shrink-0 flex items-center gap-3 bg-black/30">
+      <div className="relative z-10 border-t border-border px-5 py-3 shrink-0 flex items-center gap-3 bg-overlay/30">
         <div className="w-8 h-8 rounded-md overflow-hidden shrink-0">
           <img
             src={getThumbnailUrl(track.videoId, track.title)}
@@ -277,12 +277,12 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
           />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-white/70 truncate">{track.title}</p>
-          <p className="text-[10px] text-white/30 truncate">{track.artist}</p>
+          <p className="text-xs font-semibold text-text-secondary truncate">{track.title}</p>
+          <p className="text-[10px] text-text-disabled truncate">{track.artist}</p>
         </div>
         <div className="flex items-end gap-[2px] h-3 shrink-0">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="w-[2px] bg-[#00F2FE] rounded-full animate-music-bar" style={{ animationDelay: `${i * 0.15}s` }} />
+            <div key={i} className="w-[2px] bg-accent rounded-full animate-music-bar" style={{ animationDelay: `${i * 0.15}s` }} />
           ))}
         </div>
       </div>

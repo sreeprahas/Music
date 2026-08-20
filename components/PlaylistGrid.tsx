@@ -71,8 +71,8 @@ export function PlaylistGrid({
         {pinnedPlaylists.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <Pin className="w-4 h-4 text-[#00F2FE] fill-[#00F2FE]" />
-              <h2 className="text-xl font-bold text-white tracking-tight">Pinned Playlists</h2>
+              <Pin className="w-4 h-4 text-accent fill-accent" />
+              <h2 className="text-xl font-bold text-text tracking-tight">Pinned Playlists</h2>
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
               {pinnedPlaylists.map((pl) => (
@@ -96,7 +96,7 @@ export function PlaylistGrid({
         {/* Main Library Grid */}
         {unpinnedPlaylists.length > 0 && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6 tracking-tight">
+            <h2 className="text-3xl font-bold text-text mb-6 tracking-tight">
               {pinnedPlaylists.length > 0 ? 'All Playlists' : 'From your library'}
             </h2>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
@@ -160,7 +160,7 @@ function PlaylistCard({
       onContextMenu={onContextMenu}
       className="group text-left cursor-pointer relative flex w-[180px] min-w-[180px] flex-col rounded-xl bg-transparent p-0"
     >
-      <div className="h-[180px] w-[180px] rounded-[10px] overflow-hidden bg-white/5 mb-4 relative shadow-lg border border-white/5 transition-all duration-300 group-hover:bg-[#00F2FE]/15 group-hover:shadow-[0_0_0_1px_rgba(255,255,255,0.32),0_0_18px_rgba(0,242,254,0.28),0_12px_36px_rgba(110,72,180,0.3)]">
+      <div className="h-[180px] w-[180px] rounded-[10px] overflow-hidden bg-surface mb-4 relative shadow-lg border border-border-subtle transition-all duration-300 group-hover:bg-accent/15 group-hover:shadow-accent-card-strong">
         <PlaylistArtwork playlist={playlist} />
 
         {/* Restrained cover tint/depth overlay on hover. */}
@@ -168,19 +168,19 @@ function PlaylistCard({
 
         {/* YouTube Music-style corner play button */}
         <button type="button" onClick={(event) => { event.stopPropagation(); setIsPlayPressed(true); window.setTimeout(() => setIsPlayPressed(false), 140); onPlay(); }} aria-label={`Play ${playlist.title}`} className={`absolute bottom-3 right-3 z-20 opacity-0 group-hover:opacity-100 transition-[opacity,transform] duration-200 ${isPlayPressed ? 'scale-[0.9]' : 'scale-100'}`}>
-          <div className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-xl hover:bg-[#00F2FE] hover:shadow-[0_0_12px_rgba(0,242,254,0.6)] transition-all duration-200">
-            <Play className="w-5 h-5 fill-black text-black ml-0.5" />
+          <div className="w-11 h-11 rounded-full bg-text text-background flex items-center justify-center shadow-xl hover:bg-accent hover:shadow-accent-small transition-all duration-200">
+            <Play className="w-5 h-5 fill-background text-background ml-0.5" />
           </div>
         </button>
       </div>
 
       <div className="flex items-center gap-1.5 min-w-0 px-1">
-        <p className="text-base font-semibold text-white truncate group-hover:text-[#00F2FE] transition-colors">
+        <p className="text-base font-semibold text-text truncate group-hover:text-accent transition-colors">
           {playlist.title}
         </p>
       </div>
       {playlist.trackCount > 0 && (
-        <p className="text-sm text-white/50 mt-1 px-1">Sree Prahas · {playlist.trackCount} tracks</p>
+        <p className="text-xs text-text-muted mt-1 px-1">{playlist.trackCount} {playlist.trackCount === 1 ? 'track' : 'tracks'}</p>
       )}
     </div>
   );

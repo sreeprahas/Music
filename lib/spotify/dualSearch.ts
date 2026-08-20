@@ -1,12 +1,12 @@
 /**
- * Dual search engine — runs Spotify (noauth) and YTMusic (yt-dlp) searches in
+ * Dual search engine — runs Spotify and YouTube Music GraphQL searches in
  * parallel, deduplicates, and ranks results.
  *
  * Modes:
  *   - 'auto':    both sources in parallel, Spotify results first, then unique
  *               YTMusic results, ranked by relevance.
- *   - 'spotify': Spotify noauth search only.
- *   - 'ytmusic': YTMusic (yt-dlp) search only.
+ *   - 'spotify': Spotify GraphQL search only.
+ *   - 'ytmusic': YouTube Music GraphQL search only.
  *
  * Deduplication: track titles and artist strings are normalized (lowercased,
  * trimmed, punctuation/spaces collapsed) and matched. When a Spotify and a
@@ -16,9 +16,9 @@
  * playback can skip the YouTube resolution step.
  */
 
-import { searchTracksNoauth } from './noauthApi';
+import { searchTracksGraphQl } from './graphqlApi';
 import { normalizeTrack } from './normalize';
-import { searchYouTube } from '../ytdlp/resolver';
+import { searchYouTubeMusic } from '../youtube/search';
 import { getThumbnailUrl } from '../ytmusicFormat';
 import type { Track } from '../../types';
 
@@ -37,10 +37,10 @@ function trackKey(title: string, artist: string): string {
   return `${normalizeKey(title)}::${normalizeKey(firstArtist)}`;
 }
 
-/** Run a Spotify noauth search and normalize to Track[]. */
+/** Run a Spotify GraphQL search and normalize to Track[]. */
 async function spotifySearch(query: string, limit: number): Promise<Track[]> {
   try {
-    const result = await searchTracksNoauth(query, limit);
+    const result = await searchTracksGraphQl(query, limit);
     return result.items.map((track, i) => normalizeTrack(track, i));
   } catch (err) {
     console.warn('[dualSearch] Spotify search failed:', err instanceof Error ? err.message : err);
@@ -48,10 +48,10 @@ async function spotifySearch(query: string, limit: number): Promise<Track[]> {
   }
 }
 
-/** Run a YTMusic (yt-dlp) search and normalize to Track[]. */
+/** Run a YouTube Music GraphQL search and normalize to Track[]. */
 async function ytmusicSearch(query: string, limit: number): Promise<Track[]> {
   try {
-    const candidates = await searchYouTube(query, limit);
+    const candidates = await searchYouTubeMusic(query, limit);
     return candidates.map((c, i) => ({
       videoId: c.videoId,
       title: c.title,

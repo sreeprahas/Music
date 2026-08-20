@@ -1,7 +1,7 @@
 /**
- * Strongly-typed Spotify API data models.
+ * Strongly-typed Spotify GraphQL data models.
  *
- * These mirror the Spotify Web API response shapes for the objects this app
+ * These mirror the normalized Spotify GraphQL response shapes for the objects this app
  * actually uses. They are intentionally minimal — we only model fields we read.
  *
  * Normalization into the app's internal `Track`/`Playlist` types happens in
@@ -28,6 +28,9 @@ export interface SpotifyArtist {
   id: string;
   name: string;
   uri: string;
+  images?: SpotifyImage[];
+  genres?: string[];
+  popularity?: number;
 }
 
 export interface SpotifyAlbum {
@@ -50,6 +53,7 @@ export interface SpotifyTrack {
   album?: SpotifyAlbum;
   preview_url?: string | null;
   external_ids?: { isrc?: string };
+  popularity?: number;
 }
 
 /** A playlist track entry wraps a track (or episode) with metadata. */
@@ -66,11 +70,11 @@ export interface SpotifyPlaylist {
   description?: string;
   owner?: { id: string; display_name: string | null; uri: string };
   images?: SpotifyImage[];
-  tracks?: { href: string; total: number };
   snapshot_id?: string;
   collaborative?: boolean;
   public?: boolean | null;
   uri: string;
+  tracks?: { href: string; total: number; next?: string | null };
 }
 
 /** Generic Spotify paging wrapper. */
@@ -84,8 +88,8 @@ export interface SpotifyPaging<T> {
   previous: string | null;
 }
 
-/** Spotify Web API error response body. */
-export interface SpotifyApiErrorBody {
+/** Normalized Spotify GraphQL error response body. */
+export interface SpotifyGraphQlErrorBody {
   error: {
     status: number;
     message: string;

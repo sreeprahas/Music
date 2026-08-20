@@ -26,6 +26,7 @@ interface Props {
   onOpenSleepTimer: () => void;
   onDownloadTrack?: (track: Track) => void;
   onDeleteTrack?: (track: Track) => void;
+  onSetMatchOverride?: (track: Track) => void;
   isDownloading?: boolean;
   onClose: () => void;
   anchorRef?: React.RefObject<HTMLElement | null>;
@@ -46,6 +47,7 @@ export function SongContextMenu({
   onOpenSleepTimer,
   onDownloadTrack,
   onDeleteTrack,
+  onSetMatchOverride,
   isDownloading = false,
   onClose,
   anchorRef,
@@ -247,24 +249,30 @@ export function SongContextMenu({
       aria-label={`Actions for ${track.title}`}
       onMouseEnter={cancelMenuClose}
       onMouseLeave={scheduleMenuClose}
-      className={`absolute z-[100] w-[280px] overflow-visible rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl shadow-black/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
+      className={`absolute z-[100] w-[280px] overflow-visible rounded-xl border border-border bg-surface p-1.5 shadow-2xl shadow-shadow/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
       style={{ left: left - boundaryLeft, top: menuTop - boundaryTop }}
     >
       {/* Download / Delete Download */}
       {!isDownloading && (
         track.downloaded ? (
           onDeleteTrack && (
-            <button onClick={handleDeleteClick} className={`${menuAction} hover:text-red-400`}>
-              <Trash2 className="h-5 w-5 text-red-400" /> Delete download
+            <button onClick={handleDeleteClick} className={`${menuAction} hover:text-error`}>
+              <Trash2 className="h-5 w-5 text-error" /> Delete download
             </button>
           )
         ) : (
           onDownloadTrack && (
             <button onClick={handleDownloadClick} className={menuAction}>
-              <Download className="h-5 w-5 text-[#00F2FE]" /> Download song
+              <Download className="h-5 w-5 text-accent" /> Download song
             </button>
           )
         )
+      )}
+
+      {onSetMatchOverride && track.spotifyId && (
+        <button onClick={() => run(() => onSetMatchOverride(track))} className={menuAction}>
+          Set YouTube match
+        </button>
       )}
 
       <div
@@ -276,7 +284,7 @@ export function SongContextMenu({
           onClick={() => toggleMenu('add')}
           className={menuAction}
         >
-          <CirclePlus className="h-5 w-5" /> Add to playlist <span className="ml-auto text-white/60">›</span>
+          <CirclePlus className="h-5 w-5" /> Add to playlist <span className="ml-auto text-text-secondary">›</span>
         </button>
         {openSubmenu === 'add' && (
           <div
@@ -310,39 +318,39 @@ export function SongContextMenu({
       </button>
 
       <div
-        className="relative group border-t border-white/10 pt-1"
+        className="relative group border-t border-border pt-1"
         onMouseEnter={() => openMenu('sleep')}
         onMouseLeave={() => scheduleCloseMenu('sleep')}
       >
         <button onClick={() => toggleMenu('sleep')} className={menuAction}>
-          <Timer className="h-5 w-5" /> Sleep timer <span className="ml-auto text-white/60">›</span>
+          <Timer className="h-5 w-5" /> Sleep timer <span className="ml-auto text-text-secondary">›</span>
         </button>
         {openSubmenu === 'sleep' && (
           <div
             ref={submenuRef}
             onMouseEnter={() => openMenu('sleep')}
             onMouseLeave={() => scheduleCloseMenu('sleep')}
-            className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-white/[0.08] bg-[#1e1e1e] p-1.5 shadow-2xl z-50 ${closingSubmenu === 'sleep' ? 'animate-dropdown-out' : 'animate-dropdown-in'}`}
+            className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-border bg-surface p-1.5 shadow-2xl z-50 ${closingSubmenu === 'sleep' ? 'animate-dropdown-out' : 'animate-dropdown-in'}`}
             style={{ transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}
           >
             {SLEEP_TIMER_PRESETS.map((preset) => (
               <button
                 key={preset.minutes}
                 onClick={() => run(() => onSetSleepTimer(preset.minutes))}
-                className="w-full rounded-lg px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"
+                className="w-full rounded-lg px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
               >
                 {preset.label}
               </button>
             ))}
             <button
               onClick={() => run(onOpenSleepTimer)}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
             >
               End of track
             </button>
             <button
               onClick={() => run(onOpenSleepTimer)}
-              className="w-full rounded-lg border-t border-white/[0.08] px-3 py-2 text-left text-sm text-white/75 hover:bg-white/[0.1] hover:text-white transition-colors duration-150"
+              className="w-full rounded-lg border-t border-border px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
             >
               Custom timer…
             </button>

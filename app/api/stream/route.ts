@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getStreamUrl, isValidVideoId } from '@/lib/ytdlp/stream';
+import { resolvePlayback } from '@/lib/youtube/playback';
 import { toUiMessage } from '@/lib/spotify/errors';
 
 export const dynamic = 'force-dynamic';
@@ -13,18 +13,17 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const videoId = searchParams.get('videoId') || searchParams.get('v');
 
-    if (!videoId || !isValidVideoId(videoId)) {
+    if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
       return NextResponse.json({ error: 'Missing or invalid videoId' }, { status: 400 });
     }
 
-    // Delegate to the consolidated yt-dlp stream-resolution module.
-    const { streamUrl, source } = await getStreamUrl(videoId);
+    const { streamUrl, mimeType, expiresAt } = await resolvePlayback(videoId);
 
-    return NextResponse.json({ videoId, streamUrl, source });
+    return NextResponse.json({ videoId, streamUrl, mimeType, expiresAt, source: 'graphql' });
   } catch (error) {
-    console.error('[yt-dlp stream error]:', error);
+    console.error('[GraphQL stream error]:', error);
     return NextResponse.json(
-      { error: 'Failed to extract stream via yt-dlp', message: toUiMessage(error) },
+      { error: 'Failed to resolve a GraphQL stream', message: toUiMessage(error) },
       { status: 500 },
     );
   }

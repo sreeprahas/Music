@@ -1,6 +1,6 @@
-/** Spotify search — search tracks anonymously via the noauth guest token. */
+/** Spotify search — search tracks through the configured GraphQL contract. */
 import { NextResponse } from 'next/server';
-import { searchTracksNoauth } from '@/lib/spotify/noauthApi';
+import { searchTracksGraphQl } from '@/lib/spotify/graphqlApi';
 import { normalizeTrack } from '@/lib/spotify/normalize';
 import { toUiMessage } from '@/lib/spotify/errors';
 
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   if (!q.trim()) return NextResponse.json({ tracks: [] });
 
   try {
-    const result = await searchTracksNoauth(q, limit);
+    const result = await searchTracksGraphQl(q, limit);
     const tracks = result.items.map((track, i) => normalizeTrack(track, i));
     return NextResponse.json({ tracks, total: result.total });
   } catch (err) {

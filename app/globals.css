@@ -4,7 +4,7 @@
 
 @layer components {
   .menu-action {
-    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-white/75 transition-colors duration-150 hover:bg-white/[0.1] hover:text-white;
+    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-text-secondary transition-colors duration-150 hover:bg-surface-hover hover:text-text;
   }
 }
 
@@ -49,9 +49,9 @@ button:active {
 }
 
 .music-player button:not(.playerbar-primary):hover {
-  color: #00f2fe;
-  background-color: rgba(0, 242, 254, 0.1);
-  box-shadow: 0 0 14px rgba(0, 242, 254, 0.16), 0 10px 26px rgba(110, 72, 180, 0.18);
+  color: var(--music-accent);
+  background-color: color-mix(in srgb, var(--music-accent) 10%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-accent) 16%, transparent), 0 10px 26px rgb(var(--color-shadow-rgb) / 18%);
 }
 
 .music-player button:not(.playerbar-primary):active {
@@ -65,60 +65,157 @@ html,
 body {
   height: 100%;
   width: 100%;
-  background: #000000;
+  background: var(--music-bg);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: #f0f0f0;
+  color: var(--music-text);
 }
 
-/* Shared Music app chrome: soft depth, restrained glass, and the cyan accent. */
+/* Central semantic theme tokens. App chrome intentionally uses opaque surfaces. */
+:root,
+[data-theme='cyan'] {
+  --color-background: #08090b;
+  --color-background-rgb: 8 9 11;
+  --color-background-secondary: #0d0f13;
+  --color-background-secondary-rgb: 13 15 19;
+  --color-background-tertiary: #15171c;
+  --color-background-tertiary-rgb: 21 23 28;
+  --color-surface: #1d2026;
+  --color-surface-rgb: 29 32 38;
+  --color-surface-elevated: #252a32;
+  --color-surface-elevated-rgb: 37 42 50;
+  --color-surface-hover: #2b313a;
+  --color-surface-hover-rgb: 43 49 58;
+  --color-surface-active: #303844;
+  --color-surface-active-rgb: 48 56 68;
+  --color-text: #f4f7fb;
+  --color-text-rgb: 244 247 251;
+  --color-text-secondary: #c3cad3;
+  --color-text-secondary-rgb: 195 202 211;
+  --color-text-muted: #9ca6b3;
+  --color-text-muted-rgb: 156 166 179;
+  --color-text-disabled: #6c7480;
+  --color-text-disabled-rgb: 108 116 128;
+  --color-border-subtle: #272c34;
+  --color-border-subtle-rgb: 39 44 52;
+  --color-border: #343a44;
+  --color-border-rgb: 52 58 68;
+  --color-border-strong: #4a5360;
+  --color-border-strong-rgb: 74 83 96;
+  --color-accent: #00f2fe;
+  --color-accent-rgb: 0 242 254;
+  --color-accent-hover: #00c7d3;
+  --color-accent-hover-rgb: 0 199 211;
+  --color-accent-active: #00a5b0;
+  --color-accent-active-rgb: 0 165 176;
+  --color-success: #42e6a4;
+  --color-success-rgb: 66 230 164;
+  --color-warning: #ffbf69;
+  --color-warning-rgb: 255 191 105;
+  --color-error: #ff6b7a;
+  --color-error-rgb: 255 107 122;
+  --color-info: #8ca7ff;
+  --color-info-rgb: 140 167 255;
+  --color-overlay: #000000;
+  --color-overlay-rgb: 0 0 0;
+  --color-shadow: #000000;
+  --color-shadow-rgb: 0 0 0;
+  --color-player: #101319;
+  --color-player-rgb: 16 19 25;
+  --color-header: #0d0f13;
+  --color-header-rgb: 13 15 19;
+  --color-sidebar: #15171c;
+  --color-sidebar-rgb: 21 23 28;
+}
+[data-theme='purple'] { --color-accent: #b084ff; --color-accent-rgb: 176 132 255; --color-accent-hover: #8f5ff0; --color-accent-hover-rgb: 143 95 240; --color-accent-active: #7045c9; --color-accent-active-rgb: 112 69 201; --color-border: #403651; --color-border-rgb: 64 54 81; }
+[data-theme='green'] { --color-accent: #42e6a4; --color-accent-rgb: 66 230 164; --color-accent-hover: #20ba7e; --color-accent-hover-rgb: 32 186 126; --color-accent-active: #168a5c; --color-accent-active-rgb: 22 138 92; --color-border: #2f4b40; --color-border-rgb: 47 75 64; }
+[data-theme='amber'] { --color-accent: #ffbf69; --color-accent-rgb: 255 191 105; --color-accent-hover: #e59a3f; --color-accent-hover-rgb: 229 154 63; --color-accent-active: #b87324; --color-accent-active-rgb: 184 115 36; --color-border: #514332; --color-border-rgb: 81 67 50; }
+[data-theme='rose'] { --color-accent: #ff7aa8; --color-accent-rgb: 255 122 168; --color-accent-hover: #e65386; --color-accent-hover-rgb: 230 83 134; --color-accent-active: #b83262; --color-accent-active-rgb: 184 50 98; --color-border: #533444; --color-border-rgb: 83 52 68; }
+
+/* Backward-compatible aliases for the existing chrome selectors. */
+:root,
+[data-theme] {
+  --music-bg: var(--color-background);
+  --music-header: var(--color-header);
+  --music-sidebar: var(--color-sidebar);
+  --music-surface: var(--color-surface);
+  --music-surface-raised: var(--color-surface-elevated);
+  --music-border: var(--color-border);
+  --music-text: var(--color-text);
+  --music-muted: var(--color-text-muted);
+  --music-accent: var(--color-accent);
+  --music-accent-strong: var(--color-accent-hover);
+  --music-player: var(--color-player);
+}
+
+.theme-surface { background: var(--music-surface); color: var(--music-text); }
+.theme-panel { background: var(--music-bg); color: var(--music-text); }
+.theme-text { color: var(--music-text); }
+.theme-muted { color: var(--music-muted); }
+.theme-accent { color: var(--music-accent); }
+.theme-swatch[data-theme-preview='cyan'] { background: #00f2fe; }
+.theme-swatch[data-theme-preview='purple'] { background: #b084ff; }
+.theme-swatch[data-theme-preview='green'] { background: #42e6a4; }
+.theme-swatch[data-theme-preview='amber'] { background: #ffbf69; }
+.theme-swatch[data-theme-preview='rose'] { background: #ff7aa8; }
+
+/* The header may tint the original mark; native app branding keeps the
+   original asset unchanged. */
+.music-logo-mark {
+  background: var(--color-accent);
+  -webkit-mask-image: url('/music-icon.png');
+  -webkit-mask-mode: luminance;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: cover;
+  mask-image: url('/music-icon.png');
+  mask-mode: luminance;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: cover;
+}
+
+/* Shared Music app chrome. */
 .music-shell {
-  background:
-    radial-gradient(circle at 78% -12%, rgba(0, 242, 254, 0.12), transparent 34%),
-    radial-gradient(circle at 16% 105%, rgba(255, 45, 85, 0.07), transparent 30%),
-    #08090b;
+  background: var(--music-bg);
 }
 
 .music-header {
-  background: rgba(10, 11, 14, 0.86) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  background: var(--music-header) !important;
+  border-color: var(--music-border) !important;
+  box-shadow: 0 10px 30px rgb(var(--color-shadow-rgb) / 16%);
 }
 
 .music-sidebar {
-  background: linear-gradient(180deg, rgba(21, 23, 28, 0.96), rgba(11, 12, 16, 0.98)) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--music-sidebar) !important;
+  border-color: var(--music-border) !important;
 }
 
 .music-content {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.018), transparent 38%);
+  background: var(--music-bg);
 }
 
 .music-player {
-  background: rgba(10, 11, 14, 0.94) !important;
-  border-top-color: rgba(0, 242, 254, 0.28) !important;
-  box-shadow: 0 -16px 35px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  background: var(--music-player) !important;
+  border-top-color: var(--music-border) !important;
+  box-shadow: 0 -16px 35px rgb(var(--color-shadow-rgb) / 28%);
 }
 
 .music-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025));
-  border-color: rgba(255, 255, 255, 0.09);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  background: var(--music-surface);
+  border-color: var(--music-border);
+  box-shadow: 0 12px 28px rgb(var(--color-shadow-rgb) / 12%);
 }
 
 .music-card:hover {
-  border-color: rgba(0, 242, 254, 0.32);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24), 0 0 24px rgba(0, 242, 254, 0.08);
+  border-color: var(--music-accent);
+  box-shadow: 0 18px 38px rgb(var(--color-shadow-rgb) / 24%), 0 0 24px color-mix(in srgb, var(--color-accent) 8%, transparent);
   transform: translateY(-2px);
 }
 
 ::selection {
-  background: rgba(0, 242, 254, 0.24);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--music-accent) 24%, transparent);
+  color: var(--music-text);
 }
 
 /* Vertical scrollbars appear only while their scrollable division is hovered. */
@@ -137,7 +234,7 @@ body {
 }
 
 *:hover::-webkit-scrollbar-track {
-  background: #0b0b0b;
+  background: var(--color-background-secondary);
 }
 *::-webkit-scrollbar-thumb {
   background: transparent;
@@ -147,10 +244,10 @@ body {
   transition: background 0.2s ease;
 }
 *:hover::-webkit-scrollbar-thumb {
-  background-color: #4a4a4a;
+  background-color: var(--color-text-disabled);
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #707070;
+  background-color: var(--color-text-muted);
 }
 
 /* Firefox scrollbar */
@@ -160,7 +257,7 @@ body {
 }
 
 *:hover {
-  scrollbar-color: #4a4a4a #0b0b0b;
+  scrollbar-color: var(--color-text-disabled) var(--color-background-secondary);
 }
 
 /* Reserve the scrollbar space only where a vertical scrollbar can actually exist. */
@@ -236,6 +333,25 @@ body {
 
 .animate-fadeIn {
   animation: fadeIn 0.18s ease-out both;
+}
+
+@keyframes settingsIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-settings-in {
+  animation: settingsIn 0.24s ease-in both;
+}
+
+@keyframes settingsOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.98); }
+}
+
+.animate-settings-out {
+  animation: settingsOut 0.22s ease-out both;
+  pointer-events: none;
 }
 
 /* Position-sensitive dropdowns must keep their measured transform while
@@ -325,8 +441,8 @@ input[type='range']::-webkit-slider-thumb {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+  background: var(--color-text);
+  box-shadow: 0 0 6px rgb(var(--color-shadow-rgb) / 50%);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;
@@ -343,9 +459,9 @@ input[type='range']::-moz-range-thumb {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--color-text);
   border: none;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 6px rgb(var(--color-shadow-rgb) / 50%);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;
@@ -432,7 +548,7 @@ html:not(.electron-inactive) .playlist-preview-expand {
 .playerbar-control-icons {
   opacity: 1 !important;
   visibility: visible !important;
-  color: #ffffff !important;
+  color: var(--color-text) !important;
 }
 
 .playerbar-control-icons button,

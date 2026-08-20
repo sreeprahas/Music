@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
-import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2 } from 'lucide-react';
+import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2, RefreshCw, Link2 } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
@@ -41,7 +41,7 @@ export function PlaylistViewSkeleton() {
       </div>
       {/* Song rows skeleton */}
       <div className="px-6 flex-1 overflow-hidden">
-        <div className="border-b border-white/5 pb-3 mb-1 flex gap-3 px-3">
+        <div className="border-b border-border-subtle pb-3 mb-1 flex gap-3 px-3">
           <Skeleton className="h-3 w-5" />
           <Skeleton className="h-3 w-32" />
         </div>
@@ -77,6 +77,7 @@ interface Props {
   onDownload: (playlistId: string) => void;
   onDownloadTrack?: (track: Track) => void;
   onDeleteTrack?: (track: Track) => void;
+  onSetMatchOverride?: (track: Track) => void;
   onTrackDeleted?: (videoId: string) => void;
   onTogglePin: (playlistId: string) => void;
   onTracksLoaded?: (playlist: Playlist, tracks: Track[]) => void;
@@ -105,6 +106,7 @@ export function PlaylistView({
   onDownload,
   onDownloadTrack,
   onDeleteTrack,
+  onSetMatchOverride,
   onTrackDeleted,
   onTogglePin,
   onTracksLoaded,
@@ -150,6 +152,9 @@ export function PlaylistView({
   }, [isEditOrder, onEditOrderChange]);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [hasReordered, setHasReordered] = useState(false);
+  const [sourceSyncStatus, setSourceSyncStatus] = useState<Playlist['syncStatus']>(playlist.syncStatus ?? 'idle');
+  const [sourceSyncError, setSourceSyncError] = useState(playlist.syncError ?? '');
+  const [isSyncingSource, setIsSyncingSource] = useState(false);
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragOverBefore, setDragOverBefore] = useState<boolean>(true); // true = insert before, false = insert after
@@ -158,6 +163,69 @@ export function PlaylistView({
   const justDroppedRef = useRef(false);
   // Snapshot of track order when edit mode was entered, to detect no-op reorders
   const originalTrackOrderRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    setSourceSyncStatus(playlist.syncStatus ?? 'idle');
+    setSourceSyncError(playlist.syncError ?? '');
+    if (!playlist.source || !playlist.sourcePlaylistId) return;
+
+    let cancelled = false;
+    fetch(`/api/playlist/sync?playlistId=${encodeURIComponent(playlist.id)}`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        const state = payload?.state;
+        if (!cancelled && state) {
+          setSourceSyncStatus(state.status ?? 'idle');
+          setSourceSyncError(state.error ?? '');
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [playlist.id, playlist.source, playlist.sourcePlaylistId, playlist.syncError, playlist.syncStatus]);
+
+  const handleSyncSource = useCallback(async () => {
+    if (!playlist.source || !playlist.sourcePlaylistId || isSyncingSource) return;
+    setIsSyncingSource(true);
+    setSourceSyncStatus('syncing');
+    setSourceSyncError('');
+    try {
+      const response = await fetch('/api/playlist/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId: playlist.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Sync failed');
+      const state = result.state;
+      setSourceSyncStatus(state?.status ?? 'idle');
+      setSourceSyncError(state?.error ?? '');
+    } catch (syncError) {
+      setSourceSyncStatus('error');
+      setSourceSyncError(syncError instanceof Error ? syncError.message : 'Sync failed');
+    } finally {
+      setIsSyncingSource(false);
+    }
+  }, [isSyncingSource, playlist.id, playlist.source, playlist.sourcePlaylistId]);
+
+  const handleReplaceSource = useCallback(async () => {
+    const sourceUrl = window.prompt('Paste the replacement Spotify or YouTube playlist URL', playlist.sourceUrl || '');
+    if (!sourceUrl?.trim()) return;
+    setSourceSyncStatus('syncing');
+    setSourceSyncError('');
+    try {
+      const response = await fetch('/api/playlist/source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId: playlist.id, sourceUrl: sourceUrl.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Source replacement failed');
+      window.location.reload();
+    } catch (replaceError) {
+      setSourceSyncStatus('error');
+      setSourceSyncError(replaceError instanceof Error ? replaceError.message : 'Source replacement failed');
+    }
+  }, [playlist.id, playlist.sourceUrl]);
 
   const handleDragStart = useCallback((e: React.DragEvent, idx: number, videoId: string) => {
     dragIndexRef.current = idx;
@@ -478,35 +546,35 @@ export function PlaylistView({
     <div ref={playlistViewRef} className="h-full w-full min-w-0 flex flex-col min-h-0 relative overflow-hidden">
       {/* Sticky top mini header that smoothly merges in when scrolled */}
       <div
-        className={`absolute top-0 left-0 right-0 z-20 px-6 py-3 bg-[#0A0A0A]/90 backdrop-blur-md border-b border-white/10 flex items-center justify-between gap-4 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`absolute top-0 left-0 right-0 z-20 px-6 py-3 bg-background-secondary backdrop-blur-md border-b border-border flex items-center justify-between gap-4 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isCollapsed
             ? 'opacity-100 translate-y-0 pointer-events-auto shadow-xl'
             : 'opacity-0 -translate-y-3 pointer-events-none'
         }`}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 border border-white/10">
+          <div className="w-8 h-8 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 border border-border">
             <PlaylistArtwork playlist={playlist} />
           </div>
           <div className="min-w-0 flex items-baseline gap-2.5">
-            <h2 className="font-bold text-white text-base truncate">{playlist.title}</h2>
-            <span className="text-xs text-white/40 shrink-0 font-medium">{playlist.trackCount || tracks.length} tracks</span>
+            <h2 className="font-bold text-text text-base truncate">{playlist.title}</h2>
+            <span className="text-xs text-text-muted shrink-0 font-medium">{playlist.trackCount || tracks.length} tracks</span>
           </div>
         </div>
 
         <div className="relative w-48 sm:w-64 shrink-0">
-          <Search className="w-3.5 h-3.5 text-white/50 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={trackSearchQuery}
             onChange={(e) => setTrackSearchQuery(e.target.value)}
             placeholder="Search tracks..."
-            className="w-full h-8 bg-white/5 border border-transparent rounded-xl pl-9 pr-8 text-xs text-white placeholder-white/40 outline-none focus:outline-none hover:border-[#00F2FE]/30 hover:bg-[#00F2FE]/10 hover:shadow-[0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] focus:border-[#00F2FE]/45 focus:bg-[#00F2FE]/14 focus:shadow-[0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)] caret-[#00F2FE] transition-[background-color,box-shadow] duration-500 ease-out"
+            className="w-full h-8 bg-surface border border-transparent rounded-xl pl-9 pr-8 text-xs text-text placeholder:text-text-muted outline-none focus:outline-none hover:border-accent/30 hover:bg-accent/10 hover:shadow-accent-soft focus:border-accent/45 focus:bg-accent/14 focus:shadow-accent-medium caret-accent transition-[background-color,box-shadow] duration-500 ease-out"
           />
           {trackSearchQuery && (
             <button
               onClick={() => setTrackSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors duration-200"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors duration-200"
             >
               <X className="w-3 h-3" />
             </button>
@@ -516,39 +584,63 @@ export function PlaylistView({
 
       <div ref={trackListRef} className="pb-36 flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
         <div className="px-6 select-none shrink-0 pt-6 pb-4 flex items-center gap-4 overflow-hidden">
-          <div className="w-28 h-28 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 shadow-2xl relative border border-white/10">
+          <div className="w-28 h-28 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 shadow-2xl relative border border-border">
             <PlaylistArtwork playlist={playlist} />
           </div>
 
           <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider block mb-1">
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block mb-1">
                 Playlist
               </span>
-              <h1 className="font-black text-white text-2xl truncate">
+              <h1 className="font-black text-text text-2xl truncate">
                 {playlist.title}
               </h1>
               {playlist.description && (
-                <p className="text-xs text-white/40 mt-1 line-clamp-1">{playlist.description}</p>
+                <p className="text-xs text-text-muted mt-1 line-clamp-1">{playlist.description}</p>
               )}
               <div className="flex items-center gap-3 mt-2">
-                <span className="flex items-center gap-1.5 text-xs text-white/50">{playlist.trackCount} tracks</span>
+                <span className="flex items-center gap-1.5 text-xs text-text-muted">{playlist.trackCount} tracks</span>
                 {!loading && (
-                  <span className="text-xs text-white/40">
+                  <span className="text-xs text-text-muted">
                     {downloadedCount === 0
                       ? 'Not downloaded'
                       : `${downloadedCount} / ${playlist.trackCount} downloaded`}
                   </span>
                 )}
+                {playlist.source && playlist.source !== 'local' && playlist.sourcePlaylistId && (
+                  <span className="inline-flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-muted">
+                    <span className="rounded-full border border-border bg-surface px-2 py-0.5">{playlist.source}</span>
+                    <button
+                      type="button"
+                      onClick={handleSyncSource}
+                      disabled={isSyncingSource}
+                      className="inline-flex items-center gap-1 text-text-secondary hover:text-accent disabled:opacity-50 transition-colors"
+                      title={sourceSyncError || `Sync ${playlist.source} playlist`}
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isSyncingSource ? 'animate-spin' : ''}`} />
+                      {sourceSyncStatus === 'readonly' ? 'Read-only' : sourceSyncStatus === 'conflict' ? 'Conflict' : sourceSyncStatus === 'error' ? 'Retry' : sourceSyncStatus === 'syncing' ? 'Syncing' : 'Sync'}
+                    </button>
+                    <button type="button" onClick={handleReplaceSource} className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors" title="Replace linked playlist source">
+                      <Link2 className="w-3 h-3" /> Change source
+                    </button>
+                  </span>
+                )}
               </div>
+
+              {sourceSyncError && playlist.source && playlist.source !== 'local' && (
+                <p className="text-[10px] text-warning/80 mt-1 truncate" title={sourceSyncError}>
+                  {sourceSyncError}
+                </p>
+              )}
 
               <div className="flex items-center gap-2 mt-3 flex-wrap overflow-hidden pb-1">
                 {downloadedCount > 0 && (
                   <button
                     onClick={() => onPlay(downloadedTracks[0], downloadedTracks)}
-                    className="flex shrink items-center justify-center gap-1.5 px-4 sm:px-6 py-2 bg-[#00F2FE] hover:bg-[#00C7D3] rounded-2xl text-black text-xs sm:text-sm font-semibold transition-all duration-300 ease-out shadow-lg hover:shadow-[0_0_22px_rgba(0,242,254,0.28)]"
+                    className="flex shrink items-center justify-center gap-1.5 px-4 sm:px-6 py-2 bg-accent hover:bg-accent-hover rounded-2xl text-background text-xs sm:text-sm font-semibold transition-all duration-300 ease-out shadow-lg hover:shadow-accent-medium"
                   >
-                    <Play className="w-3.5 h-3.5 fill-black" />
+                    <Play className="w-3.5 h-3.5 fill-background" />
                     Play
                   </button>
                 )}
@@ -559,9 +651,9 @@ export function PlaylistView({
                       setDownloadingIds((prev) => new Set([...prev, ...unDownloadedIds]));
                       onDownload(playlist.id);
                     }}
-                    className="flex shrink items-center justify-center gap-1.5 px-3.5 sm:px-5 py-2 rounded-2xl border border-white/15 text-white hover:text-[#00F2FE] hover:border-[#00F2FE]/40 text-xs sm:text-sm font-medium transition-all duration-300 ease-out bg-white/5 hover:bg-[#1A1A1A]"
+                    className="flex shrink items-center justify-center gap-1.5 px-3.5 sm:px-5 py-2 rounded-2xl border border-border-strong text-text hover:text-accent hover:border-accent/40 text-xs sm:text-sm font-medium transition-all duration-300 ease-out bg-surface hover:bg-surface-hover"
                   >
-                    <Download className="w-3.5 h-3.5 text-[#00F2FE]" />
+                    <Download className="w-3.5 h-3.5 text-accent" />
                     {downloadedCount === 0 ? 'Download All' : `Download Remaining (${tracks.length - downloadedCount})`}
                   </button>
                 )}
@@ -571,8 +663,8 @@ export function PlaylistView({
                     onClick={handleToggleEditOrder}
                     className={`flex shrink items-center justify-center gap-1.5 px-4 sm:px-5 py-2 rounded-2xl border text-xs sm:text-sm font-medium transition-all duration-300 ease-out ${
                       isEditOrder
-                        ? 'border-[#00F2FE]/50 text-[#00F2FE] bg-[#00F2FE]/10 hover:bg-[#00F2FE]/20'
-                        : 'border-white/15 text-white/70 hover:text-white hover:border-white/30 bg-white/5 hover:bg-white/10'
+                        ? 'border-accent/50 text-accent bg-accent/10 hover:bg-accent/20'
+                        : 'border-border-strong text-text-secondary hover:text-text hover:border-border-strong bg-surface hover:bg-surface-hover'
                     } ${isSavingOrder ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {isSavingOrder ? (
@@ -585,18 +677,18 @@ export function PlaylistView({
                   </button>
                 )}
                 <div className="relative flex-1 min-w-[140px] max-w-[220px]">
-                  <Search className="w-3.5 h-3.5 text-white absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-text absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={trackSearchQuery}
                     onChange={(e) => setTrackSearchQuery(e.target.value)}
                     placeholder="Search tracks..."
-                    className="w-full h-8 bg-white/5 border border-transparent rounded-xl pl-9 pr-8 text-xs text-white placeholder-white outline-none focus:outline-none hover:border-[#00F2FE]/30 hover:bg-[#00F2FE]/10 hover:shadow-[0_0_14px_rgba(0,242,254,0.16),0_10px_26px_rgba(110,72,180,0.18)] focus:border-[#00F2FE]/45 focus:bg-[#00F2FE]/14 focus:shadow-[0_0_16px_rgba(0,242,254,0.22),0_10px_26px_rgba(110,72,180,0.22)] caret-[#00F2FE] transition-[background-color,box-shadow] duration-500 ease-out"
+                    className="w-full h-8 bg-surface border border-transparent rounded-xl pl-9 pr-8 text-xs text-text placeholder:text-text-muted outline-none focus:outline-none hover:border-accent/30 hover:bg-accent/10 hover:shadow-accent-soft focus:border-accent/45 focus:bg-accent/14 focus:shadow-accent-medium caret-accent transition-[background-color,box-shadow] duration-500 ease-out"
                   />
                   {trackSearchQuery && (
                     <button
                       onClick={() => setTrackSearchQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white hover:text-[#00F2FE] transition-colors duration-300"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text hover:text-accent transition-colors duration-300"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -609,17 +701,17 @@ export function PlaylistView({
 
         <div className="px-6">
           {!error && tracks.length > 0 && trackSearchQuery && (
-            <div className="mb-4 text-xs text-white/40 font-medium">
+            <div className="mb-4 text-xs text-text-muted font-medium">
               {filteredTracks.length} of {tracks.length} tracks
             </div>
           )}
 
-          {error && <div className="text-center py-16 text-white/40 text-sm">{error}</div>}
+          {error && <div className="text-center py-16 text-text-muted text-sm">{error}</div>}
 
           {!loading && !error && (
             <table className="w-full table-fixed">
               <thead>
-                <tr className={`text-white/30 text-xs font-medium border-b border-white/5 ${
+                <tr className={`text-text-disabled text-xs font-medium border-b border-border-subtle ${
                   isEditOrder ? 'transition-all' : ''
                 }`}>
                   <th className="text-left py-3 px-3 w-10">{isEditOrder ? '' : '#'}</th>
@@ -683,35 +775,35 @@ export function PlaylistView({
                       className={`group transition-all duration-150 rounded-xl ${
                         isEditOrder
                           ? isDraggingThis
-                            ? 'opacity-30 bg-white/5'
-                            : 'cursor-grab active:cursor-grabbing hover:bg-white/[0.06]'
+                            ? 'opacity-30 bg-surface'
+                            : 'cursor-grab active:cursor-grabbing hover:bg-surface-hover'
                           : canPlay
-                            ? 'cursor-pointer hover:bg-white/[0.09]'
+                            ? 'cursor-pointer hover:bg-surface-active'
                             : 'cursor-default opacity-50'
-                      } ${selectedTrackIds.has(track.videoId) ? 'bg-[#00F2FE]/10 ring-1 ring-inset ring-[#00F2FE]/30' : ''} ${isActive && !isEditOrder ? 'bg-white/[0.08]' : ''} ${
-                        showIndicatorBefore ? 'border-t-[2.5px] border-[#00F2FE] rounded-none' :
-                        showIndicatorAfter ? 'border-b-[2.5px] border-[#00F2FE] rounded-none' : ''
+                      } ${selectedTrackIds.has(track.videoId) ? 'bg-accent/10 ring-1 ring-inset ring-accent/30' : ''} ${isActive && !isEditOrder ? 'bg-surface-active' : ''} ${
+                        showIndicatorBefore ? 'border-t-[2.5px] border-accent rounded-none' :
+                        showIndicatorAfter ? 'border-b-[2.5px] border-accent rounded-none' : ''
                       }`}
                     >
                       <td className="py-2.5 px-3 text-center w-10 relative">
                         {isEditOrder ? (
-                          <GripVertical className="w-4 h-4 text-white/30 mx-auto" />
+                          <GripVertical className="w-4 h-4 text-text-disabled mx-auto" />
                         ) : isActive && isPlaying ? (
                           <NowPlayingBars />
                         ) : downloadingIds.has(track.videoId) ? (
                           <DownloadingSpinner />
                         ) : (
                           <>
-                            <span className="text-white/30 text-sm group-hover:opacity-0">{idx + 1}</span>
+                            <span className="text-text-disabled text-sm group-hover:opacity-0">{idx + 1}</span>
                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Play className="w-3.5 h-3.5 fill-white text-white" />
+                              <Play className="w-3.5 h-3.5 fill-text text-text" />
                             </div>
                           </>
                         )}
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden bg-white/5 shrink-0 border border-white/5">
+                          <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 border border-border-subtle">
                             <img
                               src={getThumbnailUrl(track.videoId, track.title)}
                               alt={track.title}
@@ -720,23 +812,23 @@ export function PlaylistView({
                             />
                           </div>
                           <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${isActive ? 'text-[#00F2FE]' : 'text-white'}`}>
+                            <p className={`text-sm font-medium truncate ${isActive ? 'text-accent' : 'text-text'}`}>
                               {track.title}
                             </p>
-                            <p className="text-xs text-white/40 whitespace-normal break-words">{artist}</p>
+                            <p className="text-xs text-text-muted whitespace-normal break-words">{artist}</p>
                           </div>
                         </div>
                       </td>
                       <td className="py-2.5 px-3 max-w-0 overflow-hidden">
-                        <span className="block text-sm text-white/50 whitespace-normal break-words">{artist}</span>
+                        <span className="block text-sm text-text-muted whitespace-normal break-words">{artist}</span>
                       </td>
                       <td className="playlist-date-column py-2.5 px-3 text-right max-w-0 overflow-hidden">
-                        <span className="block text-sm text-white/30 whitespace-nowrap">
+                        <span className="block text-sm text-text-disabled whitespace-nowrap">
                           {track.dateAdded || playlist.importedAt || playlist.createdAt ? formatRelativeDate(track.dateAdded || playlist.importedAt || playlist.createdAt!) : '—'}
                         </span>
                       </td>
                       <td className="playlist-time-column py-2.5 px-3 text-right">
-                        <span className="text-sm text-white/30">
+                        <span className="text-sm text-text-disabled">
                           {track.duration ? formatDuration(track.duration) : '–'}
                         </span>
                       </td>
@@ -755,7 +847,7 @@ export function PlaylistView({
                               contextMenuAnchorRef.current = e.currentTarget;
                               setContextMenu({ track, x: rect.right, y: rect.bottom });
                             }}
-                            className="p-1.5 rounded-lg text-white/40 hover:text-[#00F2FE] hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
+                            className="p-1.5 rounded-lg text-text-muted hover:text-accent hover:bg-surface-hover transition-all opacity-0 group-hover:opacity-100"
                             title="More actions"
                           >
                             <MoreVertical className="w-4 h-4" />
@@ -770,11 +862,11 @@ export function PlaylistView({
           )}
 
           {!loading && !error && visibleRecommendations.length > 0 && !trackSearchQuery && (
-            <section className="mt-8 border-t border-white/10 pt-6 pb-8">
-              <h2 className="mb-4 text-xl font-bold tracking-tight text-white">Suggestions</h2>
+            <section className="mt-8 border-t border-border pt-6 pb-8">
+              <h2 className="mb-4 text-xl font-bold tracking-tight text-text">Suggestions</h2>
               <div className="space-y-1">
                 {visibleRecommendations.map((track) => (
-                  <div key={track.videoId} className="group flex min-h-16 items-center gap-4 rounded-xl px-3 py-2 hover:bg-white/[0.06] transition-colors">
+                  <div key={track.videoId} className="group flex min-h-16 items-center gap-4 rounded-xl px-3 py-2 hover:bg-surface-hover transition-colors">
                     <img
                       src={getThumbnailUrl(track.videoId, track.title)}
                       alt={track.title}
@@ -782,8 +874,8 @@ export function PlaylistView({
                       loading="lazy"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-white">{track.title}</p>
-                      <p className="mt-0.5 truncate text-xs text-white/45">{cleanArtistName(track.artist)}</p>
+                      <p className="truncate text-sm font-medium text-text">{track.title}</p>
+                      <p className="mt-0.5 truncate text-xs text-text-muted">{cleanArtistName(track.artist)}</p>
                     </div>
                     <button
                       type="button"
@@ -793,7 +885,7 @@ export function PlaylistView({
                       }}
                       aria-label={`Add ${track.title} to playlist`}
                       title="Add to playlist"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 transition-all hover:bg-white/10 hover:text-white"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-secondary transition-all hover:bg-surface-hover hover:text-text"
                     >
                       <ListPlus className="h-6 w-6" strokeWidth={2} />
                     </button>
@@ -821,6 +913,7 @@ export function PlaylistView({
           onOpenSleepTimer={onOpenSleepTimer}
           onDownloadTrack={onDownloadTrack ? handleDownloadTrack : undefined}
           onDeleteTrack={onDeleteTrack ? handleDeleteTrack : undefined}
+          onSetMatchOverride={onSetMatchOverride}
           isDownloading={downloadingIds.has(contextMenu.track.videoId)}
           onClose={() => setContextMenu(null)}
         />
@@ -835,7 +928,7 @@ function NowPlayingBars() {
       {['music-bar-random-a', 'music-bar-random-b', 'music-bar-random-c', 'music-bar-random-d'].map((barClass) => (
         <div
           key={barClass}
-          className={`w-[2px] bg-[#00F2FE] rounded-xl ${barClass}`}
+          className={`w-[2px] bg-accent rounded-xl ${barClass}`}
         />
       ))}
     </div>
@@ -847,7 +940,7 @@ function DownloadingSpinner() {
   return (
     <div className="flex items-center justify-center w-full h-full">
       <svg
-        className="w-4 h-4 animate-spin text-[#00F2FE]"
+        className="w-4 h-4 animate-spin text-accent"
         xmlns="http://www.w3.org/2000/svg"
         fill="none"
         viewBox="0 0 24 24"

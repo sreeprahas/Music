@@ -40,7 +40,7 @@ The refactor is built around four ideas:
 
 ## Spotify integration
 
-The target Spotify integration keeps the existing **Spotify WebQL/GraphQL layer** as the primary Spotify data layer rather than replacing it wholesale with the official Spotify Web API.
+The Spotify and YouTube integrations use deployment-supplied **GraphQL query contracts** as their only provider transport. The app does not use official provider REST APIs, token sign-in, or undocumented fallbacks.
 
 Planned capabilities include:
 
@@ -60,7 +60,7 @@ Planned capabilities include:
 
 ### Spotify search
 
-Search requests will use a persistent/warm WebQL client rather than spawning a Python process for every request.
+Search requests use persistent/warm GraphQL clients rather than spawning a Python process for every request.
 
 A normalized query cache will prevent repeated and near-duplicate searches from repeatedly hitting the underlying source.
 
@@ -75,7 +75,7 @@ YouTube Music provides the playable source.
 The intended flow is:
 
 ```text
-Spotify WebQL
+Spotify GraphQL
       ↓
 Spotify track
       ↓
@@ -83,7 +83,7 @@ Spotify → YouTube Music matcher
       ↓
 Cached YouTube video ID
       ↓
-InnerTube playback resolution
+YouTube GraphQL playback resolution
       ↓
 Temporary playable audio URL
       ↓
@@ -100,14 +100,12 @@ Stable YouTube video IDs and matching results are what get cached.
 
 # In-process playback
 
-The current implementation uses `yt-dlp` through a subprocess for downloading. The refactor removes that dependency from the playback/download path.
-
-The target architecture uses an in-process YouTube/YouTube Music InnerTube client.
+Playback and downloads use the in-process YouTube/YouTube Music GraphQL client.
 
 Benefits:
 
 - Lower playback startup overhead
-- No yt-dlp process spawn for every track
+- No external downloader process for every track
 - Shared playback/download resolution
 - Better cache integration
 - Easier reuse of track identity
@@ -143,7 +141,7 @@ Usable local audio?
    ┌───┴───┐
   YES      NO
    ↓        ↓
-Reuse    InnerTube
+Reuse    GraphQL stream resolution
             ↓
         Write locally
 ```
@@ -305,14 +303,12 @@ Local playlist
 The user can:
 
 - View tracks
-- Add tracks
-- Remove tracks
-- Reorder tracks
-- Rename the playlist
-- Change supported metadata
-- Replace the source URL
 - Pull external changes
-- Push local changes
+- Keep local edits in the local workspace
+
+Provider write-back is intentionally read-only until a deployment supplies an
+explicit GraphQL mutation contract. Pending local edits are retained and
+surfaced instead of being reported as successfully synchronized.
 
 ## YouTube-linked playlists
 
@@ -324,7 +320,8 @@ YouTube
 Local playlist
 ```
 
-Local changes are written back to the source playlist, while external changes can be synchronized back into the application.
+External changes can be pulled into the application. Local edits remain local
+when no explicit GraphQL mutation contract is configured.
 
 ---
 
@@ -349,7 +346,7 @@ This is specifically intended to eliminate the existing ~100-track import limita
 
 # Playlist synchronization
 
-Linked playlists use bidirectional synchronization:
+Linked playlists use GraphQL-backed pull synchronization:
 
 ```text
        ┌───────────────┐
@@ -364,7 +361,7 @@ Linked playlists use bidirectional synchronization:
 The synchronization layer should:
 
 - Detect external changes
-- Push local edits
+- Preserve pending local edits when provider mutations are unavailable
 - Preserve ordering
 - Avoid unnecessary full refreshes
 - Use source revision/version information where available
@@ -418,7 +415,7 @@ Load persistent cache
        ↓
 Render home
        ↓
-Refresh WebQL data
+Refresh GraphQL data
        ↓
 Update UI + cache
 ```
@@ -444,13 +441,14 @@ Settings will be organized into relevant categories rather than presented as one
 Potential categories include:
 
 - Appearance
-- Playback
-- Downloads
+- Color Themes
+- Downloads & Cache
 - Library
-- Spotify
-- YouTube
-- Data & Cache
+- Connections
+- My Account
 - Advanced
+
+Playback controls remain in the player bar; Settings does not duplicate them.
 
 Only settings with real functionality should be exposed.
 
@@ -747,18 +745,17 @@ The application should never construct shell commands from user-controlled strin
 The major refactor is planned in this order:
 
 1. Audit current architecture.
-2. Introduce the warm Spotify WebQL client.
+2. Introduce the warm Spotify GraphQL client.
 3. Add metadata caching.
 4. Fix Spotify/YouTube playlist pagination.
-5. Introduce the in-process InnerTube playback layer.
-6. Remove yt-dlp.
-7. Unify audio caching.
-8. Rebuild Spotify → YouTube matching.
-9. Add permanent match/manual-override storage.
-10. Add Spotify playlist synchronization.
-11. Add YouTube playlist synchronization.
-12. Add conflict handling.
-13. Add playlist URL replacement.
+5. Introduce the in-process GraphQL playback layer.
+6. Unify audio caching.
+7. Rebuild Spotify → YouTube matching.
+8. Add permanent match/manual-override storage.
+9. Add Spotify playlist synchronization.
+10. Add YouTube playlist synchronization.
+11. Add conflict handling.
+12. Add playlist URL replacement.
 14. Introduce centralized dynamic theme tokens.
 15. Remove hard-coded application colors.
 16. Add centralized settings storage.
@@ -803,28 +800,14 @@ Theme values, settings, stable track matches, and synchronization state should e
 
 # Current vs. target architecture
 
-### Current
-
-```text
-UI
- │
- ├── Spotify metadata
- │      └── spotdl subprocess
- │
- └── YouTube
-        └── yt-dlp subprocess
-               │
-               └── download/playback
-```
-
-### Target
+### Runtime architecture
 
 ```text
                          MUSIC APP
                              │
               ┌──────────────┴──────────────┐
               │                             │
-       Spotify WebQL                 YouTube/InnerTube
+       Spotify GraphQL                YouTube GraphQL
               │                             │
         Metadata/Library                Playback
               │                             │

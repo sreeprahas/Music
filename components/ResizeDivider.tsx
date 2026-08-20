@@ -34,12 +34,12 @@ export function ResizeDivider({ onDelta }: Props) {
   return (
     <div
       onMouseDown={handleMouseDown}
-      className="w-px shrink-0 relative cursor-col-resize group z-10 bg-[#00F2FE]/35 hover:bg-[#00F2FE]/60 transition-colors duration-300"
+      className="w-px shrink-0 relative cursor-col-resize group z-10 bg-accent/35 hover:bg-accent/60 transition-colors duration-300"
     >
       {/* Fat invisible hit zone so it's easy to grab */}
       <div className="absolute inset-y-0 -left-1 -right-1" />
       {/* Visible line on hover */}
-      <div className="absolute inset-0 group-hover:bg-[#00F2FE] group-hover:shadow-[0_0_12px_rgba(0,242,254,0.8)] transition-all duration-300 rounded-full" />
+      <div className="absolute inset-0 group-hover:bg-accent group-hover:shadow-accent-strong transition-all duration-300 rounded-full" />
     </div>
   );
 }

@@ -1,15 +1,14 @@
 /** Spotify resolve — resolve a Spotify track to a YouTube video ID (with caching). */
 import { NextResponse } from 'next/server';
-import { resolveTrack } from '@/lib/ytdlp/resolver';
-import { getYoutubeMapping, setYoutubeMapping } from '@/lib/db';
-import type { YoutubeMapping } from '@/lib/db';
+import { matchSpotifyTrack } from '@/lib/matching/spotify-youtube';
+import { getYoutubeMapping } from '@/lib/db';
 import { toUiMessage } from '@/lib/spotify/errors';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { title: string; artist: string; duration?: number; spotifyId?: string };
+    const body = await request.json() as { title: string; artist: string; duration?: number; spotifyId?: string; thumbnailUrl?: string };
     if (!body.title || !body.artist) {
       return NextResponse.json({ error: 'Missing title or artist' }, { status: 400 });
     }
@@ -22,26 +21,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Resolve via yt-dlp search + scoring.
-    const videoId = await resolveTrack({ title: body.title, artist: body.artist, duration: body.duration });
-    if (!videoId) {
+    // 2. Resolve through the deterministic GraphQL matcher.
+    const result = await matchSpotifyTrack({ title: body.title, artist: body.artist, duration: body.duration, spotifyId: body.spotifyId, thumbnailUrl: body.thumbnailUrl });
+    if (!result.videoId) {
       return NextResponse.json({ error: 'No matching YouTube video found', videoId: null }, { status: 404 });
     }
-
-    // 3. Cache the mapping for future plays.
-    if (body.spotifyId) {
-      const mapping: YoutubeMapping = {
-        spotifyTrackId: body.spotifyId,
-        youtubeVideoId: videoId,
-        matchedTitle: body.title,
-        matchedArtist: body.artist,
-        duration: body.duration,
-        resolvedAt: Date.now(),
-      };
-      setYoutubeMapping(mapping);
-    }
-
-    return NextResponse.json({ videoId, cached: false });
+    return NextResponse.json({ videoId: result.videoId, cached: false, match: result.record });
   } catch (err) {
     return NextResponse.json({ error: toUiMessage(err) }, { status: 500 });
   }
