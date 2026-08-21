@@ -6,7 +6,7 @@
  *   - mode:  'auto' (default) | 'spotify' | 'ytmusic'
  *   - limit: max results per source (default 20, capped at 50)
  *
- * In 'auto' mode, Spotify and YouTube Music GraphQL searches run in parallel,
+ * In 'auto' mode, Spotify and YouTube Music searches run in parallel,
  * results are deduplicated, and Spotify results take priority. The YTMusic
  * videoId is absorbed onto matching Spotify tracks so playback can skip the
  * YouTube resolution step.

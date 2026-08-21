@@ -2,7 +2,7 @@ import type { Playlist, Track } from '@/types';
 import { getThumbnailUrl } from './ytmusicFormat';
 import { getAllYouTubePlaylistTracks } from './youtube/playlists';
 import { matchSpotifyTrack } from './matching/spotify-youtube';
-import { getPlaylistGraphQl, getPlaylistTracksGraphQl } from './spotify/graphqlApi';
+import { spotify } from './spotify/service';
 import { normalizePlaylist, normalizePlaylistItems } from './spotify/normalize';
 
 export interface PlaylistPreviewTrack {
@@ -19,7 +19,7 @@ export async function previewPlaylistUrl(rawUrl: string): Promise<{ title: strin
   if (isSpotifyUrl(url)) {
     const id = extractSpotifyPlaylistId(url.toString());
     if (!id) throw new Error('Could not extract a Spotify playlist id from that URL');
-    const [spotifyPlaylist, items] = await Promise.all([getPlaylistGraphQl(id), getPlaylistTracksGraphQl(id)]);
+    const [spotifyPlaylist, items] = await Promise.all([spotify.getPlaylist(id), spotify.getPlaylistTracks(id)]);
     const normalized = normalizePlaylist(spotifyPlaylist, rawUrl);
     const tracks = normalizePlaylistItems(items, normalized.id);
     return { title: normalized.title, coverUrl: normalized.thumbnailUrl || undefined, isPublic: spotifyPlaylist.public !== false, tracks: tracks.map(toPreview) };
@@ -48,7 +48,7 @@ export async function importPlaylistUrl(rawUrl: string): Promise<{ playlist: Pla
 async function importSpotify(rawUrl: string): Promise<{ playlist: Playlist; tracks: Track[] }> {
   const id = extractSpotifyPlaylistId(rawUrl);
   if (!id) throw new Error('Could not extract a Spotify playlist id from that URL');
-  const [spotifyPlaylist, items] = await Promise.all([getPlaylistGraphQl(id), getPlaylistTracksGraphQl(id)]);
+  const [spotifyPlaylist, items] = await Promise.all([spotify.getPlaylist(id), spotify.getPlaylistTracks(id)]);
   const playlist = normalizePlaylist(spotifyPlaylist, rawUrl);
   const spotifyTracks = normalizePlaylistItems(items, playlist.id);
   const resolved: Track[] = [];

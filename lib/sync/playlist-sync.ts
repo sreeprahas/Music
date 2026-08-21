@@ -1,13 +1,13 @@
 import type { PlaylistSyncState, Track } from '@/types';
 import { getPersistent, setPersistent } from '@/lib/cache/persistent';
 import { getCachedPlaylists, getCachedTracks, setCachedTracks, upsertLocalPlaylist } from '@/lib/db';
-import { getPlaylistGraphQl, getPlaylistTracksGraphQl } from '@/lib/spotify/graphqlApi';
+import { spotify } from '@/lib/spotify/service';
 import { normalizePlaylistItems } from '@/lib/spotify/normalize';
 import { getAllYouTubePlaylistTracks } from '@/lib/youtube/playlists';
 import { canonicalRevision } from './conflicts';
 
 const stateKey = (playlistId: string) => `sync:${playlistId}`;
-const READ_ONLY_MESSAGE = 'GraphQL-only mode cannot write playlist mutations without a configured provider mutation contract.';
+const READ_ONLY_MESSAGE = 'Remote playlist mutations are not part of the local sync queue; use the Spotify provider API.';
 
 export function getPlaylistSyncState(playlistId: string): PlaylistSyncState | undefined { return getPersistent<PlaylistSyncState>(stateKey(playlistId)); }
 
@@ -51,7 +51,7 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
 
 async function readRemote(source: 'spotify' | 'youtube', sourcePlaylistId: string): Promise<{ tracks: Track[]; revision: string }> {
   if (source === 'spotify') {
-    const [playlist, items] = await Promise.all([getPlaylistGraphQl(sourcePlaylistId, true), getPlaylistTracksGraphQl(sourcePlaylistId, true)]);
+    const [playlist, items] = await Promise.all([spotify.getPlaylist(sourcePlaylistId, true), spotify.getPlaylistTracks(sourcePlaylistId, true)]);
     const tracks = normalizePlaylistItems(items, `spotify-${sourcePlaylistId}`);
     return { tracks, revision: playlist.snapshot_id || canonicalRevision(tracks) };
   }

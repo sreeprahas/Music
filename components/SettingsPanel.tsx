@@ -49,11 +49,11 @@ export function SettingsPanel({ user, onClose, isOpen = true, onRefreshData }: P
 
   if (!isOpen && !isClosing) return null;
 
-  const refreshGraphQlData = async () => {
+  const refreshSpotifyData = async () => {
     try {
-      setMessage('Refreshing GraphQL data...');
+      setMessage('Refreshing Spotify data...');
       if (onRefreshData) await onRefreshData();
-      setMessage('GraphQL metadata refreshed successfully.');
+      setMessage('Spotify metadata refreshed successfully.');
       setTimeout(() => setMessage(''), 3000);
     } catch {
       setMessage('Refresh failed.');
@@ -89,7 +89,7 @@ export function SettingsPanel({ user, onClose, isOpen = true, onRefreshData }: P
           </nav>
           <div className="mt-auto hidden border-t border-border pt-5 text-xs theme-muted sm:block">
             <p className="font-semibold theme-text">Local Listener</p>
-            <p className="mt-1">GraphQL-only desktop mode</p>
+            <p className="mt-1">Local SpotAPI mode</p>
           </div>
         </aside>
         <main className="min-w-0 flex-1 overflow-y-auto bg-background">
@@ -107,7 +107,7 @@ export function SettingsPanel({ user, onClose, isOpen = true, onRefreshData }: P
             {category === 'account' && <AccountPage user={user} />}
             {category === 'appearance' && <AppearancePage />}
             {category === 'themes' && <ThemePage theme={theme} setTheme={setTheme} />}
-            {category === 'library' && <LibraryPage onRefresh={refreshGraphQlData} message={message} />}
+            {category === 'library' && <LibraryPage onRefresh={refreshSpotifyData} message={message} />}
             {category === 'downloads' && <DownloadsPage />}
             {category === 'connections' && <ConnectionsPage />}
             {category === 'advanced' && <AdvancedPage />}
@@ -129,7 +129,7 @@ function description(category: Category) {
     themes: 'Choose a centralized accent system for the entire app.',
     library: 'Manage metadata and local library refreshes.',
     downloads: 'Understand local audio and metadata storage.',
-    connections: 'Inspect the configured GraphQL transport.',
+    connections: 'Inspect the configured provider connections.',
     advanced: 'Runtime details and safe troubleshooting.',
   })[category];
 }
@@ -201,9 +201,9 @@ function LibraryPage({ onRefresh, message }: { onRefresh: () => void; message: s
     <Card>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-bold theme-text">GraphQL metadata cache</h3>
+          <h3 className="font-bold theme-text">Metadata cache</h3>
           <p className="mt-1 text-sm theme-muted">
-            Refresh the cached home and profile data through the configured GraphQL contracts.
+            Refresh cached home and profile data from the configured providers.
           </p>
         </div>
         <button type="button" onClick={onRefresh} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-bold text-background hover:bg-accent-hover">
@@ -223,7 +223,7 @@ function DownloadsPage() {
         <div>
           <h3 className="font-bold theme-text">Local storage</h3>
           <p className="mt-1 text-sm leading-6 theme-muted">
-            Downloaded audio, thumbnails, lyrics, playlist metadata, and GraphQL responses stay in the app's local data directory. Temporary stream URLs are never treated as permanent cache entries.
+            Downloaded audio, thumbnails, lyrics, playlist metadata, and provider responses stay in the app's local data directory. Temporary stream URLs are never treated as permanent cache entries.
           </p>
         </div>
       </div>
@@ -257,24 +257,32 @@ function ConnectionsPage() {
       .then(setSpotifyAuth)
       .catch(() => undefined);
 
-  useEffect(() => {
-    fetchTransport();
-    fetchSpotifyStatus();
+    useEffect(() => {
+      fetchTransport();
+      fetchSpotifyStatus();
+      const statusTimer = window.setInterval(fetchSpotifyStatus, 2500);
 
     // Re-check auth status if redirected back after OAuth
     const params = new URLSearchParams(window.location.search);
     const authResult = params.get('spotify_auth');
-    if (authResult) {
+      if (authResult) {
       // Clean the query param without reloading
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, '', cleanUrl);
-    }
-  }, []);
+      }
+      return () => window.clearInterval(statusTimer);
+    }, []);
 
-  const handleConnect = () => {
-    // Navigate to the PKCE start route — server will redirect to Spotify
-    window.location.href = '/api/auth/spotify/start';
-  };
+    const handleConnect = async () => {
+      await handlePopupConnect();
+    };
+
+    const handlePopupConnect = async () => {
+      if (!window.electron?.openSpotApiPopup) return;
+      setAuthBusy(true);
+      try { const result = await window.electron.openSpotApiPopup(); if (result.connected) { setSpotifyAuth({ connected: true, expiresAt: null }); } }
+      finally { setAuthBusy(false); }
+    };
 
   const handleDisconnect = async () => {
     setAuthBusy(true);
@@ -310,42 +318,27 @@ function ConnectionsPage() {
               )}
             </div>
           </div>
-          {spotifyAuth.connected ? (
-            <button
-              type="button"
-              disabled={authBusy}
-              onClick={handleDisconnect}
-              className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold theme-muted hover:bg-surface disabled:opacity-50"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={authBusy}
-              onClick={handleConnect}
-              className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-bold text-background hover:bg-accent-hover disabled:opacity-50"
-            >
-              Connect Spotify
-            </button>
-          )}
+          <div className="flex shrink-0 gap-2">
+            {spotifyAuth.connected && <button type="button" disabled={authBusy} onClick={handleDisconnect} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold theme-muted hover:bg-surface disabled:opacity-50">Disconnect</button>}
+            {!spotifyAuth.connected && <button type="button" disabled={authBusy} onClick={handleConnect} className="rounded-lg bg-accent px-3 py-2 text-xs font-bold text-background hover:bg-accent-hover disabled:opacity-50">Connect Spotify</button>}
+          </div>
         </div>
       </Card>
 
-      {/* GraphQL transport card */}
+      {/* Spotify provider card */}
       <Card>
         <div className="flex items-start gap-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 theme-accent" />
           <div>
-            <h3 className="font-bold theme-text">GraphQL transport</h3>
-            <p className="mt-1 text-sm leading-6 theme-muted">
-              Spotify data uses the integrated @sreeprahas/musicgql GraphQL provider. Spotify OAuth is used only for account authorization and token management. No Spotify Web API data transport or hidden fallback is used.
-            </p>
+            <h3 className="font-bold theme-text">Spotify provider</h3>
+              <p className="mt-1 text-sm leading-6 theme-muted">
+                SpotAPI-only mode. Connect opens Spotify in an Electron popup, captures the web session, and saves it for private playlists and library access.
+              </p>
             <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
               <Status
-                label="Spotify GraphQL"
+                label="Spotify / SpotAPI"
                 state={transport.spotify}
-                statusText={transport.spotify?.configured ? 'configured (musicgql)' : 'unconfigured'}
+                statusText={transport.spotify?.configured ? 'configured' : 'unconfigured'}
               />
               <Status
                 label="YouTube GraphQL"
@@ -353,11 +346,6 @@ function ConnectionsPage() {
                 statusText={transport.youtube?.status || 'unsupported'}
               />
             </div>
-            {transport.packageVersion && (
-              <p className="mt-3 text-[11px] theme-muted">
-                Provider package: @sreeprahas/musicgql v{transport.packageVersion}
-              </p>
-            )}
           </div>
         </div>
       </Card>
@@ -389,12 +377,12 @@ function AdvancedPage() {
       <div className="flex items-start gap-4">
         <ExternalLink className="mt-0.5 h-5 w-5 theme-accent" />
         <div>
-          <h3 className="font-bold theme-text">GraphQL-only diagnostics</h3>
+          <h3 className="font-bold theme-text">Provider diagnostics</h3>
           <p className="mt-1 text-sm leading-6 theme-muted">
-            Spotify operations are managed through @sreeprahas/musicgql hash discovery and persisted queries. The application does not use duplicate endpoint or query environment variables.
+            Spotify operations are managed through the application-owned provider interface and local Electron worker.
           </p>
           <p className="mt-4 text-xs theme-muted">
-            Provider: @sreeprahas/musicgql Â· Transport: Strict GraphQL (no REST / WebQL / InnerTube fallback).
+            Provider: local SpotAPI · Transport: Electron IPC / Python worker.
           </p>
         </div>
       </div>

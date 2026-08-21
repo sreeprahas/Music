@@ -583,7 +583,7 @@ export function Header({
               </button>
 
               <div className="px-3 py-2 text-[11px] leading-5 text-text-muted">
-                Provider sign-in is unavailable in GraphQL-only mode. Configure provider GraphQL contracts on the server instead.
+                Connect Spotify to use the configured external provider. Provider credentials remain on the server.
               </div>
 
               <button

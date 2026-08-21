@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Playlist } from '@/types';
 import { Disc3, Loader2, Music, Play, RefreshCw, Radio, LogOut } from 'lucide-react';
 import { Skeleton } from './Skeleton';
@@ -29,6 +29,13 @@ export function SpotifyHomePanel({
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState('');
+  const connectedRef = useRef(connected);
+  const playlistsRef = useRef(playlists);
+  const errorRef = useRef(error);
+
+  useEffect(() => { connectedRef.current = connected; }, [connected]);
+  useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
+  useEffect(() => { errorRef.current = error; }, [error]);
 
   const checkStatusAndLoad = async () => {
     setLoading(true);
@@ -43,7 +50,7 @@ export function SpotifyHomePanel({
       if (isConn) {
         // 2. Fetch playlists and profile in parallel
         const [plRes, profileRes] = await Promise.all([
-          fetch('/api/playlists', { cache: 'no-store' }),
+          fetch('/api/spotify/playlists', { cache: 'no-store' }),
           fetch('/api/spotify/profile', { cache: 'no-store' }).catch(() => null),
         ]);
 
@@ -53,12 +60,7 @@ export function SpotifyHomePanel({
 
         const plData = await plRes.json().catch(() => ({ playlists: [] }));
         const rawPlaylists = Array.isArray(plData?.playlists) ? plData.playlists : [];
-        // Filter or prioritize Spotify playlists
-        const spotifyPlaylists = rawPlaylists.filter(
-          (p: Playlist) => p.source === 'spotify' || Boolean(p.spotifyId) || Boolean(p.sourcePlaylistId)
-        );
-        // If no explicit source: 'spotify', show all available playlists from library
-        setPlaylists(spotifyPlaylists.length > 0 ? spotifyPlaylists : rawPlaylists);
+        setPlaylists(rawPlaylists);
 
         if (profileRes && profileRes.ok) {
           const profData = await profileRes.json().catch(() => ({}));
@@ -85,14 +87,37 @@ export function SpotifyHomePanel({
       window.history.replaceState({}, '', window.location.pathname);
       void checkStatusAndLoad();
     }
+    const retryTimer = window.setInterval(() => {
+      // The worker may still be starting when the first render happens. Also
+      // retry a failed/empty library load so the home page recovers without a
+      // manual refresh.
+      if (!connectedRef.current || errorRef.current || playlistsRef.current.length === 0) {
+        void checkStatusAndLoad();
+      }
+    }, 2500);
+    return () => window.clearInterval(retryTimer);
   }, []);
 
-  const handleConnect = () => {
+  // Dashboard status is resolved asynchronously after the worker restores its
+  // saved session. Keep the panel in sync instead of freezing the initial
+  // disconnected value from the first render.
+  useEffect(() => {
+    if (initialConnected === undefined) return;
+    setConnected(initialConnected);
+    if (initialConnected) void checkStatusAndLoad();
+  }, [initialConnected]);
+
+  const handleConnect = async () => {
     setConnecting(true);
-    if (onConnectSpotify) {
-      onConnectSpotify();
-    } else {
-      window.location.href = '/api/auth/spotify/start';
+    try {
+      if (onConnectSpotify) {
+        await onConnectSpotify();
+      } else if (window.electron?.openSpotApiPopup) {
+        const result = await window.electron.openSpotApiPopup();
+        if (result.connected) await checkStatusAndLoad();
+      }
+    } finally {
+      setConnecting(false);
     }
   };
 

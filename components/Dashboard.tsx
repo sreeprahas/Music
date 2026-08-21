@@ -119,10 +119,11 @@ export function Dashboard({ user }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typedSearchInput, setTypedSearchInput] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('auto');
-  // Online search results — fetched from the dual GraphQL search engine when the user commits a search. The renderer
+  // Online search results — fetched from the dual provider search engine when the user commits a search. The renderer
   // only receives normalized Track objects (no tokens, no secrets).
   const [onlineSearchResults, setOnlineSearchResults] = useState<Track[]>([]);
   const [onlineSearching, setOnlineSearching] = useState(false);
+  const [onlineSearchError, setOnlineSearchError] = useState('');
 
   const [queueWidth, setQueueWidth] = useState(QUEUE_MAX);
   const [lyricsWidth, setLyricsWidth] = useState(LYRICS_MAX);
@@ -169,20 +170,23 @@ export function Dashboard({ user }: Props) {
   const [spotifyConnected, setSpotifyConnected] = useState(false);
 
   useEffect(() => {
-    fetch('/api/auth/spotify/status', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((d) => setSpotifyConnected(Boolean(d?.connected)))
-      .catch(() => undefined);
+    const refresh = () => fetch('/api/auth/spotify/status', { cache: 'no-store' }).then((r) => r.json()).then((d) => setSpotifyConnected(Boolean(d?.connected))).catch(() => undefined);
+    refresh();
+    const timer = window.setInterval(refresh, 2500);
 
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('spotify_auth') === 'ok') {
-      setSpotifyConnected(true);
-      window.history.replaceState({}, '', window.location.pathname);
-    }
+    return () => window.clearInterval(timer);
   }, []);
 
-  const handleConnectSpotify = useCallback(() => {
-    window.location.href = '/api/auth/spotify/start';
+  const handleConnectSpotify = useCallback(async () => {
+    if (window.electron?.openSpotApiPopup) {
+      const result = await window.electron.openSpotApiPopup();
+      // The popup result is only a trigger to re-check the worker. Never mark
+      // the UI connected until the backend confirms the saved session.
+      if (result.connected) {
+        const status = await fetch('/api/auth/spotify/status', { cache: 'no-store' }).then((response) => response.json());
+        setSpotifyConnected(Boolean(status?.connected));
+      }
+    }
   }, []);
 
   const handleDisconnectSpotify = useCallback(async () => {
@@ -1073,7 +1077,7 @@ export function Dashboard({ user }: Props) {
     apiFetch('/api/playlist/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
+      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId, spotifyId: track.spotifyId }),
     }).catch((error) => {
       const memberships = getCachedPlaylistMemberships(track.videoId);
       memberships.add(playlistId);
@@ -1207,6 +1211,26 @@ export function Dashboard({ user }: Props) {
       alert(msg);
     }
   }, []);
+
+  // Keep the remote Spotify library in the same application playlist model so
+  // the existing navigation and playlist view can consume it unchanged.
+  useEffect(() => {
+    if (!spotifyConnected) return;
+    fetch('/api/spotify/playlists', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        const remote = Array.isArray(data?.playlists) ? data.playlists as Playlist[] : [];
+        if (!remote.length) return;
+        setPlaylists((current) => {
+          const byId = new Map(current.map((playlist) => [playlist.id, playlist]));
+          remote.forEach((playlist) => byId.set(playlist.id, playlist));
+          const merged = [...byId.values()];
+          playlistsRef.current = merged;
+          return merged;
+        });
+      })
+      .catch(() => undefined);
+  }, [spotifyConnected]);
 
   const handleSetMatchOverride = useCallback(async (track: Track) => {
     if (!track.spotifyId) return;
@@ -1423,7 +1447,7 @@ export function Dashboard({ user }: Props) {
   }, [apiFetch, handleTracksLoaded, playlists, searchQuery]);
 
   // Online search — when the local library has no matches, query the dual
-  // GraphQL search engine using the selected
+    // Provider search engine using the selected
   // mode (auto/spotify/ytmusic). Results are normalized Track objects; the
   // renderer never sees tokens or secrets. In 'auto' mode both sources run
   // in parallel, results are deduplicated, and Spotify takes priority.
@@ -1432,6 +1456,7 @@ export function Dashboard({ user }: Props) {
     if (!q) {
       setOnlineSearchResults([]);
       setOnlineSearching(false);
+      setOnlineSearchError('');
       return;
     }
     // Only hit the online sources when the local library has no matches —
@@ -1439,16 +1464,19 @@ export function Dashboard({ user }: Props) {
     if (globalSearchResults.length > 0) {
       setOnlineSearchResults([]);
       setOnlineSearching(false);
+      setOnlineSearchError('');
       return;
     }
     if (searchMode === 'local') {
       setOnlineSearchResults([]);
       setOnlineSearching(false);
+      setOnlineSearchError('');
       return;
     }
 
     let cancelled = false;
     setOnlineSearching(true);
+    setOnlineSearchError('');
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
@@ -1456,12 +1484,20 @@ export function Dashboard({ user }: Props) {
           { cache: 'no-store' },
         );
         if (cancelled) return;
-        if (!res.ok) { setOnlineSearchResults([]); return; }
+        if (!res.ok) {
+          const failure = await res.json().catch(() => ({}));
+          setOnlineSearchResults([]);
+          setOnlineSearchError(typeof failure?.error === 'string' ? failure.error : 'Search is unavailable right now.');
+          return;
+        }
         const data = await res.json();
         if (cancelled) return;
         setOnlineSearchResults(Array.isArray(data.tracks) ? data.tracks : []);
       } catch {
-        if (!cancelled) setOnlineSearchResults([]);
+        if (!cancelled) {
+          setOnlineSearchResults([]);
+          setOnlineSearchError('Search is unavailable right now.');
+        }
       } finally {
         if (!cancelled) setOnlineSearching(false);
       }
@@ -1775,6 +1811,7 @@ export function Dashboard({ user }: Props) {
                 isIndexing={isSearchIndexing}
                 onlineResults={onlineSearchResults}
                 isOnlineSearching={onlineSearching}
+                onlineSearchError={onlineSearchError}
                 onPlay={(track) => {
                   // For online tracks without a videoId (Spotify-only), the
                   // player resolves on-demand via /api/spotify/resolve. For
@@ -2215,6 +2252,7 @@ function GlobalSearchResults({
   isIndexing,
   onlineResults,
   isOnlineSearching,
+  onlineSearchError,
   onPlay,
 }: {
   query: string;
@@ -2223,6 +2261,7 @@ function GlobalSearchResults({
   isIndexing: boolean;
   onlineResults?: Track[];
   isOnlineSearching?: boolean;
+  onlineSearchError?: string;
   onPlay: (track: Track) => void;
 }) {
   const hasLocal = results.length > 0;
@@ -2328,7 +2367,13 @@ function GlobalSearchResults({
           </div>
         )}
 
-        {showEmpty && (
+        {!hasLocal && !showOnlineSearching && onlineSearchError && (
+          <div className="rounded-3xl border border-error/30 bg-error/5 p-8 text-center text-sm text-error">
+            {onlineSearchError}
+          </div>
+        )}
+
+        {showEmpty && !onlineSearchError && (
           <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
             <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled" />
             No matching tracks found.

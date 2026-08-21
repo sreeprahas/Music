@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { spotifyGraphQl } from '@/lib/spotify/graphql-client';
+import { spotify } from '@/lib/spotify/service';
+import { spotifyErrorStatus, toUiMessage } from '@/lib/spotify/errors';
 export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
-    return NextResponse.json({ data: await spotifyGraphQl.getHome(), cached: false, source: 'graphql' });
+    return NextResponse.json({ data: await spotify.getHome(), cached: false, source: 'spotapi' });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Home lookup failed' }, { status: 500 });
+    return NextResponse.json({ error: toUiMessage(error) }, { status: spotifyErrorStatus(error) });
   }
 }

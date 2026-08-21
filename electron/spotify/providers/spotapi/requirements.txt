@@ -1,0 +1,5 @@
+spotapi
+# SpotAPI 1.2.8 imports these optional runtime modules during package startup.
+pymongo
+redis
+websockets

@@ -12,8 +12,12 @@ package-lock.json
 .antigravity/
 .vscode/
 .ytmusic-venv/
+.venv/
+.venv-legacy/
 services/.build/
 services/__pycache__/
+**/__pycache__/
+*.pyc
 services/ytmusic-sidecar.exe
 scratch/
 bin/

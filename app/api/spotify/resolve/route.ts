@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Resolve through the deterministic GraphQL matcher.
+    // 2. Resolve through the deterministic Spotify-to-YouTube matcher.
     const result = await matchSpotifyTrack({ title: body.title, artist: body.artist, duration: body.duration, spotifyId: body.spotifyId, thumbnailUrl: body.thumbnailUrl });
     if (!result.videoId) {
       return NextResponse.json({ error: 'No matching YouTube video found', videoId: null }, { status: 404 });

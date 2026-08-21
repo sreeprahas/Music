@@ -4,7 +4,7 @@ const next = require('next');
 // Electron supplies a stable loopback port so renderer localStorage keeps the
 // same origin across app launches.
 const port = Number(process.env.PORT || 0);
-const nextApp = next({ dev: false, dir: __dirname });
+const nextApp = next({ dev: process.env.MUSIC_NEXT_DEV === '1', dir: __dirname });
 const handle = nextApp.getRequestHandler();
 
 nextApp.prepare().then(() => {

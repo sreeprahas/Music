@@ -1,5 +1,5 @@
 /**
- * Normalize Spotify GraphQL responses into the app's internal models.
+ * Normalize provider-neutral Spotify models into the app's internal models.
  *
  * The app has ONE canonical track representation (`types/index.ts` Track).
  * Spotify-specific fields are preserved as optional extensions so the UI never
@@ -32,8 +32,7 @@ export function normalizeTrack(
   const albumImage = pickLargestImage(album?.images);
 
   return {
-    // Primary key remains the YouTube video ID once resolved; until then we
-    // use the Spotify ID as a placeholder so the track is addressable.
+    // The YouTube resolver fills videoId later; Spotify identity remains stable.
     videoId: '',
     title: spotifyTrack.name,
     artist: artistName,
@@ -46,7 +45,7 @@ export function normalizeTrack(
     playlistId,
     source: 'spotify',
     sourceTrackId: spotifyTrack.id,
-    // Spotify-specific extensions (optional, not in the base Track type yet).
+    // Keep Spotify identity available to the matching and playback layers.
     ...({ spotifyId: spotifyTrack.id, spotifyUri: spotifyTrack.uri, spotifyAlbumId: album?.id, spotifyArtistId: artists[0]?.id } as object),
   } as Track;
 }

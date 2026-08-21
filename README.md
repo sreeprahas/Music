@@ -2,9 +2,9 @@
 
 A lightweight desktop music library and playback application built with **Electron + Next.js**, designed around a local-first music experience.
 
-> **Status:** Active development / major refactor planned
+> **Status:** Active development
 
-The repository currently contains the existing Spotify/YouTube integration and downloader architecture. The target architecture described below is the planned direction for the ongoing refactor.
+The application keeps its UI and local library in Next.js/Electron while routing Spotify operations through an application-owned provider service.
 
 ## Overview
 
@@ -40,7 +40,7 @@ The refactor is built around four ideas:
 
 ## Spotify integration
 
-The Spotify and YouTube integrations use deployment-supplied **GraphQL query contracts** as their only provider transport. The app does not use official provider REST APIs, token sign-in, or undocumented fallbacks.
+Spotify operations use the application-owned `SpotifyProvider` interface and a local SpotAPI Python worker managed by Electron. The worker communicates over stdin/stdout JSON lines and does not open a second HTTP server. YouTube playback/search remains a separate provider.
 
 Planned capabilities include:
 
@@ -60,9 +60,13 @@ Planned capabilities include:
 
 ### Spotify search
 
-Search requests use persistent/warm GraphQL clients rather than spawning a Python process for every request.
+Search requests use the server-side Spotify service and its normalized cache rather than exposing provider payloads to React.
 
 A normalized query cache will prevent repeated and near-duplicate searches from repeatedly hitting the underlying source.
+
+### Local SpotAPI configuration
+
+Run the desktop app with `npm run electron:dev`. Electron starts Next and the SpotAPI worker as a single managed process tree. Set `SPOTAPI_PYTHON` to a Python executable with the `spotapi` package installed, or use the project `.venv`. Packaged builds include the worker bridge; provide a portable Python runtime at `resources/spotapi-runtime/python.exe` or configure `SPOTAPI_PYTHON`. Private SpotAPI operations require a saved session supported by the installed package; no raw password is sent by the UI.
 
 ---
 
@@ -75,7 +79,9 @@ YouTube Music provides the playable source.
 The intended flow is:
 
 ```text
-Spotify GraphQL
+Application Spotify service
+      ↓
+SpotifyProvider / SpotAPI adapter
       ↓
 Spotify track
       ↓
@@ -306,9 +312,9 @@ The user can:
 - Pull external changes
 - Keep local edits in the local workspace
 
-Provider write-back is intentionally read-only until a deployment supplies an
-explicit GraphQL mutation contract. Pending local edits are retained and
-surfaced instead of being reported as successfully synchronized.
+The provider contract includes playlist creation, track add/remove, save and
+remove operations. The application routes return provider errors instead of
+pretending a remote mutation succeeded.
 
 ## YouTube-linked playlists
 
@@ -336,7 +342,7 @@ The target behavior follows:
 - `next`
 - offsets
 - cursors
-- GraphQL pagination
+- Provider pagination
 
 until the playlist is exhausted.
 
@@ -346,7 +352,7 @@ This is specifically intended to eliminate the existing ~100-track import limita
 
 # Playlist synchronization
 
-Linked playlists use GraphQL-backed pull synchronization:
+Linked playlists use provider-backed pull synchronization:
 
 ```text
        ┌───────────────┐
@@ -415,7 +421,7 @@ Load persistent cache
        ↓
 Render home
        ↓
-Refresh GraphQL data
+       Refresh Spotify provider data
        ↓
 Update UI + cache
 ```
@@ -745,9 +751,9 @@ The application should never construct shell commands from user-controlled strin
 The major refactor is planned in this order:
 
 1. Audit current architecture.
-2. Introduce the warm Spotify GraphQL client.
+2. Introduce the Spotify provider interface and SpotAPI adapter.
 3. Add metadata caching.
-4. Fix Spotify/YouTube playlist pagination.
+4. Fix Spotify/YouTube playlist pagination through their provider layers.
 5. Introduce the in-process GraphQL playback layer.
 6. Unify audio caching.
 7. Rebuild Spotify → YouTube matching.
@@ -807,7 +813,7 @@ Theme values, settings, stable track matches, and synchronization state should e
                              │
               ┌──────────────┴──────────────┐
               │                             │
-       Spotify GraphQL                YouTube GraphQL
+              Spotify provider               YouTube provider
               │                             │
         Metadata/Library                Playback
               │                             │

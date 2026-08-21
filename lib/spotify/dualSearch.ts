@@ -1,12 +1,12 @@
 /**
- * Dual search engine — runs Spotify and YouTube Music GraphQL searches in
+ * Dual search engine — runs Spotify and YouTube Music searches in
  * parallel, deduplicates, and ranks results.
  *
  * Modes:
  *   - 'auto':    both sources in parallel, Spotify results first, then unique
  *               YTMusic results, ranked by relevance.
- *   - 'spotify': Spotify GraphQL search only.
- *   - 'ytmusic': YouTube Music GraphQL search only.
+ *   - 'spotify': Spotify search only.
+ *   - 'ytmusic': YouTube Music provider search only.
  *
  * Deduplication: track titles and artist strings are normalized (lowercased,
  * trimmed, punctuation/spaces collapsed) and matched. When a Spotify and a
@@ -16,7 +16,7 @@
  * playback can skip the YouTube resolution step.
  */
 
-import { searchTracksGraphQl } from './graphqlApi';
+import { spotify } from './service';
 import { normalizeTrack } from './normalize';
 import { searchYouTubeMusic } from '../youtube/search';
 import { getThumbnailUrl } from '../ytmusicFormat';
@@ -37,10 +37,10 @@ function trackKey(title: string, artist: string): string {
   return `${normalizeKey(title)}::${normalizeKey(firstArtist)}`;
 }
 
-/** Run a Spotify GraphQL search and normalize to Track[]. */
+/** Run a provider-neutral Spotify search and normalize to Track[]. */
 async function spotifySearch(query: string, limit: number): Promise<Track[]> {
   try {
-    const result = await searchTracksGraphQl(query, limit);
+    const result = await spotify.searchTracks(query, limit);
     return result.items.map((track, i) => normalizeTrack(track, i));
   } catch (err) {
     console.warn('[dualSearch] Spotify search failed:', err instanceof Error ? err.message : err);
@@ -48,7 +48,7 @@ async function spotifySearch(query: string, limit: number): Promise<Track[]> {
   }
 }
 
-/** Run a YouTube Music GraphQL search and normalize to Track[]. */
+/** Run a YouTube Music provider search and normalize to Track[]. */
 async function ytmusicSearch(query: string, limit: number): Promise<Track[]> {
   try {
     const candidates = await searchYouTubeMusic(query, limit);

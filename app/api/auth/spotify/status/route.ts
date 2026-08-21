@@ -1,5 +1,5 @@
 ﻿import { NextResponse } from 'next/server';
-import { getSpotifyAuthStatus } from '@/lib/auth/spotify-session';
+import { requestSpotifyWorker } from '@/electron/spotify/worker-client';
 
 /**
  * GET /api/auth/spotify/status
@@ -7,6 +7,7 @@ import { getSpotifyAuthStatus } from '@/lib/auth/spotify-session';
  * Never exposes the access token or refresh token.
  */
 export async function GET(): Promise<Response> {
-  const { connected, expiresAt } = getSpotifyAuthStatus();
-  return NextResponse.json({ connected, expiresAt });
+  let spotapi = { connected: false };
+  try { spotapi = await requestSpotifyWorker<{ connected: boolean }>('auth_status'); } catch { /* unavailable outside Electron */ }
+  return NextResponse.json({ connected: spotapi.connected, expiresAt: null, provider: 'spotapi' });
 }

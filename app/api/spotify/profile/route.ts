@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getPersistent } from '@/lib/cache/persistent';
-import { spotifyGraphQl } from '@/lib/spotify/graphql-client';
+import { spotify } from '@/lib/spotify/service';
+import { spotifyErrorStatus, toUiMessage } from '@/lib/spotify/errors';
 export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
-    return NextResponse.json({ profile: await spotifyGraphQl.getProfile(), cached: false });
-  } catch {
-    return NextResponse.json({ profile: getPersistent('spotify:profile') || null, cached: true });
+    return NextResponse.json({ profile: await spotify.getProfile(), cached: false });
+  } catch (error) {
+    return NextResponse.json({ error: toUiMessage(error) }, { status: spotifyErrorStatus(error) });
   }
 }

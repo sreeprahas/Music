@@ -1,32 +1,27 @@
 import { NextResponse } from 'next/server';
-import {
-  SpotifyGraphQLProvider,
-  YouTubeGraphQLProvider,
-  MUSICGQL_VERSION,
-} from '@sreeprahas/musicgql';
+import { SPOTIFY_PROVIDER } from '@/lib/spotify/config';
+import { getSpotifyWorkerStatus } from '@/electron/spotify/worker-client';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const spotify = new SpotifyGraphQLProvider();
-  const youtube = new YouTubeGraphQLProvider();
-
+  let workerStatus = 'unavailable';
+  try { workerStatus = (await getSpotifyWorkerStatus()).status; } catch { /* regular Next server has no Electron bridge */ }
   return NextResponse.json({
-    mode: 'graphql-only',
-    packageVersion: MUSICGQL_VERSION,
+    mode: 'provider',
     spotify: {
-      provider: 'SpotifyGraphQLProvider',
-      configured: true,
-      status: 'configured',
-      description: 'Configured through @sreeprahas/musicgql persisted-query registry',
-      capabilities: spotify.getCapabilities(),
+      provider: SPOTIFY_PROVIDER === 'spotapi' ? 'SpotAPIProvider' : SPOTIFY_PROVIDER,
+      configured: workerStatus === 'ready',
+      status: workerStatus,
+      description: 'Local SpotAPI Python worker managed by Electron.',
+      capabilities: ['search', 'track', 'artist', 'album', 'playlist', 'playlist-mutations', 'profile'],
     },
     youtube: {
-      provider: 'YouTubeGraphQLProvider',
-      configured: false,
-      status: 'unsupported',
-      description: 'Unsupported - no legitimate YouTube GraphQL contract',
-      capabilities: youtube.getCapabilities(),
+      provider: 'YouTubeGraphQlClient',
+      configured: Boolean(process.env.YOUTUBE_GRAPHQL_ENDPOINT && process.env.YOUTUBE_GRAPHQL_QUERY),
+      status: 'configured',
+      description: 'Separate YouTube playback/search provider.',
+      capabilities: ['search', 'playback', 'playlists'],
     },
   });
 }

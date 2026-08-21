@@ -3,6 +3,8 @@ import { getCachedTracks, setCachedTracks, upsertLocalPlaylist, downloadAllTrack
 import { isDownloaded } from '@/lib/downloader';
 import { getThumbnailUrl } from '@/lib/ytmusicFormat';
 import type { Playlist, Track } from '@/types';
+import { spotify } from '@/lib/spotify/service';
+import { normalizePlaylist, normalizePlaylistItems } from '@/lib/spotify/normalize';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +18,19 @@ export async function GET(request: Request) {
   const playlistId = searchParams.get('playlistId');
   if (!playlistId) return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
   if (playlistId === 'LL' || playlistId === 'LM') return NextResponse.json({ error: 'Liked Songs is not supported' }, { status: 404 });
+  if (playlistId.startsWith('spotify-')) {
+    try {
+      const sourceId = playlistId.slice('spotify-'.length);
+      const [remotePlaylist, remoteItems] = await Promise.all([spotify.getPlaylist(sourceId), spotify.getPlaylistTracks(sourceId)]);
+      const normalized = normalizePlaylist(remotePlaylist);
+      const remoteTracks = normalizePlaylistItems(remoteItems, normalized.id);
+      const offset = Math.max(0, Number(searchParams.get('offset') || 0));
+      const limit = Math.max(0, Number(searchParams.get('limit') || 0));
+      return NextResponse.json({ ...page(remoteTracks, offset, limit), playlist: normalized, remote: true });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Spotify playlist lookup failed' }, { status: 502 });
+    }
+  }
   const tracks = getCachedTracks(playlistId) || [];
   const offset = Math.max(0, Number(searchParams.get('offset') || 0));
   const limit = Math.max(0, Number(searchParams.get('limit') || 0));

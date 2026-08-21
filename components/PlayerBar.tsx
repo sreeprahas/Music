@@ -398,7 +398,7 @@ export function PlayerBar({
           // Local MP3 exists — play it directly.
           audio.src = mp3Url;
         } else {
-          // Not downloaded — resolve a live GraphQL stream.
+        // Not downloaded — resolve a live provider stream.
           const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
           if (cancelled || loadGeneration !== loadGenerationRef.current) return;
           if (!streamRes || !streamRes.ok) {
