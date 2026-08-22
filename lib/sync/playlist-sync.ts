@@ -1,15 +1,15 @@
 /**
- * Playlist synchronization — YouTube-only.
+ * Playlist synchronization for YouTube and Spotify playlists.
  *
- * Spotify playlists imported via the new embed+guest-token flow are static
- * local snapshots and no longer participate in live remote sync.
+ * For Spotify: compares current Spotify playlist against local SQLite snapshot,
+ * reconciles track membership, updates metadata, and reconciles thumbnails.
  *
- * Only YouTube-sourced playlists can sync.
+ * For YouTube: syncs remote playlist revisions.
  */
 
 import type { PlaylistSyncState, Track } from '@/types';
 import { getPersistent, setPersistent } from '@/lib/cache/persistent';
-import { getCachedPlaylists, getCachedTracks, setCachedTracks, upsertLocalPlaylist } from '@/lib/db';
+import { getLocalPlaylists, getCachedTracks, setCachedTracks, upsertLocalPlaylist } from '@/lib/db';
 import { getAllYouTubePlaylistTracks } from '@/lib/youtube/playlists';
 import { canonicalRevision } from './conflicts';
 
@@ -48,17 +48,18 @@ export function enqueuePlaylistOperation(
 }
 
 export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncState> {
-  const playlist = getCachedPlaylists().find((item) => item.id === playlistId);
-  if (!playlist || !playlist.source || playlist.source === 'local' || playlist.source === 'spotify' || !playlist.sourcePlaylistId) {
-    throw new Error('Playlist is not linked to a YouTube source. Spotify playlists are static snapshots.');
+  const playlist = getLocalPlaylists().find((item) => item.id === playlistId);
+  if (!playlist || !playlist.source || playlist.source === 'local' || !playlist.sourcePlaylistId) {
+    throw new Error('Playlist is not linked to a remote YouTube or Spotify source.');
   }
 
-  const state = getPlaylistSyncState(playlistId) || {
+  const source = playlist.source as 'youtube' | 'spotify';
+  const state: PlaylistSyncState = getPlaylistSyncState(playlistId) || {
     playlistId,
-    source: 'youtube' as const,
+    source,
     sourcePlaylistId: playlist.sourcePlaylistId,
     pendingOperations: [],
-    status: 'idle' as const,
+    status: 'idle',
     updatedAt: Date.now(),
   };
 
@@ -67,6 +68,53 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
   state.updatedAt = Date.now();
   setPersistent(stateKey(playlistId), state, 0);
 
+  if (source === 'spotify') {
+    try {
+      const spotifyId = playlist.sourcePlaylistId;
+      const { fetchGuestToken } = await import('@/lib/spotify/guestToken');
+      const { fetchPlaylistMeta, fetchAllPlaylistTracks } = await import('@/lib/spotify/apiClient');
+      const { toAppTrack, toAppPlaylist } = await import('@/lib/spotify/normalize');
+      const { reconcilePlaylist } = await import('@/lib/storage/playlists');
+
+      // Fetch fresh Spotify data
+      const { accessToken } = await fetchGuestToken(spotifyId);
+      const meta = await fetchPlaylistMeta(spotifyId, accessToken);
+      const rawTracks = await fetchAllPlaylistTracks(spotifyId, accessToken);
+
+      const localId = playlist.id;
+      const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
+      const newPlaylist = toAppPlaylist(
+        spotifyId,
+        meta.name || playlist.title,
+        meta.image || playlist.thumbnailUrl,
+        playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
+        appTracks,
+      );
+
+      const mergedPlaylist = {
+        ...newPlaylist,
+        id: playlist.id,
+        createdAt: playlist.createdAt,
+        lastSyncedAt: new Date().toISOString(),
+      };
+
+      // Reconcile with SQLite (instant persistence + background artwork)
+      await reconcilePlaylist(mergedPlaylist, appTracks, meta.image || undefined, true);
+
+      state.status = 'idle';
+      state.updatedAt = Date.now();
+      setPersistent(stateKey(playlistId), state, 0);
+      return state;
+    } catch (error) {
+      state.status = 'error';
+      state.error = error instanceof Error ? error.message : 'Spotify playlist synchronization failed';
+      state.updatedAt = Date.now();
+      setPersistent(stateKey(playlistId), state, 0);
+      throw error;
+    }
+  }
+
+  // YouTube flow unchanged
   try {
     const remote = await readYouTubeRemote(playlist.sourcePlaylistId);
     state.remoteRevision = remote.revision;

@@ -217,14 +217,16 @@ async function fetchAllTracksFromEmbed(playlistId: string): Promise<NormalizedTr
     const trackList = findEmbedTrackList(data);
     const added_at = new Date().toISOString();
 
-    return trackList.map((t) => {
+    const rawTracks = trackList.map((t) => {
       const obj = t as Record<string, unknown>;
       const inner = (obj['track'] as Record<string, unknown> | undefined) || obj;
       const name = (inner['title'] ?? inner['name'] ?? obj['title'] ?? obj['name'] ?? 'Unknown') as string;
       const artists = extractArtists(inner || obj);
       const image = extractImage(inner || obj);
       const duration_ms = (inner['duration'] ?? inner['duration_ms'] ?? obj['duration'] ?? 0) as number;
-      const spotifyTrackId = (inner['id'] ?? inner['uid'] ?? obj['uid'] ?? '') as string;
+      const rawUri = (inner['uri'] ?? obj['uri'] ?? '') as string;
+      const uriMatch = /^spotify:track:([A-Za-z0-9]+)$/.exec(rawUri);
+      const spotifyTrackId = uriMatch ? uriMatch[1] : ((inner['id'] ?? obj['id'] ?? '') as string);
 
       return {
         name,
@@ -235,6 +237,52 @@ async function fetchAllTracksFromEmbed(playlistId: string): Promise<NormalizedTr
         spotifyTrackId,
       };
     });
+
+    // Scrape individual track images in parallel with bounded concurrency if image is missing
+    const tasks = rawTracks.map((track) => async () => {
+      if (track.image || !track.spotifyTrackId) return;
+      try {
+        const trackRes = await fetch(`https://open.spotify.com/embed/track/${track.spotifyTrackId}`, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (trackRes.ok) {
+          const trackHtml = await trackRes.text();
+          const trackMatch = /<script\s+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i.exec(trackHtml);
+          if (trackMatch && trackMatch[1]) {
+            const trackData = JSON.parse(trackMatch[1]) as Record<string, unknown>;
+            const entity = (trackData as any)?.props?.pageProps?.state?.data?.entity;
+            const viImages = entity?.visualIdentity?.image;
+            if (Array.isArray(viImages) && viImages.length > 0) {
+              const sorted = [...viImages].sort((a: any, b: any) => (b.maxWidth || 0) - (a.maxWidth || 0));
+              track.image = sorted[0]?.url || '';
+            } else {
+              track.image = entity?.coverArt?.sources?.[0]?.url || '';
+            }
+          }
+        }
+      } catch {}
+    });
+
+    // Run 10 at a time
+    let idx = 0;
+    const runners: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(10, tasks.length); i++) {
+      runners.push(
+        (async () => {
+          while (idx < tasks.length) {
+            const current = tasks[idx++];
+            await current();
+          }
+        })(),
+      );
+    }
+    await Promise.all(runners);
+
+    return rawTracks;
   } catch {
     return [];
   }

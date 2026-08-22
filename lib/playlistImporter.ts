@@ -16,8 +16,6 @@ import { fetchGuestToken } from './spotify/guestToken';
 import { fetchAllPlaylistTracks, fetchPlaylistMeta } from './spotify/apiClient';
 import { toAppTrack, toAppPlaylist } from './spotify/normalize';
 import { extractPlaylistId, isSpotifyPlaylistUrl } from './spotify/validation';
-import { promotePreviewToRealData } from './spotify/previewCache';
-import { downloadAllTrackThumbnails } from './db';
 
 export interface PlaylistPreviewTrack {
   title: string;
@@ -136,13 +134,8 @@ async function importSpotify(rawUrl: string): Promise<{ playlist: Playlist; trac
   const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
   const playlist = toAppPlaylist(id, meta.name, meta.image, rawUrl, appTracks);
 
-  // 1. Promote cached preview images to real thumbnails
-  await promotePreviewToRealData(id, appTracks).catch(() => {});
-
-  // 2. Download artwork for all tracks and convert to WebP
-  const tracksWithLocalThumbs = await downloadAllTrackThumbnails(appTracks);
-
-  return { playlist, tracks: tracksWithLocalThumbs };
+  // Return raw tracks — caller (reconcilePlaylist) handles thumbnail download
+  return { playlist, tracks: appTracks };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

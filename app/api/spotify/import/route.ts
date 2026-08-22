@@ -1,20 +1,16 @@
 /**
  * POST /api/spotify/import
  *
- * Phase 2 — full playlist import.
+ * Full Spotify playlist import via guest token + internal API.
+ * Streams NDJSON progress, then reconciles the playlist in SQLite
+ * with playlist-scoped thumbnail storage.
  *
  * Body: { url: string }
- *
- * Streams NDJSON progress lines followed by a final result:
- *   {"type":"progress","fetched":100,"total":523}
- *   {"type":"done","playlist":{...},"tracks":[...]}
+ * Stream:
+ *   {"type":"start","playlistName":"..."}
+ *   {"type":"progress","fetched":50,"total":100}
+ *   {"type":"done","success":true,"playlist":{...},"tracks":[...]}
  *   {"type":"error","error":"..."}
- *
- * Moves cached preview metadata/images into real storage and downloads
- * the images and metadata for all remaining tracks.
- *
- * The guest token never leaves the server.
- * All Spotify network calls are made server-side.
  */
 
 import { NextResponse } from 'next/server';
@@ -23,14 +19,10 @@ import { fetchGuestToken } from '@/lib/spotify/guestToken';
 import { fetchAllPlaylistTracks, fetchPlaylistMeta } from '@/lib/spotify/apiClient';
 import { toAppTrack, toAppPlaylist } from '@/lib/spotify/normalize';
 import { toUiMessage } from '@/lib/spotify/errors';
-import { promotePreviewToRealData } from '@/lib/spotify/previewCache';
-import {
-  findLocalPlaylistBySourceUrl,
-  getCachedTracks,
-  upsertLocalPlaylist,
-  setCachedTracks,
-  downloadAllTrackThumbnails,
-} from '@/lib/db';
+import { reconcilePlaylist } from '@/lib/storage/playlists';
+import { promotePreviewToPlaylistDir, getPlaylistThumbnailDir } from '@/lib/storage/thumbnails';
+import path from 'path';
+import { getDataDir } from '@/lib/nativeData';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -51,7 +43,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Stream progress via NDJSON
     const encoder = new TextEncoder();
     const rawUrl = body.url;
 
@@ -67,16 +58,13 @@ export async function POST(request: Request) {
 
           // Fetch playlist metadata
           const meta = await fetchPlaylistMeta(playlistId, accessToken);
-
           send({ type: 'start', playlistName: meta.name });
 
           // Paginate all tracks
           const rawTracks = await fetchAllPlaylistTracks(
             playlistId,
             accessToken,
-            (fetched, total) => {
-              send({ type: 'progress', fetched, total });
-            },
+            (fetched, total) => { send({ type: 'progress', fetched, total }); },
           );
 
           // Build app models
@@ -84,17 +72,23 @@ export async function POST(request: Request) {
           const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
           const playlist = toAppPlaylist(playlistId, meta.name, meta.image, rawUrl, appTracks);
 
-          // 1. Move cached preview images into real data storage
-          await promotePreviewToRealData(playlistId, appTracks).catch(() => {});
+          // Promote cached preview images into playlist-scoped thumbnail dir
+          const previewDir = path.join(path.resolve(getDataDir()), 'cache', 'preview');
+          await promotePreviewToPlaylistDir(localId, appTracks, previewDir).catch(() => {});
 
-          // 2. Download remaining images and convert to WebP
-          const tracksWithLocalThumbs = await downloadAllTrackThumbnails(appTracks);
+          // Reconcile: transactional SQLite update + non-blocking background artwork
+          const { playlist: stored, tracks } = await reconcilePlaylist(
+            playlist,
+            appTracks,
+            meta.image || undefined,
+            true, // async background artwork
+          );
 
-          // 3. Persist to local database
-          const stored = upsertLocalPlaylist(playlist, tracksWithLocalThumbs);
-          setCachedTracks(stored.id, tracksWithLocalThumbs);
+          // Clear transient preview cache after promotion
+          const { clearPreviewCache } = await import('@/lib/spotify/previewCache');
+          clearPreviewCache(playlistId);
 
-          send({ type: 'done', success: true, playlist: stored, tracks: tracksWithLocalThumbs });
+          send({ type: 'done', success: true, playlist: stored, tracks });
         } catch (err) {
           send({ type: 'error', error: toUiMessage(err) });
         } finally {

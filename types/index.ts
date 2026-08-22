@@ -126,7 +126,7 @@ export interface MatchRecord {
 
 export interface PlaylistSyncState {
   playlistId: string;
-  source: 'youtube';
+  source: 'youtube' | 'spotify';
   sourcePlaylistId: string;
   lastCommonRevision?: string;
   remoteRevision?: string;

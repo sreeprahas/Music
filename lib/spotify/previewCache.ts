@@ -1,19 +1,21 @@
 /**
- * Preview Caching & Promotion Service
+ * Preview Caching Service
  *
  * 1. During preview: Downloads preview cover images into temporary preview cache
  *    directory (`DATA_DIR/cache/preview/`). Does NOT persist metadata to cache.
- * 2. On import: Promotes cached preview images into real data storage (`DATA_DIR/thumbnails/`).
- * 3. On delete: Purges any associated preview files.
+ * 2. On import: promotePreviewToPlaylistDir() copies preview images into
+ *    the playlist-scoped thumbnail directory (handled in storage/thumbnails.ts).
+ * 3. On delete: clearPreviewCache() purges associated preview files.
+ *
+ * Note: promotePreviewToRealData (flat global layout) is removed.
+ * Use promotePreviewToPlaylistDir() from lib/storage/thumbnails.ts instead.
  */
 
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { getDataDir } from '../nativeData';
-import { getLocalThumbnailPath, ensureDirs } from '../db';
 import type { EmbedPreviewResult } from './embed';
-import type { Track } from '@/types';
 
 export function getPreviewCacheDir(): string {
   const previewDir = path.join(path.resolve(getDataDir()), 'cache', 'preview');
@@ -35,7 +37,7 @@ export function hasPreviewImage(id: string): boolean {
 
 /**
  * Cache preview images in temporary preview cache for immediate display.
- * NOTE: Metadata is NOT persisted to disk per user requirement.
+ * NOTE: Metadata is NOT persisted to disk.
  */
 export async function cachePreviewImages(
   playlistId: string,
@@ -50,7 +52,7 @@ export async function cachePreviewImages(
     );
   }
 
-  // Track cover images (first 10 preview tracks)
+  // Track cover images
   for (let i = 0; i < preview.tracks.length; i++) {
     const track = preview.tracks[i];
     const trackKey = track.id || `track-${playlistId}-${i}`;
@@ -79,53 +81,6 @@ async function downloadToPreviewCache(id: string, remoteUrl: string): Promise<vo
     fs.writeFileSync(targetPath, webpBuffer);
   } catch {
     // Non-blocking for preview
-  }
-}
-
-/**
- * Promote / move cached preview images to real application data (`DATA_DIR/thumbnails/`).
- */
-export async function promotePreviewToRealData(
-  playlistId: string,
-  tracks: Track[],
-): Promise<void> {
-  ensureDirs();
-  const previewDir = getPreviewCacheDir();
-
-  // 1. Promote playlist cover if present
-  const playlistPreviewPath = path.join(previewDir, `playlist-${playlistId}.webp`);
-  if (fs.existsSync(playlistPreviewPath)) {
-    const realPlaylistCoverPath = getLocalThumbnailPath(`spotify-${playlistId}`);
-    try {
-      fs.copyFileSync(playlistPreviewPath, realPlaylistCoverPath);
-    } catch {}
-  }
-
-  // 2. Promote each preview track image to real thumbnails
-  for (let i = 0; i < tracks.length; i++) {
-    const track = tracks[i];
-    const trackKey = track.sourceTrackId || track.videoId;
-    if (!trackKey) continue;
-
-    const realPath = getLocalThumbnailPath(trackKey);
-    if (fs.existsSync(realPath)) continue;
-
-    // Check by track ID
-    const previewByTrackId = path.join(previewDir, `${trackKey}.webp`);
-    if (fs.existsSync(previewByTrackId)) {
-      try {
-        fs.copyFileSync(previewByTrackId, realPath);
-        continue;
-      } catch {}
-    }
-
-    // Check by position key fallback
-    const previewByPos = path.join(previewDir, `track-${playlistId}-${i}.webp`);
-    if (fs.existsSync(previewByPos)) {
-      try {
-        fs.copyFileSync(previewByPos, realPath);
-      } catch {}
-    }
   }
 }
 

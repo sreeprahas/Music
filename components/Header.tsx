@@ -6,9 +6,6 @@ import { Download, LogOut, Radio, CheckCircle, AlertCircle, Loader2, X, Search, 
 import { cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 
 interface HeaderProps {
-  spotifyConnected?: boolean;
-  onConnectSpotify?: () => void;
-  onDisconnectSpotify?: () => Promise<void> | void;
   user: UserProfile;
   activeDownloadCount: number;
   downloadJobs: DownloadJob[];
@@ -29,9 +26,6 @@ interface HeaderProps {
 }
 
 export function Header({
-  spotifyConnected = false,
-  onConnectSpotify,
-  onDisconnectSpotify,
   user,
   activeDownloadCount,
   downloadJobs,
@@ -395,32 +389,6 @@ export function Header({
 
       {/* Right section: Download Center + Account */}
       <div className="flex items-center gap-2.5 relative shrink-0">
-        {/* Spotify Connect / Status Button */}
-        <div className="relative shrink-0">
-          {spotifyConnected ? (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-surface border border-accent/30 text-xs font-semibold text-text hover:bg-accent/10 hover:border-accent/50 transition-all cursor-pointer"
-              title="Spotify connected. Click to open settings."
-            >
-              <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
-              <Radio className="w-3.5 h-3.5 text-accent" />
-              <span className="hidden md:inline text-[11px] font-bold text-accent">Spotify Connected</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onConnectSpotify || (() => { window.location.href = '/api/auth/spotify/start'; })}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-accent text-background text-xs font-bold shadow-md hover:bg-accent-hover hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-              title="Connect Spotify account"
-            >
-              <Radio className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Connect Spotify</span>
-              <span className="sm:hidden">Connect</span>
-            </button>
-          )}
-        </div>
         {/* Download Center Button & Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button

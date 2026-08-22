@@ -88,8 +88,8 @@ export function SettingsPanel({ user, onClose, isOpen = true, onRefreshData }: P
             ))}
           </nav>
           <div className="mt-auto hidden border-t border-border pt-5 text-xs theme-muted sm:block">
-            <p className="font-semibold theme-text">Local Listener</p>
-            <p className="mt-1">Local SpotAPI mode</p>
+            <p className="font-semibold theme-text">Music</p>
+            <p className="mt-1">Local Library</p>
           </div>
         </aside>
         <main className="min-w-0 flex-1 overflow-y-auto bg-background">
@@ -304,7 +304,7 @@ function AdvancedPage() {
             Spotify operations are managed through the application-owned provider interface and local Electron worker.
           </p>
           <p className="mt-4 text-xs theme-muted">
-            Provider: local SpotAPI · Transport: Electron IPC / Python worker.
+            Provider: SQLite & Local Storage · Transport: Native Data.
           </p>
         </div>
       </div>

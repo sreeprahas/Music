@@ -199,13 +199,22 @@ export function PlaylistView({
       const state = result.state;
       setSourceSyncStatus(state?.status ?? 'idle');
       setSourceSyncError(state?.error ?? '');
+
+      // Dynamically refresh tracks from SQLite
+      const res = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
+      const data = await res.json().catch(() => ({ tracks: [] }));
+      if (res.ok && Array.isArray(data.tracks)) {
+        tracksRef.current = data.tracks;
+        setTracks(data.tracks);
+        callbackRef.current?.(playlist, data.tracks);
+      }
     } catch (syncError) {
       setSourceSyncStatus('error');
       setSourceSyncError(syncError instanceof Error ? syncError.message : 'Sync failed');
     } finally {
       setIsSyncingSource(false);
     }
-  }, [isSyncingSource, playlist.id, playlist.source, playlist.sourcePlaylistId]);
+  }, [isSyncingSource, playlist, playlist.id, playlist.source, playlist.sourcePlaylistId]);
 
   const handleReplaceSource = useCallback(async () => {
     const sourceUrl = window.prompt('Paste the replacement Spotify or YouTube playlist URL', playlist.sourceUrl || '');
@@ -220,12 +229,18 @@ export function PlaylistView({
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Source replacement failed');
-      window.location.reload();
+
+      const updatedPlaylist = (result.playlist || playlist) as Playlist;
+      const updatedTracks = (result.tracks || []) as Track[];
+      tracksRef.current = updatedTracks;
+      setTracks(updatedTracks);
+      setSourceSyncStatus('idle');
+      callbackRef.current?.(updatedPlaylist, updatedTracks);
     } catch (replaceError) {
       setSourceSyncStatus('error');
       setSourceSyncError(replaceError instanceof Error ? replaceError.message : 'Source replacement failed');
     }
-  }, [playlist.id, playlist.sourceUrl]);
+  }, [playlist]);
 
   const handleDragStart = useCallback((e: React.DragEvent, idx: number, videoId: string) => {
     dragIndexRef.current = idx;
@@ -427,49 +442,31 @@ export function PlaylistView({
 
   useEffect(() => {
     let cancelled = false;
-    // Do not reset an already-rendered playlist to its skeleton when the
-    // connectivity flag changes; refresh in place instead.
     prefetchNextPageRef.current = false;
     setError('');
+    // Reset tracks immediately when revision changes so stale data is never shown
+    setTracks([]);
+    tracksRef.current = [];
+    setLoading(true);
 
     const load = async () => {
       const acceptLoadedTracks = (loaded: Track[], hasMore: boolean) => {
-        // Do not let a transient empty response erase a playlist already
-        // visible in the UI. Empty playlists are still accepted on first load.
-        if (loaded.length === 0 && tracksRef.current.length > 0) return false;
+        if (cancelled) return false;
         tracksRef.current = loaded;
         setTracks(loaded);
         setHasMoreTracks(hasMore);
         callbackRef.current?.(playlist, loaded);
         return true;
       };
-      // Always fetch from the API - no offline mode restrictions
       try {
-        const cachedResponse = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
-        const data = await cachedResponse.json().catch(() => ({ tracks: [] }));
-        if (cancelled) return;
-        if (cachedResponse.ok && Array.isArray(data.tracks) && (data.fromCache || data.offline)) {
-          const loaded = (data.tracks || []) as Track[];
-          acceptLoadedTracks(loaded, Boolean(data.hasMore));
-          setLoading(false);
-        } else if (cachedResponse.ok && Array.isArray(data.tracks)) {
-          // No cache existed, so this response was already a fresh remote load.
-          const loaded = data.tracks as Track[];
-          acceptLoadedTracks(loaded, Boolean(data.hasMore));
-          setLoading(false);
-        }
-      } catch (err) {
-        // Background refresh below remains the source of truth when no cache exists.
-      }
-
-      // Refresh remotely in the background. The response is already merged
-      // with pending local mutations by the API route.
-      try {
-        const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0&forceRefresh=1`);
+        const response = await fetch(
+          `/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`
+        );
         const data = await response.json().catch(() => ({ tracks: [] }));
-        if (!cancelled && response.ok) {
-          const loaded = (data.tracks || []) as Track[];
-          acceptLoadedTracks(loaded, Boolean(data.hasMore));
+        if (!cancelled && response.ok && Array.isArray(data.tracks)) {
+          acceptLoadedTracks(data.tracks as Track[], Boolean(data.hasMore));
+        } else if (!cancelled) {
+          setError('Failed to load tracks');
         }
       } catch (err) {
         if (!cancelled) setError('Failed to load tracks');
@@ -480,8 +477,11 @@ export function PlaylistView({
 
     load();
     return () => { cancelled = true; };
-  }, [playlist.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // sourceRevision changes when the same playlist is re-imported with different tracks
+  }, [playlist.id, playlist.sourceRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Initial load retrieves full playlist from SQLite (limit=999)
+  // Header collapse on scroll
   useEffect(() => {
     if (loading) return;
     const el = trackListRef.current;
@@ -490,28 +490,7 @@ export function PlaylistView({
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [loading, tracks.length, hasMoreTracks, playlist.id]);
-
-  useEffect(() => {
-    const el = trackListRef.current;
-    if (!el || loading || !hasMoreTracks || loadingMore) return;
-    const onScroll = async () => {
-      if (el.scrollHeight - el.scrollTop - el.clientHeight > 700) return;
-      setLoadingMore(true);
-      try {
-        const response = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=24&offset=${tracks.length}`);
-        const data = await response.json().catch(() => ({}));
-        if (response.ok && Array.isArray(data.tracks)) {
-          setTracks((prev) => [...prev, ...(data.tracks as Track[]).filter((next: Track) => !prev.some((current) => current.videoId === next.videoId))]);
-          setHasMoreTracks(Boolean(data.hasMore));
-        }
-      } finally {
-        setLoadingMore(false);
-      }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [loading, loadingMore, hasMoreTracks, playlist.id, tracks.length]);
+  }, [loading, tracks.length, playlist.id]);
 
   // Load the remainder immediately in the background. The first page is
   // Removed prefetch logic - now loading full playlist on initial load
@@ -609,20 +588,19 @@ export function PlaylistView({
                   </span>
                 )}
                 {playlist.source && playlist.source !== 'local' && playlist.sourcePlaylistId && (
-                  <span className="inline-flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-muted">
-                    <span className="rounded-full border border-border bg-surface px-2 py-0.5">{playlist.source}</span>
+                  <span className="inline-flex items-center gap-3 text-[11px] text-text-muted">
                     <button
                       type="button"
                       onClick={handleSyncSource}
                       disabled={isSyncingSource}
-                      className="inline-flex items-center gap-1 text-text-secondary hover:text-accent disabled:opacity-50 transition-colors"
+                      className="inline-flex items-center gap-1 text-text-secondary hover:text-accent disabled:opacity-50 transition-colors cursor-pointer"
                       title={sourceSyncError || `Sync ${playlist.source} playlist`}
                     >
-                      <RefreshCw className={`w-3 h-3 ${isSyncingSource ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSource ? 'animate-spin' : ''}`} />
                       {sourceSyncStatus === 'readonly' ? 'Read-only' : sourceSyncStatus === 'conflict' ? 'Conflict' : sourceSyncStatus === 'error' ? 'Retry' : sourceSyncStatus === 'syncing' ? 'Syncing' : 'Sync'}
                     </button>
-                    <button type="button" onClick={handleReplaceSource} className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors" title="Replace linked playlist source">
-                      <Link2 className="w-3 h-3" /> Change source
+                    <button type="button" onClick={handleReplaceSource} className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors cursor-pointer" title="Replace linked playlist source">
+                      <Link2 className="w-3.5 h-3.5" /> Change source
                     </button>
                   </span>
                 )}
@@ -724,8 +702,12 @@ export function PlaylistView({
               </thead>
               <tbody>
                 {filteredTracks.map((track, idx) => {
-                  const isActive = track.videoId === currentVideoId && playlist.id === activePlaylistId;
-                  const canPlay = !!track.downloaded && !isEditOrder;
+                  const trackKey = track.videoId || track.sourceTrackId;
+                  const isCurrent = Boolean(currentVideoId) && Boolean(trackKey) && (
+                    currentVideoId === track.videoId || (Boolean(track.sourceTrackId) && currentVideoId === track.sourceTrackId)
+                  );
+                  const isActive = isCurrent && playlist.id === activePlaylistId;
+                  const canPlay = !isEditOrder;
                   const artist = cleanArtistName(track.artist);
                   const isDragOver = isEditOrder && dragOverIndex === idx && draggingId !== track.videoId;
                   const isDraggingThis = draggingId === track.videoId;
@@ -734,10 +716,10 @@ export function PlaylistView({
                   const showIndicatorAfter = isDragOver && !dragOverBefore;
                   return (
                     <tr
-                      key={`${track.videoId}-${track.playlistItemId || idx}`}
-                      data-video-id={track.videoId}
+                      key={`${track.videoId || track.sourceTrackId || idx}-${track.playlistItemId || idx}`}
+                      data-video-id={track.videoId || track.sourceTrackId}
                       draggable={isEditOrder}
-                      onDragStart={isEditOrder ? (e) => handleDragStart(e, idx, track.videoId) : undefined}
+                      onDragStart={isEditOrder ? (e) => handleDragStart(e, idx, track.videoId || track.sourceTrackId || '') : undefined}
                       onDragOver={isEditOrder ? (e) => handleDragOver(e, idx) : undefined}
                       onDrop={isEditOrder ? (e) => handleDrop(e, idx) : undefined}
                       onDragEnd={isEditOrder ? handleDragEnd : undefined}
@@ -760,7 +742,7 @@ export function PlaylistView({
                           const end = Math.max(rangeStart, idx);
                           setSelectedTrackIds((prev) => {
                             const next = event.shiftKey ? new Set(prev) : new Set<string>();
-                            for (let i = start; i <= end; i++) next.add(filteredTracks[i].videoId);
+                            for (let i = start; i <= end; i++) next.add(filteredTracks[i].videoId || filteredTracks[i].sourceTrackId || String(i));
                             return next;
                           });
                           lastSelectedIndexRef.current = idx;
@@ -772,15 +754,19 @@ export function PlaylistView({
                         const queueForTrack = tracks;
                         onPlay(track, queueForTrack);
                       }}
-                      className={`group transition-all duration-150 rounded-xl ${
+                      className={`group transition-all duration-150 rounded-2xl ${
                         isEditOrder
                           ? isDraggingThis
                             ? 'opacity-30 bg-surface'
-                            : 'cursor-grab active:cursor-grabbing hover:bg-surface-hover'
-                          : canPlay
-                            ? 'cursor-pointer hover:bg-surface-active'
-                            : 'cursor-default opacity-50'
-                      } ${selectedTrackIds.has(track.videoId) ? 'bg-accent/10 ring-1 ring-inset ring-accent/30' : ''} ${isActive && !isEditOrder ? 'bg-surface-active' : ''} ${
+                            : 'cursor-grab active:cursor-grabbing hover:bg-surface-hover/50'
+                          : 'cursor-pointer'
+                      } ${
+                        selectedTrackIds.has(track.videoId || track.sourceTrackId || '')
+                          ? 'bg-surface-active/70 ring-1 ring-inset ring-border'
+                          : isActive && !isEditOrder
+                          ? 'bg-accent/15 ring-1 ring-accent/30 shadow-sm'
+                          : 'hover:bg-surface-hover/50'
+                      } ${
                         showIndicatorBefore ? 'border-t-[2.5px] border-accent rounded-none' :
                         showIndicatorAfter ? 'border-b-[2.5px] border-accent rounded-none' : ''
                       }`}
@@ -803,13 +789,13 @@ export function PlaylistView({
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 border border-border-subtle">
-                             <img
-                               src={getTrackThumbnailUrl(track)}
-                               alt={track.title}
-                               className="w-full h-full object-cover"
-                               loading="lazy"
-                             />
+                          <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden shrink-0">
+                            <img
+                              src={getTrackThumbnailUrl(track)}
+                              alt={track.title}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
                           </div>
                           <div className="min-w-0">
                             <p className={`text-sm font-medium truncate ${isActive ? 'text-accent' : 'text-text'}`}>
