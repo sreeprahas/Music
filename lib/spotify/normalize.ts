@@ -42,7 +42,7 @@ export function toAppPlaylist(
   return {
     id: `spotify-${playlistId}`,
     title: name,
-    description: 'Imported from Spotify',
+    description: '',
     thumbnailUrl: image || tracks[0]?.thumbnailUrl || '',
     trackCount: tracks.length,
     importedAt: now,

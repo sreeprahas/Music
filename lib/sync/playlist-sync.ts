@@ -94,6 +94,8 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
       const mergedPlaylist = {
         ...newPlaylist,
         id: playlist.id,
+        title: playlist.title, // Preserve local unique title
+        syncOnOpen: playlist.syncOnOpen,
         createdAt: playlist.createdAt,
         lastSyncedAt: new Date().toISOString(),
       };

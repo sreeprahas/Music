@@ -17,6 +17,7 @@ interface Props {
   onShufflePlay?: (id: string) => void;
   onDownload?: (id: string) => void;
   onRemove?: (id: string) => void;
+  onSyncNow?: (id: string) => void;
 }
 
 export function PlaylistGridSkeleton() {
@@ -50,6 +51,7 @@ export function PlaylistGrid({
   onShufflePlay,
   onDownload,
   onRemove,
+  onSyncNow,
 }: Props) {
   const safePlaylists = Array.isArray(playlists) ? playlists : [];
   const safePinnedIds = Array.isArray(pinnedIds) ? pinnedIds : [];
@@ -131,6 +133,7 @@ export function PlaylistGrid({
           onDownload={onDownload}
           onTogglePin={onTogglePin}
           onRemove={onRemove}
+          onSyncNow={onSyncNow}
           onClose={() => setContextMenu(null)}
         />
       )}

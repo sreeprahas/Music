@@ -16,3 +16,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ state: await syncPlaylist(playlistId) });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Synchronization failed' }, { status: 409 }); }
 }
+
+export async function PATCH(request: Request) {
+  try {
+    const { playlistId, syncOnOpen } = await request.json() as { playlistId?: string; syncOnOpen?: boolean };
+    if (!playlistId || typeof syncOnOpen !== 'boolean') {
+      return NextResponse.json({ error: 'Missing playlistId or syncOnOpen boolean' }, { status: 400 });
+    }
+    const { setPlaylistSyncOnOpen, getPlaylistById } = await import('@/lib/storage/playlists');
+    setPlaylistSyncOnOpen(playlistId, syncOnOpen);
+    const updated = getPlaylistById(playlistId);
+    return NextResponse.json({ success: true, playlist: updated });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to update sync setting' }, { status: 500 });
+  }
+}

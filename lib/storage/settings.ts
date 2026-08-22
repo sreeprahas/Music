@@ -21,6 +21,7 @@ export interface UserSettings {
   repeatMode: string;
   queueWidth?: number;
   lyricsWidth?: number;
+  spotifySyncWarningDismissed?: boolean;
   playbackSession?: {
     track: Track | null;
     queue: Track[];
@@ -43,6 +44,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   isMuted: false,
   isShuffle: false,
   repeatMode: 'off',
+  spotifySyncWarningDismissed: false,
   playbackSession: null,
 };
 

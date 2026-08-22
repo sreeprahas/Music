@@ -291,7 +291,7 @@ export function Dashboard({ user }: Props) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ importedPlaylists: next }),
-        }).catch(() => {});
+        }).catch(() => { });
         return next;
       });
       // Refresh full playlist list.
@@ -300,7 +300,7 @@ export function Dashboard({ user }: Props) {
           setPlaylists(d.playlists);
           playlistsRef.current = d.playlists;
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }
     if (lastError) {
       setImportError(lastError);
@@ -622,7 +622,7 @@ export function Dashboard({ user }: Props) {
   // Download all metadata thumbnails on app launch so playlist view only uses local images.
   useEffect(() => {
     let cancelled = false;
-    void fetch('/api/download-metadata-images', { method: 'POST' }).catch(() => {});
+    void fetch('/api/download-metadata-images', { method: 'POST' }).catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -679,7 +679,7 @@ export function Dashboard({ user }: Props) {
       setIsQueueOpen(false);
       setIsLyricsOpen(false);
     }
-    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => {});
+    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => { });
     if (next.includes(id)) await apiFetch(`/api/playlist?playlistId=${encodeURIComponent(id)}&forceRefresh=1`).catch(() => null);
     else await apiFetch(`/api/playlist/delete?playlistId=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
   }, [activePlaylistId, apiFetch, currentTrack, importedPlaylistIds]);
@@ -687,7 +687,7 @@ export function Dashboard({ user }: Props) {
   const handleDoneImport = useCallback(async () => {
     const next = [...pendingImportIds];
     setImportedPlaylistIds(next);
-    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => {});
+    await apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => { });
     await Promise.all(next.map((id) => apiFetch(`/api/playlist?playlistId=${encodeURIComponent(id)}&forceRefresh=1`).catch(() => null)));
     setPendingImportIds([]);
     navigateRoute({ kind: 'home' });
@@ -1386,7 +1386,7 @@ export function Dashboard({ user }: Props) {
   }, [apiFetch, handleTracksLoaded, playlists, searchQuery]);
 
   // Online search â€” when the local library has no matches, query the dual
-    // Provider search engine using the selected
+  // Provider search engine using the selected
   // mode (auto/spotify/ytmusic). Results are normalized Track objects; the
   // renderer never sees tokens or secrets. In 'auto' mode both sources run
   // in parallel, results are deduplicated, and Spotify takes priority.
@@ -1455,7 +1455,7 @@ export function Dashboard({ user }: Props) {
         if (res.ok) {
           setImportedPlaylistIds((prev) => {
             const next = prev.filter((id) => id !== playlistId);
-            apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => {});
+            apiFetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importedPlaylists: next }) }).catch(() => { });
             return next;
           });
           setHiddenIds((prev) => prev.filter((id) => id !== playlistId));
@@ -1473,9 +1473,25 @@ export function Dashboard({ user }: Props) {
     [apiFetch, selectedPlaylist]
   );
 
+  const handleSyncPlaylistNow = useCallback(
+    async (playlistId: string) => {
+      try {
+        await apiFetch('/api/playlist/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playlistId }),
+        });
+      } catch (e) {
+        console.error('Failed to sync playlist:', e);
+      }
+    },
+    [apiFetch]
+  );
+
+
   const handlePushPlaylist = useCallback(async (playlist: Playlist) => {
     try {
-    const res = await apiFetch(`/api/playlist/push?playlistId=${encodeURIComponent(playlist.id)}`, {
+      const res = await apiFetch(`/api/playlist/push?playlistId=${encodeURIComponent(playlist.id)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: playlist.title, description: playlist.description }),
@@ -1584,7 +1600,7 @@ export function Dashboard({ user }: Props) {
 
       // Win: Ctrl+S / Mac: Alt+S â†’ toggle shuffle
       const shuffleKey = isMac ? (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyS')
-                                : (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyS');
+        : (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyS');
       if (shuffleKey) {
         e.preventDefault();
         handleToggleShuffle();
@@ -1593,7 +1609,7 @@ export function Dashboard({ user }: Props) {
 
       // Win: Ctrl+R / Mac: Alt+R â†’ toggle repeat
       const repeatKey = isMac ? (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyR')
-                               : (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyR');
+        : (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyR');
       if (repeatKey) {
         e.preventDefault();
         handleToggleRepeat();
@@ -1731,6 +1747,7 @@ export function Dashboard({ user }: Props) {
             onShufflePlayPlaylist={handleShufflePlayPlaylist}
             onDownloadPlaylist={handleDownload}
             onRemovePlaylist={handleDeletePlaylist}
+            onSyncNow={handleSyncPlaylistNow}
             expanded={sidebarExpanded}
             onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
             onAddPlaylist={handleOpenImportModal}
@@ -1773,6 +1790,7 @@ export function Dashboard({ user }: Props) {
                 onShufflePlay={handleShufflePlayPlaylist}
                 onDownload={handleDownload}
                 onRemove={handleDeletePlaylist}
+                onSyncNow={handleSyncPlaylistNow}
               />
             ) : selectedPlaylist ? (
               <PlaylistView
@@ -1816,6 +1834,7 @@ export function Dashboard({ user }: Props) {
                     onShufflePlay={handleShufflePlayPlaylist}
                     onDownload={handleDownload}
                     onRemove={handleDeletePlaylist}
+                    onSyncNow={handleSyncPlaylistNow}
                   />
                 </div>
               </div>
@@ -1894,8 +1913,8 @@ export function Dashboard({ user }: Props) {
         onRemoveFromPlaylist={handleRemoveFromPlaylist}
         onOpenPlaylist={
           !isPlaylistEditOrder &&
-          activePlaylistId &&
-          playlists.some((playlist) => playlist.id === activePlaylistId)
+            activePlaylistId &&
+            playlists.some((playlist) => playlist.id === activePlaylistId)
             ? handleOpenPlayingPlaylist
             : undefined
         }
@@ -2036,7 +2055,7 @@ export function Dashboard({ user }: Props) {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-text">{entry.title || entry.url}</p>
                             <p className="truncate text-xs text-text-disabled">
-                              {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loadingâ€¦' : entry.url}
+                              {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loading' : entry.url}
                             </p>
                           </div>
                           {entry.tracks && (
@@ -2128,7 +2147,7 @@ export function Dashboard({ user }: Props) {
                   className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {importingAll ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Importingâ€¦</>
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Importing</>
                   ) : (
                     <><Download className="h-4 w-4" /> Import {importQueue.filter((e) => e.isPublic !== false && !e.error).length > 0 ? `(${importQueue.filter((e) => e.isPublic !== false && !e.error).length})` : ''}</>
                   )}
@@ -2215,8 +2234,8 @@ function GlobalSearchResults({
                 : mode === 'local'
                   ? 'No matches in your local library'
                   : showOnlineSearching
-                  ? `Searching ${modeLabel}...`
-                  : `No local matches — searching ${modeLabel}...`}
+                    ? `Searching ${modeLabel}...`
+                    : `No local matches — searching ${modeLabel}...`}
         </p>
       </div>
 

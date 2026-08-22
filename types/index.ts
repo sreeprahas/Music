@@ -39,6 +39,8 @@ export interface Playlist {
   syncStatus?: 'idle' | 'syncing' | 'pending' | 'readonly' | 'conflict' | 'error';
   syncError?: string;
   lastSyncedAt?: string;
+  /** When true for Spotify playlists, automatically syncs and restores from Spotify on open. */
+  syncOnOpen?: boolean;
 }
 
 export interface UserProfile {

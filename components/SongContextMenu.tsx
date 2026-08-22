@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Playlist, Track } from '@/types';
 import { CirclePlus, ListPlus, SkipForward, Timer, Download, Trash2 } from 'lucide-react';
 import { AddToPlaylistDropdown } from './AddToPlaylistDropdown';
+import { calculateContextMenuPosition, type ContextMenuCalculatedPosition } from '@/lib/contextMenuPosition';
 
 const SLEEP_TIMER_PRESETS = [
   { label: '5 minutes', minutes: 5 },
@@ -55,29 +56,33 @@ export function SongContextMenu({
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+  const addSubmenuRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
   const [openSubmenu, setOpenSubmenu] = useState<'sleep' | 'add' | null>(null);
   const [closingSubmenu, setClosingSubmenu] = useState<'sleep' | 'add' | null>(null);
   const [isMenuClosing, setIsMenuClosing] = useState(false);
-  const [menuTop, setMenuTop] = useState(y);
+
+  const [pos, setPos] = useState<ContextMenuCalculatedPosition>(() => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 1080;
+    return calculateContextMenuPosition({
+      cursorX: x,
+      cursorY: y,
+      menuWidth: 280,
+      menuHeight: 240,
+      viewportWidth: vw,
+      viewportHeight: vh,
+    });
+  });
+
   const [submenuOffset, setSubmenuOffset] = useState(0);
   const [addSubmenuOffset, setAddSubmenuOffset] = useState(0);
   const [addSubmenuHeight, setAddSubmenuHeight] = useState<number | null>(null);
-  const addSubmenuRef = useRef<HTMLDivElement>(null);
+
   const menuWidth = 280;
   const submenuWidth = 224;
   const addSubmenuWidth = 280;
-  const boundary = boundaryRef?.current?.getBoundingClientRect();
-  const playerBarTop = typeof document !== 'undefined'
-    ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
-    : undefined;
-  const boundaryLeft = boundary?.left ?? 0;
-  const boundaryRight = boundary?.right ?? window.innerWidth;
-  const boundaryTop = boundary?.top ?? 0;
-  const boundaryBottom = Math.min(boundary?.bottom ?? window.innerHeight, playerBarTop ?? window.innerHeight);
-  const left = Math.min(Math.max(boundaryLeft + 8, x), Math.max(boundaryLeft + 8, boundaryRight - menuWidth - 8));
-  const rightSpace = boundaryRight - (left + menuWidth);
-
-  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -103,52 +108,76 @@ export function SongContextMenu({
     const menu = menuRef.current;
     if (!menu) return;
     const rect = menu.getBoundingClientRect();
-    const bounds = boundaryRef?.current?.getBoundingClientRect();
-    const topEdge = (bounds?.top ?? 0) + 8;
-    const playerTop = typeof document !== 'undefined'
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const playerBarTop = typeof document !== 'undefined'
       ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
       : undefined;
-    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
-    const nextTop = Math.min(Math.max(topEdge, y), Math.max(topEdge, bottomEdge - rect.height));
-    if (Math.abs(nextTop - menuTop) > 1) setMenuTop(nextTop);
-  }, [boundaryRef, menuTop, openSubmenu, playlists.length, y]);
+
+    const calculated = calculateContextMenuPosition({
+      cursorX: x,
+      cursorY: y,
+      menuWidth: rect.width || menuWidth,
+      menuHeight: rect.height || 240,
+      viewportWidth: vw,
+      viewportHeight: vh,
+      bottomBoundary: playerBarTop ?? vh,
+      horizontalGap: 4,
+      verticalGap: 4,
+    });
+
+    setPos((current) => {
+      if (
+        current.x === calculated.x &&
+        current.y === calculated.y &&
+        current.placedAbove === calculated.placedAbove &&
+        current.placedLeft === calculated.placedLeft
+      ) {
+        return current;
+      }
+      return calculated;
+    });
+  }, [x, y, openSubmenu, playlists.length]);
 
   useLayoutEffect(() => {
     setSubmenuOffset(0);
     const submenu = submenuRef.current;
     if (!submenu) return;
     const rect = submenu.getBoundingClientRect();
-    let offset = 0;
-    const bounds = boundaryRef?.current?.getBoundingClientRect();
-    const topEdge = (bounds?.top ?? 0) + 8;
+    const vh = window.innerHeight;
     const playerTop = typeof document !== 'undefined'
       ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
       : undefined;
-    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
+    const bottomEdge = Math.min(vh, playerTop ?? vh) - 8;
+    const topEdge = 8;
+
+    let offset = 0;
     if (rect.bottom > bottomEdge) offset -= rect.bottom - bottomEdge;
     if (rect.top + offset < topEdge) offset += topEdge - (rect.top + offset);
     setSubmenuOffset(offset);
-  }, [boundaryRef, openSubmenu, playlists.length, menuTop]);
+  }, [openSubmenu, pos.y]);
 
   useLayoutEffect(() => {
     setAddSubmenuOffset(0);
     setAddSubmenuHeight(null);
     if (openSubmenu !== 'add' || !addSubmenuRef.current) return;
     const rect = addSubmenuRef.current.getBoundingClientRect();
-    let offset = 0;
-    const bounds = boundaryRef?.current?.getBoundingClientRect();
-    const topEdge = (bounds?.top ?? 0) + 8;
+    const vh = window.innerHeight;
     const playerTop = typeof document !== 'undefined'
       ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
       : undefined;
-    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
+    const bottomEdge = Math.min(vh, playerTop ?? vh) - 8;
+    const topEdge = 8;
+
+    let offset = 0;
     if (rect.bottom > bottomEdge) offset -= rect.bottom - bottomEdge;
     if (rect.top + offset < topEdge) offset += topEdge - (rect.top + offset);
     setAddSubmenuOffset(offset);
+
     const visibleTop = Math.max(topEdge, rect.top + offset);
     const availableHeight = Math.max(140, bottomEdge - visibleTop);
     if (rect.height > availableHeight) setAddSubmenuHeight(availableHeight);
-  }, [boundaryRef, openSubmenu, menuTop, playlists.length]);
+  }, [openSubmenu, pos.y, playlists.length]);
 
   const run = (callback: () => void) => {
     onClose();
@@ -214,14 +243,16 @@ export function SongContextMenu({
     });
   };
 
-  const leftSpace = left;
+  const rightSpace = typeof window !== 'undefined' ? window.innerWidth - (pos.x + menuWidth) : 500;
+  const leftSpace = pos.x;
+
   const submenuPlacement = rightSpace >= submenuWidth + 8
     ? 'right'
     : leftSpace >= submenuWidth + 8
       ? 'left'
-      : boundaryBottom - menuTop >= 250
-        ? 'below'
-        : 'above';
+      : pos.placedAbove
+        ? 'above'
+        : 'below';
   const addSubmenuPlacement = rightSpace >= addSubmenuWidth + 8 ? 'right' : 'left';
 
   const submenuPosition = submenuPlacement === 'left'
@@ -231,6 +262,7 @@ export function SongContextMenu({
       : submenuPlacement === 'below'
         ? 'left-0 top-full mt-1'
         : 'left-0 bottom-full mb-1';
+
   const menuAction = 'menu-action h-10 w-full text-[15px]';
 
   const handleDownloadClick = async () => {
@@ -244,119 +276,119 @@ export function SongContextMenu({
   };
 
   return (
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={`Actions for ${track.title}`}
-      onMouseEnter={cancelMenuClose}
-      onMouseLeave={scheduleMenuClose}
-      className={`absolute z-[100] w-[280px] overflow-visible rounded-xl border border-border bg-surface p-1.5 shadow-2xl shadow-shadow/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
-      style={{ left: left - boundaryLeft, top: menuTop - boundaryTop }}
-    >
-      {/* Download / Delete Download */}
-      {!isDownloading && (
-        track.downloaded ? (
-          onDeleteTrack && (
-            <button onClick={handleDeleteClick} className={`${menuAction} hover:text-error`}>
-              <Trash2 className="h-5 w-5 text-error" /> Delete download
-            </button>
-          )
-        ) : (
-          onDownloadTrack && (
-            <button onClick={handleDownloadClick} className={menuAction}>
-              <Download className="h-5 w-5 text-accent" /> Download song
-            </button>
-          )
-        )
-      )}
-
-
+    <div ref={modalRef}>
       <div
-        className="relative"
-        onMouseEnter={() => openMenu('add')}
-        onMouseLeave={() => scheduleCloseMenu('add')}
+        ref={menuRef}
+        role="menu"
+        aria-label={`Actions for ${track.title}`}
+        onMouseEnter={cancelMenuClose}
+        onMouseLeave={scheduleMenuClose}
+        className={`fixed z-[100] w-[280px] overflow-visible rounded-xl border border-border bg-surface p-1.5 shadow-2xl shadow-shadow/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
+        style={{ left: pos.x, top: pos.y }}
       >
-        <button
-          onClick={() => toggleMenu('add')}
-          className={menuAction}
-        >
-          <CirclePlus className="h-5 w-5" /> Add to playlist <span className="ml-auto text-text-secondary">›</span>
-        </button>
-        {openSubmenu === 'add' && (
-          <div
-            ref={addSubmenuRef}
-            className={`absolute top-0 z-50 ${closingSubmenu === 'add' ? 'animate-dropdown-out' : 'animate-dropdown-in'} ${addSubmenuPlacement === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}
-            style={{
-              transform: `translateY(${addSubmenuOffset}px)`,
-              ...(addSubmenuHeight
-                ? { height: `${addSubmenuHeight}px`, maxHeight: `${addSubmenuHeight}px`, overflow: 'hidden' }
-                : {}),
-            }}
-          >
-            <AddToPlaylistDropdown
-              track={track}
-              playlists={playlists}
-              style={addSubmenuHeight ? { height: `${addSubmenuHeight}px`, maxHeight: `${addSubmenuHeight}px` } : undefined}
-              checkedIds={playlistId ? [playlistId] : []}
-              onAdd={onAddToPlaylist}
-              onRemove={(t, pid) => onRemoveFromPlaylist?.(t, pid)}
-              onClose={() => {
-                setOpenSubmenu(null);
-                onClose();
-              }}
-            />
-          </div>
+        {!isDownloading && (
+          track.downloaded ? (
+            onDeleteTrack && (
+              <button onClick={handleDeleteClick} className={`${menuAction} hover:text-error`}>
+                <Trash2 className="h-5 w-5 text-error" /> Delete download
+              </button>
+            )
+          ) : (
+            onDownloadTrack && (
+              <button onClick={handleDownloadClick} className={menuAction}>
+                <Download className="h-5 w-5 text-accent" /> Download song
+              </button>
+            )
+          )
         )}
-      </div>
 
-      <button onClick={() => run(() => onAddToQueue(track))} className={menuAction}>
-        <ListPlus className="h-5 w-5" /> Add to queue
-      </button>
-
-      <div
-        className="relative group border-t border-border pt-1"
-        onMouseEnter={() => openMenu('sleep')}
-        onMouseLeave={() => scheduleCloseMenu('sleep')}
-      >
-        <button onClick={() => toggleMenu('sleep')} className={menuAction}>
-          <Timer className="h-5 w-5" /> Sleep timer <span className="ml-auto text-text-secondary">›</span>
-        </button>
-        {openSubmenu === 'sleep' && (
-          <div
-            ref={submenuRef}
-            onMouseEnter={() => openMenu('sleep')}
-            onMouseLeave={() => scheduleCloseMenu('sleep')}
-            className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-border bg-surface p-1.5 shadow-2xl z-50 ${closingSubmenu === 'sleep' ? 'animate-dropdown-out' : 'animate-dropdown-in'}`}
-            style={{ transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}
+        <div
+          className="relative"
+          onMouseEnter={() => openMenu('add')}
+          onMouseLeave={() => scheduleCloseMenu('add')}
+        >
+          <button
+            onClick={() => toggleMenu('add')}
+            className={menuAction}
           >
-            {SLEEP_TIMER_PRESETS.map((preset) => (
+            <CirclePlus className="h-5 w-5" /> Add to playlist <span className="ml-auto text-text-secondary">›</span>
+          </button>
+          {openSubmenu === 'add' && (
+            <div
+              ref={addSubmenuRef}
+              className={`absolute top-0 z-50 ${closingSubmenu === 'add' ? 'animate-dropdown-out' : 'animate-dropdown-in'} ${addSubmenuPlacement === 'right' ? 'left-full ml-1' : 'right-full mr-1'}`}
+              style={{
+                transform: `translateY(${addSubmenuOffset}px)`,
+                ...(addSubmenuHeight
+                  ? { height: `${addSubmenuHeight}px`, maxHeight: `${addSubmenuHeight}px`, overflow: 'hidden' }
+                  : {}),
+              }}
+            >
+              <AddToPlaylistDropdown
+                track={track}
+                playlists={playlists}
+                style={addSubmenuHeight ? { height: `${addSubmenuHeight}px`, maxHeight: `${addSubmenuHeight}px` } : undefined}
+                checkedIds={playlistId ? [playlistId] : []}
+                onAdd={onAddToPlaylist}
+                onRemove={(t, pid) => onRemoveFromPlaylist?.(t, pid)}
+                onClose={() => {
+                  setOpenSubmenu(null);
+                  onClose();
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        <button onClick={() => run(() => onAddToQueue(track))} className={menuAction}>
+          <ListPlus className="h-5 w-5" /> Add to queue
+        </button>
+
+        <div
+          className="relative group border-t border-border pt-1"
+          onMouseEnter={() => openMenu('sleep')}
+          onMouseLeave={() => scheduleCloseMenu('sleep')}
+        >
+          <button onClick={() => toggleMenu('sleep')} className={menuAction}>
+            <Timer className="h-5 w-5" /> Sleep timer <span className="ml-auto text-text-secondary">›</span>
+          </button>
+          {openSubmenu === 'sleep' && (
+            <div
+              ref={submenuRef}
+              onMouseEnter={() => openMenu('sleep')}
+              onMouseLeave={() => scheduleCloseMenu('sleep')}
+              className={`absolute ${submenuPosition} w-[224px] rounded-xl border border-border bg-surface p-1.5 shadow-2xl z-50 ${closingSubmenu === 'sleep' ? 'animate-dropdown-out' : 'animate-dropdown-in'}`}
+              style={{ transform: submenuPlacement === 'below' ? undefined : `translateY(${submenuOffset}px)` }}
+            >
+              {SLEEP_TIMER_PRESETS.map((preset) => (
+                <button
+                  key={preset.minutes}
+                  onClick={() => run(() => onSetSleepTimer(preset.minutes))}
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
+                >
+                  {preset.label}
+                </button>
+              ))}
               <button
-                key={preset.minutes}
-                onClick={() => run(() => onSetSleepTimer(preset.minutes))}
+                onClick={() => run(onOpenSleepTimer)}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
               >
-                {preset.label}
+                End of track
               </button>
-            ))}
-            <button
-              onClick={() => run(onOpenSleepTimer)}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
-            >
-              End of track
-            </button>
-            <button
-              onClick={() => run(onOpenSleepTimer)}
-              className="w-full rounded-lg border-t border-border px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
-            >
-              Custom timer…
-            </button>
-          </div>
-        )}
-      </div>
+              <button
+                onClick={() => run(onOpenSleepTimer)}
+                className="w-full rounded-lg border-t border-border px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-hover hover:text-text transition-colors duration-150"
+              >
+                Custom timer…
+              </button>
+            </div>
+          )}
+        </div>
 
-      <button onClick={() => run(() => onPlayNext(track))} className={menuAction}>
-        <SkipForward className="h-5 w-5" /> Play next
-      </button>
+        <button onClick={() => run(() => onPlayNext(track))} className={menuAction}>
+          <SkipForward className="h-5 w-5" /> Play next
+        </button>
+      </div>
     </div>
   );
 }

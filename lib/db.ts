@@ -25,6 +25,8 @@ export {
   deletePlaylist as deleteCachedPlaylist,
   reconcilePlaylist,
   getPlaylistWithArtwork,
+  setPlaylistSyncOnOpen,
+  allocateUniquePlaylistTitle,
 } from './storage/playlists';
 
 // Backwards-compat alias: findLocalPlaylistBySourceUrl

@@ -56,8 +56,12 @@ function initSchema(db: DatabaseSync): void {
       sync_error         TEXT,
       last_synced_at     TEXT,
       imported_at        TEXT,
+      sync_on_open       INTEGER NOT NULL DEFAULT 0,
       created_at         TEXT NOT NULL
     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_title
+      ON playlists(title);
 
     CREATE TABLE IF NOT EXISTS tracks (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,4 +105,11 @@ function initSchema(db: DatabaseSync): void {
       match_method     TEXT
     );
   `);
+
+  // Safe migration for existing databases
+  try {
+    db.exec('ALTER TABLE playlists ADD COLUMN sync_on_open INTEGER NOT NULL DEFAULT 0;');
+  } catch {
+    // Column already exists
+  }
 }

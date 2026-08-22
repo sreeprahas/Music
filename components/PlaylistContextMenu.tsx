@@ -2,7 +2,9 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Playlist } from '@/types';
-import { Download, Pin, PinOff, Play, Shuffle, Trash2 } from 'lucide-react';
+import { Download, Pin, PinOff, Play, RefreshCw, Shuffle, Trash2 } from 'lucide-react';
+import { useSpotifySyncAction } from '@/hooks/useSpotifySyncAction';
+import { SpotifySyncConfirmModal } from './SpotifySyncConfirmModal';
 
 interface Props {
   playlist: Playlist;
@@ -15,19 +17,16 @@ interface Props {
   onTogglePin: (playlistId: string) => void;
   onRemove: (playlistId: string) => void;
   onClose: () => void;
+  /** Called after confirmation to execute an immediate Spotify sync. Spotify playlists only. */
+  onSyncNow?: (playlistId: string) => void;
   boundaryRef?: React.RefObject<HTMLElement | null>;
 }
 
 /**
  * Right-click context menu for a playlist card/nav item.
  *
- * Mirrors the structure of SongContextMenu (positioning, close-on-outside-click,
- * viewport-flip, closing animation) but exposes playlist-level actions:
- *   - Play
- *   - Shuffle play
- *   - Download all songs
- *   - Pin / Unpin playlist
- *   - Remove playlist
+ * For Spotify-imported playlists it also exposes "Sync now",
+ * which routes through the shared SpotifySync confirmation flow.
  */
 export function PlaylistContextMenu({
   playlist,
@@ -40,6 +39,7 @@ export function PlaylistContextMenu({
   onTogglePin,
   onRemove,
   onClose,
+  onSyncNow,
   boundaryRef,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -48,6 +48,11 @@ export function PlaylistContextMenu({
   const [menuTop, setMenuTop] = useState(y);
   const menuWidth = 280;
   const menuCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Shared Spotify sync confirmation flow
+  const { requestSyncAction, isModalOpen, handleModalCancel, handleModalContinue } = useSpotifySyncAction();
+
+  const isSpotify = playlist.source === 'spotify' && Boolean(playlist.sourcePlaylistId);
 
   const boundary = boundaryRef?.current?.getBoundingClientRect();
   const playerBarTop = typeof document !== 'undefined'
@@ -133,10 +138,25 @@ export function PlaylistContextMenu({
     callback();
   };
 
+  const handleSyncNowClick = () => {
+    if (!onSyncNow) return;
+    onClose();
+    requestSyncAction({
+      onConfirm: () => onSyncNow(playlist.id),
+    });
+  };
+
   const menuAction = 'menu-action h-10 w-full text-[15px]';
 
   return (
     <div ref={modalRef}>
+      {/* Sync confirmation modal rendered outside menu so it is never clipped */}
+      {isModalOpen && (
+        <SpotifySyncConfirmModal
+          onCancel={handleModalCancel}
+          onContinue={handleModalContinue}
+        />
+      )}
       <div
         ref={menuRef}
         role="menu"
@@ -157,6 +177,20 @@ export function PlaylistContextMenu({
         <button onClick={() => run(() => onDownload(playlist.id))} className={menuAction}>
           <Download className="h-5 w-5 text-accent" /> Download all songs
         </button>
+
+        {/* Spotify-specific sync action */}
+        {isSpotify && onSyncNow && (
+          <>
+            <div className="border-t border-border my-1" />
+            <button
+              onClick={handleSyncNowClick}
+              className={menuAction}
+              title="Sync this playlist with Spotify"
+            >
+              <RefreshCw className="h-5 w-5 text-accent" /> Sync now
+            </button>
+          </>
+        )}
 
         <div className="border-t border-border my-1" />
 

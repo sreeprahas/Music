@@ -67,10 +67,14 @@ export async function POST(request: Request) {
             (fetched, total) => { send({ type: 'progress', fetched, total }); },
           );
 
-          // Build app models
-          const localId = `spotify-${playlistId}`;
+          // Build app models with unique local ID for every import
+          const localId = `sp-${playlistId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
           const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
-          const playlist = toAppPlaylist(playlistId, meta.name, meta.image, rawUrl, appTracks);
+          const playlist = {
+            ...toAppPlaylist(playlistId, meta.name, meta.image, rawUrl, appTracks),
+            id: localId,
+            syncOnOpen: false,
+          };
 
           // Promote cached preview images into playlist-scoped thumbnail dir
           const previewDir = path.join(path.resolve(getDataDir()), 'cache', 'preview');

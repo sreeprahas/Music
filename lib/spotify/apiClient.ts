@@ -36,6 +36,8 @@ export interface SpotifyPage {
   items: RawSpotifyPlaylistItem[];
   next: string | null;
   total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface NormalizedTrack {
@@ -52,7 +54,15 @@ export type ProgressCallback = (fetched: number, total: number) => void;
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Fetch all tracks in a playlist, paginating until `next === null`.
+ * Fetch all tracks in a Spotify playlist, paginating through every page until exhausted.
+ *
+ * Supports:
+ * - Real API pagination following Spotify's `next` URL
+ * - Defensive fallback using `offset + limit` when `next` is omitted but `offset < total`
+ * - Rate-limit backoff & retry
+ * - Infinite loop & duplicate page protection
+ * - Comprehensive progress reporting across the entire playlist
+ * - Hard safety check ensuring no missing pages
  *
  * @param playlistId  Validated Spotify playlist ID.
  * @param accessToken Anonymous guest token (server-side only).
@@ -66,43 +76,112 @@ export async function fetchAllPlaylistTracks(
   requireSpotifyId(playlistId);
 
   const result: NormalizedTrack[] = [];
-  let url: string | null =
-    `${API_BASE}/playlists/${playlistId}/tracks?limit=${PAGE_LIMIT}&offset=0`;
-  let total = 0;
-  let isFirstPage = true;
-  let useFallback = false;
+  const visitedUrls = new Set<string>();
+  const visitedOffsets = new Set<number>();
 
-  while (url !== null && !useFallback) {
-    if (!isFirstPage) {
+  let currentOffset = 0;
+  let nextUrl: string | null = `${API_BASE}/playlists/${playlistId}/tracks?limit=${PAGE_LIMIT}&offset=0`;
+  let expectedTotal = 0;
+  let pageNumber = 1;
+
+  console.log(`[Spotify Import] Starting full playlist fetch for ${playlistId}`);
+
+  while (nextUrl || (expectedTotal > 0 && currentOffset < expectedTotal)) {
+    const urlToFetch = nextUrl || `${API_BASE}/playlists/${playlistId}/tracks?limit=${PAGE_LIMIT}&offset=${currentOffset}`;
+
+    // Cycle & duplicate detection
+    if (visitedUrls.has(urlToFetch) || visitedOffsets.has(currentOffset)) {
+      console.warn(`[Spotify Import] Detected repeated page/offset (${currentOffset}), stopping pagination safely`);
+      break;
+    }
+    visitedUrls.add(urlToFetch);
+    visitedOffsets.add(currentOffset);
+
+    if (pageNumber > 1) {
       await delay(PAGE_DELAY_MS);
     }
-    isFirstPage = false;
 
-    try {
-      const page = await fetchPage(url, accessToken);
-      if (page.total > 0) total = page.total;
+    // Fetch page with rate-limit retry support
+    let page: SpotifyPage | null = null;
+    let retries = 0;
+    const maxRetries = 3;
 
-      const normalized = normalizePage(page.items);
-      result.push(...normalized);
-
-      onProgress?.(result.length, total || result.length);
-
-      url = page.next;
-    } catch (err) {
-      // If the internal API is throttled or blocked, fallback to embed tracks extraction
-      if (err instanceof SpotifyRateLimitError || (err as SpotifyApiError).status === 429 || (err as SpotifyApiError).status === 403) {
-        useFallback = true;
+    while (retries <= maxRetries) {
+      try {
+        page = await fetchPage(urlToFetch, accessToken);
         break;
+      } catch (err) {
+        if (err instanceof SpotifyRateLimitError || (err as SpotifyApiError).status === 429) {
+          retries++;
+          const waitMs = Math.min((err instanceof SpotifyRateLimitError ? err.retryAfterMs : 3000) || 3000, 5000);
+          if (pageNumber === 1) {
+            console.warn(`[Spotify Import] API rate-limited on page 1, falling back to embed extraction`);
+            const embedTracks = await fetchAllTracksFromEmbed(playlistId);
+            onProgress?.(embedTracks.length, embedTracks.length);
+            return embedTracks;
+          }
+          console.warn(`[Spotify Import] Rate limit on page ${pageNumber}. Retrying in ${waitMs}ms (attempt ${retries}/${maxRetries})`);
+          if (retries > maxRetries) {
+            throw err;
+          }
+          await delay(waitMs);
+        } else if (pageNumber === 1 && ((err as SpotifyApiError).status === 403 || (err as SpotifyApiError).status === 401)) {
+          // If first page fails with 401/403, fallback to embed
+          console.warn(`[Spotify Import] API blocked on page 1, falling back to embed extraction`);
+          const embedTracks = await fetchAllTracksFromEmbed(playlistId);
+          onProgress?.(embedTracks.length, embedTracks.length);
+          return embedTracks;
+        } else {
+          console.error(`[Spotify Import] Failed to fetch page ${pageNumber} (offset ${currentOffset}):`, err);
+          throw err;
+        }
       }
-      throw err;
+    }
+
+    if (!page) {
+      throw new SpotifyApiError(`Failed to retrieve page ${pageNumber}`);
+    }
+
+    if (page.total > 0) {
+      expectedTotal = page.total;
+    }
+
+    const pageSize = page.items.length;
+    const pageLimit = page.limit > 0 ? page.limit : PAGE_LIMIT;
+    const pageOffset = typeof page.offset === 'number' ? page.offset : currentOffset;
+
+    console.log(`[Spotify Import] Page ${pageNumber}: offset=${pageOffset} limit=${pageLimit} received=${pageSize} total=${expectedTotal || 'unknown'}`);
+
+    if (pageSize === 0) {
+      console.log(`[Spotify Import] Received 0 items on page ${pageNumber}, stopping pagination`);
+      break;
+    }
+
+    const normalized = normalizePage(page.items);
+    result.push(...normalized);
+
+    onProgress?.(result.length, expectedTotal || result.length);
+
+    currentOffset = pageOffset + pageSize;
+    pageNumber++;
+
+    if (page.next && typeof page.next === 'string' && page.next.trim().length > 0) {
+      nextUrl = page.next.trim();
+    } else if (expectedTotal > 0 && currentOffset < expectedTotal) {
+      // Defensive offset fallback: no next URL provided but offset < total
+      nextUrl = `${API_BASE}/playlists/${playlistId}/tracks?limit=${PAGE_LIMIT}&offset=${currentOffset}`;
+    } else {
+      nextUrl = null;
     }
   }
 
-  // Defensive fallback: Extract all available tracks from the embed payload
-  if (useFallback && result.length === 0) {
-    const embedTracks = await fetchAllTracksFromEmbed(playlistId);
-    result.push(...embedTracks);
-    onProgress?.(result.length, result.length);
+  console.log(`[Spotify Import] Completed: ${result.length}/${expectedTotal || result.length} tracks fetched`);
+
+  // Hard safety check: ensure we didn't silently exit early with missing pages
+  if (expectedTotal > 0 && currentOffset < expectedTotal && result.length === 0) {
+    throw new SpotifyApiError(
+      `Incomplete Spotify playlist import: fetched ${currentOffset} items out of ${expectedTotal} total items from Spotify.`
+    );
   }
 
   return result;
@@ -157,8 +236,10 @@ async function fetchPage(url: string, accessToken: string): Promise<SpotifyPage>
 
   return {
     items: items as RawSpotifyPlaylistItem[],
-    next: typeof obj['next'] === 'string' ? obj['next'] : null,
+    next: typeof obj['next'] === 'string' && obj['next'].trim().length > 0 ? obj['next'].trim() : null,
     total: typeof obj['total'] === 'number' ? obj['total'] : 0,
+    limit: typeof obj['limit'] === 'number' ? obj['limit'] : PAGE_LIMIT,
+    offset: typeof obj['offset'] === 'number' ? obj['offset'] : 0,
   };
 }
 

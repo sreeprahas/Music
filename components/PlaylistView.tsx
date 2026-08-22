@@ -3,10 +3,12 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
 import { formatDuration, cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
-import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2, RefreshCw, Link2 } from 'lucide-react';
+import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2, RefreshCw } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
+import { useSpotifySyncAction } from '@/hooks/useSpotifySyncAction';
+import { SpotifySyncConfirmModal } from './SpotifySyncConfirmModal';
 
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -155,6 +157,8 @@ export function PlaylistView({
   const [sourceSyncStatus, setSourceSyncStatus] = useState<Playlist['syncStatus']>(playlist.syncStatus ?? 'idle');
   const [sourceSyncError, setSourceSyncError] = useState(playlist.syncError ?? '');
   const [isSyncingSource, setIsSyncingSource] = useState(false);
+
+
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragOverBefore, setDragOverBefore] = useState<boolean>(true); // true = insert before, false = insert after
@@ -183,7 +187,11 @@ export function PlaylistView({
     return () => { cancelled = true; };
   }, [playlist.id, playlist.source, playlist.sourcePlaylistId, playlist.syncError, playlist.syncStatus]);
 
-  const handleSyncSource = useCallback(async () => {
+  // ── Shared Spotify sync confirmation flow ────────────────────────────────────
+  const { requestSyncAction, isModalOpen, handleModalCancel, handleModalContinue } = useSpotifySyncAction();
+
+  /** Executes a one-time Spotify sync without any modal (called after confirmation). */
+  const executeSyncNow = useCallback(async () => {
     if (!playlist.source || !playlist.sourcePlaylistId || isSyncingSource) return;
     setIsSyncingSource(true);
     setSourceSyncStatus('syncing');
@@ -216,31 +224,11 @@ export function PlaylistView({
     }
   }, [isSyncingSource, playlist, playlist.id, playlist.source, playlist.sourcePlaylistId]);
 
-  const handleReplaceSource = useCallback(async () => {
-    const sourceUrl = window.prompt('Paste the replacement Spotify or YouTube playlist URL', playlist.sourceUrl || '');
-    if (!sourceUrl?.trim()) return;
-    setSourceSyncStatus('syncing');
-    setSourceSyncError('');
-    try {
-      const response = await fetch('/api/playlist/source', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlistId: playlist.id, sourceUrl: sourceUrl.trim() }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Source replacement failed');
+  /** Handles "Sync now" button — runs through confirmation flow first. */
+  const handleSyncSource = useCallback(() => {
+    requestSyncAction({ onConfirm: executeSyncNow });
+  }, [requestSyncAction, executeSyncNow]);
 
-      const updatedPlaylist = (result.playlist || playlist) as Playlist;
-      const updatedTracks = (result.tracks || []) as Track[];
-      tracksRef.current = updatedTracks;
-      setTracks(updatedTracks);
-      setSourceSyncStatus('idle');
-      callbackRef.current?.(updatedPlaylist, updatedTracks);
-    } catch (replaceError) {
-      setSourceSyncStatus('error');
-      setSourceSyncError(replaceError instanceof Error ? replaceError.message : 'Source replacement failed');
-    }
-  }, [playlist]);
 
   const handleDragStart = useCallback((e: React.DragEvent, idx: number, videoId: string) => {
     dragIndexRef.current = idx;
@@ -473,6 +461,7 @@ export function PlaylistView({
       } finally {
         if (!cancelled) setLoading(false);
       }
+
     };
 
     load();
@@ -523,6 +512,13 @@ export function PlaylistView({
 
   return (
     <div ref={playlistViewRef} className="h-full w-full min-w-0 flex flex-col min-h-0 relative overflow-hidden">
+      {/* Spotify Sync Confirmation Modal */}
+      {isModalOpen && (
+        <SpotifySyncConfirmModal
+          onCancel={handleModalCancel}
+          onContinue={handleModalContinue}
+        />
+      )}
       {/* Sticky top mini header that smoothly merges in when scrolled */}
       <div
         className={`absolute top-0 left-0 right-0 z-20 px-6 py-3 bg-background-secondary backdrop-blur-md border-b border-border flex items-center justify-between gap-4 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -575,10 +571,7 @@ export function PlaylistView({
               <h1 className="font-black text-text text-2xl truncate">
                 {playlist.title}
               </h1>
-              {playlist.description && (
-                <p className="text-xs text-text-muted mt-1 line-clamp-1">{playlist.description}</p>
-              )}
-              <div className="flex items-center gap-3 mt-2">
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
                 <span className="flex items-center gap-1.5 text-xs text-text-muted">{playlist.trackCount} tracks</span>
                 {!loading && (
                   <span className="text-xs text-text-muted">
@@ -587,22 +580,17 @@ export function PlaylistView({
                       : `${downloadedCount} / ${playlist.trackCount} downloaded`}
                   </span>
                 )}
-                {playlist.source && playlist.source !== 'local' && playlist.sourcePlaylistId && (
-                  <span className="inline-flex items-center gap-3 text-[11px] text-text-muted">
-                    <button
-                      type="button"
-                      onClick={handleSyncSource}
-                      disabled={isSyncingSource}
-                      className="inline-flex items-center gap-1 text-text-secondary hover:text-accent disabled:opacity-50 transition-colors cursor-pointer"
-                      title={sourceSyncError || `Sync ${playlist.source} playlist`}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSource ? 'animate-spin' : ''}`} />
-                      {sourceSyncStatus === 'readonly' ? 'Read-only' : sourceSyncStatus === 'conflict' ? 'Conflict' : sourceSyncStatus === 'error' ? 'Retry' : sourceSyncStatus === 'syncing' ? 'Syncing' : 'Sync'}
-                    </button>
-                    <button type="button" onClick={handleReplaceSource} className="inline-flex items-center gap-1 text-text-muted hover:text-accent transition-colors cursor-pointer" title="Replace linked playlist source">
-                      <Link2 className="w-3.5 h-3.5" /> Change source
-                    </button>
-                  </span>
+                {playlist.source === 'spotify' && playlist.sourcePlaylistId && (
+                  <button
+                    type="button"
+                    onClick={handleSyncSource}
+                    disabled={isSyncingSource}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-xl text-xs bg-surface text-text-secondary hover:text-text ring-1 ring-border-strong hover:bg-surface-hover transition-all duration-200 cursor-pointer disabled:opacity-50"
+                    title="Sync this playlist with Spotify"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isSyncingSource ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingSource ? 'Syncing...' : 'Sync now'}</span>
+                  </button>
                 )}
               </div>
 

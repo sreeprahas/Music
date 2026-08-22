@@ -25,6 +25,7 @@ interface SidebarProps {
   onShufflePlayPlaylist?: (id: string) => void;
   onDownloadPlaylist?: (id: string) => void;
   onRemovePlaylist?: (id: string) => void;
+  onSyncNow?: (id: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }
@@ -48,6 +49,7 @@ export function Sidebar({
   onShufflePlayPlaylist,
   onDownloadPlaylist,
   onRemovePlaylist,
+  onSyncNow,
   expanded = true,
   onToggleExpanded,
 }: SidebarProps) {
@@ -244,6 +246,7 @@ export function Sidebar({
             onDownload={onDownloadPlaylist}
             onTogglePin={onTogglePin}
             onRemove={onRemovePlaylist}
+            onSyncNow={onSyncNow}
             onClose={() => setContextMenu(null)}
           />
         )}
@@ -432,6 +435,7 @@ export function Sidebar({
           onDownload={onDownloadPlaylist}
           onTogglePin={onTogglePin}
           onRemove={onRemovePlaylist}
+          onSyncNow={onSyncNow}
           onClose={() => setContextMenu(null)}
         />
       )}

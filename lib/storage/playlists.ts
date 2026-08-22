@@ -33,6 +33,7 @@ interface PlaylistRow {
   sync_error: string | null;
   last_synced_at: string | null;
   imported_at: string | null;
+  sync_on_open?: number;
   created_at: string;
 }
 
@@ -53,6 +54,7 @@ function rowToPlaylist(row: PlaylistRow): Playlist {
     syncError: row.sync_error ?? undefined,
     lastSyncedAt: row.last_synced_at ?? undefined,
     importedAt: row.imported_at ?? undefined,
+    syncOnOpen: Boolean(row.sync_on_open),
     createdAt: row.created_at,
   };
 }
@@ -71,8 +73,39 @@ function playlistToRow(p: Playlist): Omit<PlaylistRow, 'track_count'> {
     sync_error: p.syncError ?? null,
     last_synced_at: p.lastSyncedAt ?? null,
     imported_at: p.importedAt ?? null,
+    sync_on_open: p.syncOnOpen ? 1 : 0,
     created_at: p.createdAt || new Date().toISOString(),
   };
+}
+
+// ─── Unique Title Allocation ─────────────────────────────────────────────────
+
+/**
+ * Atomically checks for duplicate playlist names in SQLite and generates
+ * unique incrementing title: "Title", "Title - 1", "Title - 2", etc.
+ */
+export function allocateUniquePlaylistTitle(
+  requestedTitle: string,
+  excludePlaylistId?: string,
+): string {
+  const db = getDb();
+  const baseTitle = (requestedTitle || 'Untitled Playlist').trim() || 'Untitled Playlist';
+  let candidate = baseTitle;
+  let counter = 1;
+
+  while (true) {
+    const existing = excludePlaylistId
+      ? db.prepare('SELECT id FROM playlists WHERE title = ? AND id != ?').get(candidate, excludePlaylistId)
+      : db.prepare('SELECT id FROM playlists WHERE title = ?').get(candidate);
+
+    if (!existing) return candidate;
+    candidate = `${baseTitle} - ${counter++}`;
+  }
+}
+
+export function setPlaylistSyncOnOpen(playlistId: string, syncOnOpen: boolean): void {
+  const db = getDb();
+  db.prepare('UPDATE playlists SET sync_on_open = ? WHERE id = ?').run(syncOnOpen ? 1 : 0, playlistId);
 }
 
 // ─── Artwork aggregation ──────────────────────────────────────────────────────
@@ -130,14 +163,16 @@ export function findPlaylistBySourceUrl(sourceUrl: string): Playlist | undefined
 
 export function upsertPlaylist(playlist: Playlist, tracks?: Track[]): Playlist {
   const db = getDb();
-  const row = playlistToRow(playlist);
+  const uniqueTitle = allocateUniquePlaylistTitle(playlist.title, playlist.id);
+  const playlistToSave: Playlist = { ...playlist, title: uniqueTitle };
+  const row = playlistToRow(playlistToSave);
   const trackCount = tracks?.length ?? playlist.trackCount ?? 0;
 
   db.prepare(`
     INSERT INTO playlists
       (id, title, description, thumbnail_url, track_count, source, source_url, source_playlist_id,
-       source_revision, sync_status, sync_error, last_synced_at, imported_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       source_revision, sync_status, sync_error, last_synced_at, imported_at, sync_on_open, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title              = excluded.title,
       description        = excluded.description,
@@ -150,11 +185,12 @@ export function upsertPlaylist(playlist: Playlist, tracks?: Track[]): Playlist {
       sync_status        = excluded.sync_status,
       sync_error         = excluded.sync_error,
       last_synced_at     = excluded.last_synced_at,
-      imported_at        = excluded.imported_at
+      imported_at        = excluded.imported_at,
+      sync_on_open       = excluded.sync_on_open
   `).run(
     row.id, row.title, row.description, row.thumbnail_url, trackCount,
     row.source, row.source_url, row.source_playlist_id, row.source_revision,
-    row.sync_status, row.sync_error, row.last_synced_at, row.imported_at, row.created_at,
+    row.sync_status, row.sync_error, row.last_synced_at, row.imported_at, row.sync_on_open ?? 0, row.created_at,
   );
 
   if (tracks !== undefined) {
@@ -177,10 +213,11 @@ export function deletePlaylist(playlistId: string): void {
 
 /**
  * Full import/re-import reconciliation.
- * 1. Prepares local track thumbnail URLs
- * 2. Runs single SQLite transaction: upserts playlist & replaces track memberships
- * 3. Promotes preview cache files immediately
- * 4. Downloads/reconciles remaining artwork in background asynchronously
+ * 1. Allocates unique title to prevent collisions
+ * 2. Prepares local track thumbnail URLs
+ * 3. Runs single SQLite transaction: upserts playlist & replaces track memberships
+ * 4. Promotes preview cache files immediately
+ * 5. Downloads/reconciles remaining artwork in background asynchronously
  * Returns stored Playlist + Track[] immediately.
  */
 export async function reconcilePlaylist(
@@ -190,7 +227,9 @@ export async function reconcilePlaylist(
   asyncArtwork = true,
 ): Promise<{ playlist: Playlist; tracks: Track[] }> {
   const db = getDb();
-  const row = playlistToRow(playlist);
+  const uniqueTitle = allocateUniquePlaylistTitle(playlist.title, playlist.id);
+  const playlistToSave: Playlist = { ...playlist, title: uniqueTitle };
+  const row = playlistToRow(playlistToSave);
 
   // Assign local thumbnail URLs immediately
   const tracksWithApiUrls = rawTracks.map((t, idx) => {
@@ -209,8 +248,8 @@ export async function reconcilePlaylist(
     db.prepare(`
       INSERT INTO playlists
         (id, title, description, thumbnail_url, track_count, source, source_url, source_playlist_id,
-         source_revision, sync_status, sync_error, last_synced_at, imported_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         source_revision, sync_status, sync_error, last_synced_at, imported_at, sync_on_open, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title              = excluded.title,
         description        = excluded.description,
@@ -223,11 +262,12 @@ export async function reconcilePlaylist(
         sync_status        = excluded.sync_status,
         sync_error         = excluded.sync_error,
         last_synced_at     = excluded.last_synced_at,
-        imported_at        = excluded.imported_at
+        imported_at        = excluded.imported_at,
+        sync_on_open       = excluded.sync_on_open
     `).run(
       row.id, row.title, row.description, row.thumbnail_url, tracksWithApiUrls.length,
       row.source, row.source_url, row.source_playlist_id, row.source_revision,
-      row.sync_status, row.sync_error, row.last_synced_at, row.imported_at, row.created_at,
+      row.sync_status, row.sync_error, row.last_synced_at, row.imported_at, row.sync_on_open ?? 0, row.created_at,
     );
 
     // 2. Replace track membership with local thumbnail URLs
