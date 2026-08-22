@@ -34,12 +34,15 @@ export async function GET(request: Request): Promise<Response> {
   };
 
   if (rangeHeader) {
-    const parts = rangeHeader.replace('bytes=', '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = end - start + 1;
+    const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+    if (!match) return new Response('Invalid range', { status: 416 });
+    const start = match[1] ? parseInt(match[1], 10) : Math.max(0, fileSize - parseInt(match[2], 10));
+    const end = match[1] && match[2] ? parseInt(match[2], 10) : fileSize - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= fileSize) return new Response('Invalid range', { status: 416 });
+    const boundedEnd = Math.min(end, fileSize - 1);
+    const chunkSize = boundedEnd - start + 1;
 
-    const nodeStream = fs.createReadStream(filePath, { start, end });
+    const nodeStream = fs.createReadStream(filePath, { start, end: boundedEnd });
     const webStream = new ReadableStream({
       start(controller) {
         nodeStream.on('data', (chunk: Buffer | string) =>
@@ -55,7 +58,7 @@ export async function GET(request: Request): Promise<Response> {
       status: 206,
       headers: {
         ...headers,
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Content-Range': `bytes ${start}-${boundedEnd}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': String(chunkSize),
       },

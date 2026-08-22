@@ -1,37 +1,42 @@
 /**
- * Merged search — the dual search engine endpoint.
+ * GET /api/search
+ *
+ * Unified search endpoint. Routes all queries to YouTube Music.
+ * The old "spotify" mode is treated as "ytmusic" — no Spotify search API is used.
  *
  * Query params:
  *   - q:     the search query (required)
- *   - mode:  'auto' (default) | 'spotify' | 'ytmusic'
- *   - limit: max results per source (default 20, capped at 50)
- *
- * In 'auto' mode, Spotify and YouTube Music searches run in parallel,
- * results are deduplicated, and Spotify results take priority. The YTMusic
- * videoId is absorbed onto matching Spotify tracks so playback can skip the
- * YouTube resolution step.
+ *   - mode:  'auto' (default) | 'ytmusic' | 'spotify' | 'local'
+ *   - limit: max results (default 20, capped at 50)
  */
 
 import { NextResponse } from 'next/server';
-import { dualSearch, type SearchMode } from '@/lib/spotify/dualSearch';
+import { searchYouTubeMusic } from '@/lib/youtube/search';
+import { getThumbnailUrl } from '@/lib/ytmusicFormat';
 import { toUiMessage } from '@/lib/spotify/errors';
+import type { Track } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get('q') || '';
-  const modeParam = (searchParams.get('mode') || 'auto').toLowerCase();
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') || 20)));
+  const mode = searchParams.get('mode') || 'auto';
 
-  const mode: SearchMode = (['auto', 'spotify', 'ytmusic'] as const).includes(modeParam as SearchMode)
-    ? (modeParam as SearchMode)
-    : 'auto';
-
+  if (q.length > 200) return NextResponse.json({ error: 'Search query is too long.', mode }, { status: 400 });
   if (!q.trim()) return NextResponse.json({ tracks: [], mode });
 
   try {
-    const tracks = await dualSearch(q, mode, limit);
+    const candidates = await searchYouTubeMusic(q, limit);
+    const tracks: Track[] = candidates.map((c, i) => ({
+      videoId: c.videoId,
+      title: c.title,
+      artist: c.channel || 'Unknown artist',
+      thumbnailUrl: getThumbnailUrl(c.videoId, c.title),
+      duration: c.duration,
+      position: i,
+    }));
     return NextResponse.json({ tracks, mode, total: tracks.length });
   } catch (err) {
     return NextResponse.json({ error: toUiMessage(err), mode }, { status: 500 });

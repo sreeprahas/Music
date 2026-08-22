@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { SongContextMenu } from './SongContextMenu';
 import { X, Trash2 } from 'lucide-react';
 
@@ -59,7 +59,7 @@ export function QueueDrawer({
             <h4 className="text-[10px] font-bold text-text-disabled uppercase tracking-widest mb-2">Now Playing</h4>
             <div className="flex items-center gap-3 p-2.5 rounded-xl bg-surface-hover border border-border-subtle">
               <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface shrink-0">
-                <img src={getThumbnailUrl(currentTrack.videoId, currentTrack.title)} alt={currentTrack.title} className="w-full h-full object-cover" />
+                <img src={getTrackThumbnailUrl(currentTrack)} alt={currentTrack.title} className="w-full h-full object-cover" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-accent text-sm font-semibold truncate">{currentTrack.title}</p>
@@ -123,7 +123,7 @@ export function QueueDrawer({
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <div className="w-8 h-8 rounded-md overflow-hidden bg-surface shrink-0">
-                      <img src={getThumbnailUrl(track.videoId, track.title)} alt={track.title} className="w-full h-full object-cover" />
+                      <img src={getTrackThumbnailUrl(track)} alt={track.title} className="w-full h-full object-cover" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-text-secondary truncate group-hover:text-text">{track.title}</p>

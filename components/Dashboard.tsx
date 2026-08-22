@@ -9,14 +9,12 @@ import { PlaylistView, PlaylistViewSkeleton } from './PlaylistView';
 import { PlaylistManagementView } from './HiddenPlaylistsView';
 import { PlayerBar } from './PlayerBar';
 import { SettingsPanel } from './SettingsPanel';
-import { SpotifyHomePanel } from './SpotifyHomePanel';
-import { SpotifyDetailsModal } from './SpotifyDetailsModal';
 import { QueueDrawer } from './QueueDrawer';
 import { LyricsDrawer } from './LyricsDrawer';
 import { ExpandedPlayerModal } from './ExpandedPlayerModal';
 import { ResizeDivider } from './ResizeDivider';
 import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronRight, Music } from 'lucide-react';
-import { cleanArtistName, formatDuration, getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { cleanArtistName, formatDuration, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { getCachedPlaylistMemberships, primePlaylistMemberships, removePlaylistMembership } from './AddToPlaylistDropdown';
 
 const QUEUE_MIN = 16;
@@ -99,7 +97,7 @@ function routeHref(route: RouteState) {
 export function Dashboard({ user }: Props) {
   const savedSessionRef = useRef<PlaybackSession | null>(readPlaybackSession());
   const savedSession = savedSessionRef.current;
-  // Read the initial URL route once synchronously — used to pick the right skeleton before playlists load
+  // Read the initial URL route once synchronously â€” used to pick the right skeleton before playlists load
   const [initialRoute] = useState<RouteState>(() => (typeof window !== 'undefined' ? readRoute() : { kind: 'home' }));
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const playlistsRef = useRef<Playlist[]>([]);
@@ -119,7 +117,7 @@ export function Dashboard({ user }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typedSearchInput, setTypedSearchInput] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('auto');
-  // Online search results — fetched from the dual provider search engine when the user commits a search. The renderer
+  // Online search results â€” fetched from the dual provider search engine when the user commits a search. The renderer
   // only receives normalized Track objects (no tokens, no secrets).
   const [onlineSearchResults, setOnlineSearchResults] = useState<Track[]>([]);
   const [onlineSearching, setOnlineSearching] = useState(false);
@@ -167,33 +165,6 @@ export function Dashboard({ user }: Props) {
   const handleOpenFullscreen = useCallback(() => setIsFullscreenOpen(true), []);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [spotifyConnected, setSpotifyConnected] = useState(false);
-
-  useEffect(() => {
-    const refresh = () => fetch('/api/auth/spotify/status', { cache: 'no-store' }).then((r) => r.json()).then((d) => setSpotifyConnected(Boolean(d?.connected))).catch(() => undefined);
-    refresh();
-    const timer = window.setInterval(refresh, 2500);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const handleConnectSpotify = useCallback(async () => {
-    if (window.electron?.openSpotApiPopup) {
-      const result = await window.electron.openSpotApiPopup();
-      // The popup result is only a trigger to re-check the worker. Never mark
-      // the UI connected until the backend confirms the saved session.
-      if (result.connected) {
-        const status = await fetch('/api/auth/spotify/status', { cache: 'no-store' }).then((response) => response.json());
-        setSpotifyConnected(Boolean(status?.connected));
-      }
-    }
-  }, []);
-
-  const handleDisconnectSpotify = useCallback(async () => {
-    await fetch('/api/auth/spotify/disconnect', { method: 'POST' });
-    setSpotifyConnected(false);
-  }, []);
-  const [spotifyDetails, setSpotifyDetails] = useState<{ kind: 'album' | 'artist'; id: string } | null>(null);
   const [importUrl, setImportUrl] = useState('');
   const [importError, setImportError] = useState('');
   // Bulk import queue: each entry is a URL with optional preview data.
@@ -522,7 +493,7 @@ export function Dashboard({ user }: Props) {
 
   const applyRoute = useCallback(
     (route: RouteState) => {
-      // Playlist management temporarily on standby — never activate it.
+      // Playlist management temporarily on standby â€” never activate it.
       setShowPlaylistManagement(false);
       const q = route.kind === 'search' ? route.query : '';
       setSearchQuery(q);
@@ -658,7 +629,7 @@ export function Dashboard({ user }: Props) {
   }, []);
 
   const handleOpenHiddenFolder = useCallback(() => {
-    // Playlist management temporarily on standby — no-op.
+    // Playlist management temporarily on standby â€” no-op.
   }, []);
 
   const handleToggleImport = useCallback((id: string) => {
@@ -1039,7 +1010,7 @@ export function Dashboard({ user }: Props) {
     setFeedbackToast(alreadyExists ? `"${track.title}" is already in ${plTitle}` : `Added "${track.title}" to ${plTitle}`);
     setTimeout(() => setFeedbackToast(null), 3000);
 
-    // Fire-and-forget — backend processes asynchronously via operation queue.
+    // Fire-and-forget â€” backend processes asynchronously via operation queue.
     apiFetch('/api/playlist/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1077,7 +1048,7 @@ export function Dashboard({ user }: Props) {
     apiFetch('/api/playlist/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId, spotifyId: track.spotifyId }),
+      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
     }).catch((error) => {
       const memberships = getCachedPlaylistMemberships(track.videoId);
       memberships.add(playlistId);
@@ -1189,7 +1160,7 @@ export function Dashboard({ user }: Props) {
         });
         return next;
       });
-      // PlaylistView handles the optimistic track state update — no reload needed
+      // PlaylistView handles the optimistic track state update â€” no reload needed
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to download song';
       alert(msg);
@@ -1205,46 +1176,14 @@ export function Dashboard({ user }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to delete download');
-      // PlaylistView handles the optimistic track state update — no reload needed
+      // PlaylistView handles the optimistic track state update â€” no reload needed
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete download';
       alert(msg);
     }
-  }, []);
-
-  // Keep the remote Spotify library in the same application playlist model so
-  // the existing navigation and playlist view can consume it unchanged.
-  useEffect(() => {
-    if (!spotifyConnected) return;
-    fetch('/api/spotify/playlists', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => {
-        const remote = Array.isArray(data?.playlists) ? data.playlists as Playlist[] : [];
-        if (!remote.length) return;
-        setPlaylists((current) => {
-          const byId = new Map(current.map((playlist) => [playlist.id, playlist]));
-          remote.forEach((playlist) => byId.set(playlist.id, playlist));
-          const merged = [...byId.values()];
-          playlistsRef.current = merged;
-          return merged;
-        });
-      })
-      .catch(() => undefined);
-  }, [spotifyConnected]);
-
-  const handleSetMatchOverride = useCallback(async (track: Track) => {
-    if (!track.spotifyId) return;
-    const value = window.prompt(`Paste the correct YouTube URL for “${track.title}”`);
-    if (!value?.trim()) return;
-    const response = await apiFetch('/api/matching/override', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spotifyId: track.spotifyId, youtubeUrl: value.trim() }),
-    });
-    if (!response.ok) throw new Error('Could not save the YouTube match override');
   }, [apiFetch]);
 
-  // Called by PlaylistView after a track is deleted — stops the player if it was playing
+  // Called by PlaylistView after a track is deleted â€” stops the player if it was playing
   const handleTrackDeleted = useCallback((videoId: string) => {
     setCurrentTrack((prev) => {
       if (prev?.videoId === videoId) {
@@ -1342,7 +1281,7 @@ export function Dashboard({ user }: Props) {
   const globalSearchResults = useMemo(() => {
     const q = (typedSearchInput || searchQuery).trim().toLowerCase();
     if (!q) return [];
-    // Local library search — matches against both title and artist regardless
+    // Local library search â€” matches against both title and artist regardless
     // of the online source mode (auto/spotify/ytmusic). The mode selector
     // only affects the online search, not the local library filter.
     return Object.values(allTracks).filter((track) => {
@@ -1361,13 +1300,14 @@ export function Dashboard({ user }: Props) {
     setAllTracks((prev) => {
       const next = { ...prev };
       for (const track of tracks) {
-        next[track.videoId] = { ...track, playlistId: playlist.id, playlistTitle: playlist.title };
+        const key = track.videoId || track.sourceTrackId || track.title;
+        next[key] = { ...track, playlistId: playlist.id, playlistTitle: playlist.title };
       }
       return next;
     });
     const artworkTracks = tracks.slice(0, 4);
-    const thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl || `/api/thumbnail?v=${encodeURIComponent(track.videoId)}`);
-    const thumbnailVideoIds = artworkTracks.map((track) => track.videoId);
+    const thumbnailUrls = artworkTracks.map((track) => getTrackThumbnailUrl(track));
+    const thumbnailVideoIds = artworkTracks.map((track) => track.videoId || track.sourceTrackId || '');
     setPlaylists((prev) => prev.map((item) => item.id === playlist.id ? { ...item, trackCount: tracks.length, thumbnailUrls, thumbnailVideoIds } : item));
   }, []);
 
@@ -1387,9 +1327,8 @@ export function Dashboard({ user }: Props) {
           const data = await response.json().catch(() => ({}));
           if (!cancelled && response.ok && Array.isArray(data.tracks) && data.tracks.length > 0) {
             const artworkTracks = (data.tracks as Track[]).slice(0, 4);
-            // thumbnailUrls are already local API URLs — no remote fetch needed.
-            const thumbnailUrls = artworkTracks.map((t) => t.thumbnailUrl || `/api/thumbnail?v=${encodeURIComponent(t.videoId)}`);
-            const thumbnailVideoIds = artworkTracks.map((t) => t.videoId);
+            const thumbnailUrls = artworkTracks.map((t) => getTrackThumbnailUrl(t));
+            const thumbnailVideoIds = artworkTracks.map((t) => t.videoId || t.sourceTrackId || '');
             setPlaylists((prev) => prev.map((item) =>
               item.id === playlist.id && (!item.thumbnailUrls || item.thumbnailUrls.length < 4)
                 ? { ...item, thumbnailUrls, thumbnailVideoIds }
@@ -1446,7 +1385,7 @@ export function Dashboard({ user }: Props) {
     };
   }, [apiFetch, handleTracksLoaded, playlists, searchQuery]);
 
-  // Online search — when the local library has no matches, query the dual
+  // Online search â€” when the local library has no matches, query the dual
     // Provider search engine using the selected
   // mode (auto/spotify/ytmusic). Results are normalized Track objects; the
   // renderer never sees tokens or secrets. In 'auto' mode both sources run
@@ -1459,7 +1398,7 @@ export function Dashboard({ user }: Props) {
       setOnlineSearchError('');
       return;
     }
-    // Only hit the online sources when the local library has no matches —
+    // Only hit the online sources when the local library has no matches â€”
     // avoids redundant API calls and respects the "local first" principle.
     if (globalSearchResults.length > 0) {
       setOnlineSearchResults([]);
@@ -1501,7 +1440,7 @@ export function Dashboard({ user }: Props) {
       } finally {
         if (!cancelled) setOnlineSearching(false);
       }
-    }, 350); // debounce — avoids hammering the online sources on every keystroke
+    }, 350); // debounce â€” avoids hammering the online sources on every keystroke
 
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1554,7 +1493,7 @@ export function Dashboard({ user }: Props) {
 
   const showGlobalSearch = searchQuery.trim().length > 0;
 
-  // ─── Volume step helper (±10%, clamped 0–1) ──────────────────────────────
+  // â”€â”€â”€ Volume step helper (Â±10%, clamped 0â€“1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleVolumeStep = useCallback((direction: 'up' | 'down') => {
     const step = 0.1;
     // Read from volumeRef.current (PlayerBar keeps audio.volume at 1.0 for Web Audio GainNode)
@@ -1567,7 +1506,7 @@ export function Dashboard({ user }: Props) {
     setIsMuted(next === 0);
   }, []);
 
-  // ─── Global keyboard shortcuts ────────────────────────────────────────────
+  // â”€â”€â”€ Global keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
@@ -1585,7 +1524,7 @@ export function Dashboard({ user }: Props) {
 
       const mod = isMac ? e.metaKey : e.ctrlKey;
 
-      // Space → play / pause
+      // Space â†’ play / pause
       if (e.code === 'Space' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         const audio = document.querySelector('audio') as HTMLAudioElement | null;
@@ -1599,21 +1538,21 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // Cmd/Ctrl + Right → next track
+      // Cmd/Ctrl + Right â†’ next track
       if (mod && e.code === 'ArrowRight' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         handleNext();
         return;
       }
 
-      // Cmd/Ctrl + Left → previous track
+      // Cmd/Ctrl + Left â†’ previous track
       if (mod && e.code === 'ArrowLeft' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         handlePrev();
         return;
       }
 
-      // Cmd/Ctrl + Up → volume up (preventDefault stops browser address-bar focus / page scroll)
+      // Cmd/Ctrl + Up â†’ volume up (preventDefault stops browser address-bar focus / page scroll)
       if (mod && e.code === 'ArrowUp' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -1621,7 +1560,7 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // Cmd/Ctrl + Down → volume down (preventDefault stops page scroll)
+      // Cmd/Ctrl + Down â†’ volume down (preventDefault stops page scroll)
       if (mod && e.code === 'ArrowDown' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -1629,21 +1568,21 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // M or Ctrl/Cmd + M → toggle mute
+      // M or Ctrl/Cmd + M â†’ toggle mute
       if (e.code === 'KeyM' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         handleFullscreenMuteToggle();
         return;
       }
 
-      // Ctrl + Shift + Down → toggle mute (Win alternate)
+      // Ctrl + Shift + Down â†’ toggle mute (Win alternate)
       if (!isMac && e.ctrlKey && e.shiftKey && e.code === 'ArrowDown' && !e.altKey) {
         e.preventDefault();
         handleFullscreenMuteToggle();
         return;
       }
 
-      // Win: Ctrl+S / Mac: Alt+S → toggle shuffle
+      // Win: Ctrl+S / Mac: Alt+S â†’ toggle shuffle
       const shuffleKey = isMac ? (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyS')
                                 : (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyS');
       if (shuffleKey) {
@@ -1652,7 +1591,7 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // Win: Ctrl+R / Mac: Alt+R → toggle repeat
+      // Win: Ctrl+R / Mac: Alt+R â†’ toggle repeat
       const repeatKey = isMac ? (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyR')
                                : (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyR');
       if (repeatKey) {
@@ -1661,7 +1600,7 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // Cmd/Ctrl + K → focus search / open quick search
+      // Cmd/Ctrl + K â†’ focus search / open quick search
       if (mod && e.code === 'KeyK' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         const searchInput = document.querySelector<HTMLInputElement>('input[type="search"], input[placeholder*="earch"]');
@@ -1672,7 +1611,7 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // Cmd/Ctrl + N → create new playlist (placeholder — focuses sidebar add button)
+      // Cmd/Ctrl + N â†’ create new playlist (placeholder â€” focuses sidebar add button)
       if (mod && e.code === 'KeyN' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         const addBtn = document.querySelector<HTMLButtonElement>('button[aria-label="Add playlist"]');
@@ -1680,14 +1619,14 @@ export function Dashboard({ user }: Props) {
         return;
       }
 
-      // Alt + Shift + H → go to home
+      // Alt + Shift + H â†’ go to home
       if (e.altKey && e.shiftKey && e.code === 'KeyH' && !mod) {
         e.preventDefault();
         navigateRoute({ kind: 'home' });
         return;
       }
 
-      // Alt + Shift + Q → go to queue
+      // Alt + Shift + Q â†’ go to queue
       if (e.altKey && e.shiftKey && e.code === 'KeyQ' && !mod) {
         e.preventDefault();
         handleToggleQueue();
@@ -1767,9 +1706,6 @@ export function Dashboard({ user }: Props) {
           navigateRoute({ kind: 'home' });
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        spotifyConnected={spotifyConnected}
-        onConnectSpotify={handleConnectSpotify}
-        onDisconnectSpotify={handleDisconnectSpotify}
       />
 
       <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
@@ -1820,13 +1756,13 @@ export function Dashboard({ user }: Props) {
                     ? (globalSearchResults as Track[])
                     : onlineSearchResults;
                   handlePlay(track, queue);
-                  navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId || track.spotifyId || '' });
+                  navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId || track.sourceTrackId || '' });
                 }}
               />
             ) : loadingPlaylists ? (
               selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
             ) : showPlaylistManagement ? (
-              // Playlist management temporarily on standby — render grid as fallback.
+              // Playlist management temporarily on standby â€” render grid as fallback.
               <PlaylistGrid
                 playlists={filteredPlaylists}
                 pinnedIds={pinnedIds}
@@ -1853,8 +1789,7 @@ export function Dashboard({ user }: Props) {
                 playlists={playlists}
                 onDownload={handleDownload}
                 onDownloadTrack={handleDownloadTrack}
-                 onDeleteTrack={handleDeleteTrack}
-                 onSetMatchOverride={handleSetMatchOverride}
+                onDeleteTrack={handleDeleteTrack}
                 onTrackDeleted={handleTrackDeleted}
                 onTogglePin={handleTogglePin}
                 onTracksLoaded={handleTracksLoaded}
@@ -1870,14 +1805,6 @@ export function Dashboard({ user }: Props) {
               />
             ) : (
               <div className="h-full min-h-0 overflow-y-auto scrollbar-thin">
-                <SpotifyHomePanel
-                  onSelectPlaylist={handleSelectPlaylist}
-                  onPlayPlaylist={handlePlayPlaylist}
-                  onOpenSettings={() => setIsSettingsOpen(true)}
-                  spotifyConnected={spotifyConnected}
-                  onConnectSpotify={handleConnectSpotify}
-                  onDisconnectSpotify={handleDisconnectSpotify}
-                />
                 <div className="min-h-[520px]">
                   <PlaylistGrid
                     playlists={filteredPlaylists}
@@ -2011,18 +1938,11 @@ export function Dashboard({ user }: Props) {
         <SettingsPanel user={user} onClose={() => setIsSettingsOpen(false)} />
       )}
 
-      {spotifyDetails && (
-        <SpotifyDetailsModal
-          kind={spotifyDetails.kind}
-          id={spotifyDetails.id}
-          onClose={() => setSpotifyDetails(null)}
-          onPlay={(track, queue) => handlePlay(track, queue)}
-        />
-      )}
+
 
       {undoAction && (
         <div className="fixed bottom-[112px] left-1/2 z-[120] flex -translate-x-1/2 items-center gap-4 rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-text shadow-2xl shadow-shadow/50">
-          <span>Removed “{undoAction.track.title}” from the playlist</span>
+          <span>Removed â€œ{undoAction.track.title}â€ from the playlist</span>
           <button onClick={handleUndoRemove} className="rounded-md px-2 py-1 font-semibold text-accent hover:bg-surface-hover">Undo</button>
         </div>
       )}
@@ -2089,13 +2009,13 @@ export function Dashboard({ user }: Props) {
                               </div>
                             ) : entry.coverUrl && !entry.tracks?.some((t) => t.videoId) ? (
                               <img src={entry.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                            ) : entry.tracks && entry.tracks.length > 0 && entry.tracks.some((t) => t.videoId) ? (
+                            ) : entry.tracks && entry.tracks.length > 0 && entry.tracks.some((t) => t.thumbnailUrl || t.videoId) ? (
                               <div className="grid h-full w-full grid-cols-2 grid-rows-2">
                                 {entry.tracks.slice(0, 4).map((track, i) => (
-                                  track.videoId ? (
+                                  (track.thumbnailUrl || track.videoId) ? (
                                     <img
                                       key={i}
-                                      src={getThumbnailUrl(track.videoId, track.title)}
+                                      src={track.thumbnailUrl || getThumbnailUrl(track.videoId || '', track.title)}
                                       alt=""
                                       className="h-full w-full object-cover"
                                       loading="lazy"
@@ -2116,7 +2036,7 @@ export function Dashboard({ user }: Props) {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-text">{entry.title || entry.url}</p>
                             <p className="truncate text-xs text-text-disabled">
-                              {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loading…' : entry.url}
+                              {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loadingâ€¦' : entry.url}
                             </p>
                           </div>
                           {entry.tracks && (
@@ -2143,7 +2063,14 @@ export function Dashboard({ user }: Props) {
                             {entry.tracks.slice(0, 10).map((track, i) => (
                               <div key={i} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
                                 <span className="w-5 text-xs text-text-disabled">{i + 1}</span>
-                                {track.videoId ? (
+                                {track.thumbnailUrl ? (
+                                  <img
+                                    src={track.thumbnailUrl}
+                                    alt=""
+                                    className="h-8 w-8 rounded object-cover bg-surface"
+                                    loading="lazy"
+                                  />
+                                ) : track.videoId ? (
                                   <img
                                     src={getThumbnailUrl(track.videoId, track.title)}
                                     alt=""
@@ -2201,7 +2128,7 @@ export function Dashboard({ user }: Props) {
                   className="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {importingAll ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</>
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Importingâ€¦</>
                   ) : (
                     <><Download className="h-4 w-4" /> Import {importQueue.filter((e) => e.isPublic !== false && !e.error).length > 0 ? `(${importQueue.filter((e) => e.isPublic !== false && !e.error).length})` : ''}</>
                   )}
@@ -2302,7 +2229,7 @@ function GlobalSearchResults({
           >
             <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
               <img
-                src={getThumbnailUrl(track.videoId, track.title)}
+                src={getTrackThumbnailUrl(track)}
                 alt={track.title}
                 className="w-full h-full object-cover"
               />
@@ -2331,13 +2258,13 @@ function GlobalSearchResults({
             videoId. */}
         {showOnline && onlineResults!.map((track) => (
           <button
-            key={track.videoId || track.spotifyId || track.title}
+            key={track.videoId || track.sourceTrackId || track.title}
             onClick={() => onPlay(track)}
             className="w-full flex items-center gap-4 rounded-3xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover transition-all duration-300 ease-out"
           >
             <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
               <img
-                src={track.thumbnailUrl || getThumbnailUrl(track.videoId, track.title)}
+                src={getTrackThumbnailUrl(track)}
                 alt={track.title}
                 className="w-full h-full object-cover"
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
@@ -2349,10 +2276,10 @@ function GlobalSearchResults({
               {track.album && <p className="text-xs text-text-disabled truncate mt-0.5">{track.album}</p>}
             </div>
             <div className="hidden lg:block min-w-0 w-56">
-              <p className="text-xs text-text-muted truncate">{track.spotifyId ? 'Spotify' : 'YTMusic'}</p>
+              <p className="text-xs text-text-muted truncate">YouTube Music</p>
             </div>
             <div className="hidden md:block w-16 text-right text-xs text-text-muted">
-              {track.duration ? formatDuration(track.duration) : '—'}
+              {track.duration ? formatDuration(track.duration) : 'â€”'}
             </div>
             <div className="shrink-0 text-text-disabled">
               <Play className="w-4 h-4" />

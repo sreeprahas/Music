@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   const title = searchParams.get('title') ?? '';
   const artist = searchParams.get('artist') ?? '';
 
-  if (!title) {
+  if (!title || title.length > 200 || artist.length > 200) {
     return NextResponse.json({ error: 'Missing title' }, { status: 400 });
   }
 

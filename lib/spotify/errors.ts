@@ -1,16 +1,74 @@
-/** Provider-neutral Spotify transport errors. Messages are safe for API clients. */
-export class SpotifyProviderError extends Error { readonly status: number; readonly code: string; readonly retryAfterMs: number; constructor(message: string, status: number, code = 'spotify_provider_error', retryAfterMs = 0) { super(message); this.name = 'SpotifyProviderError'; this.status = status; this.code = code; this.retryAfterMs = retryAfterMs; } }
-export class SpotifyAuthenticationError extends SpotifyProviderError { constructor(message = 'Spotify authentication required') { super(message, 401, 'spotify_auth_error'); this.name = 'SpotifyAuthenticationError'; } }
-export class SpotifyAuthorizationError extends SpotifyProviderError { constructor(message = 'Spotify authorization insufficient for this action') { super(message, 403, 'spotify_authorization_error'); this.name = 'SpotifyAuthorizationError'; } }
-export class SpotifyRateLimitError extends SpotifyProviderError { constructor(retryAfterMs: number) { super('Spotify rate limit exceeded', 429, 'spotify_rate_limit', retryAfterMs); this.name = 'SpotifyRateLimitError'; } }
-export class SpotifyNotFoundError extends SpotifyProviderError { constructor(message = 'Spotify resource not found') { super(message, 404, 'spotify_not_found'); this.name = 'SpotifyNotFoundError'; } }
-export class SpotifyUnavailableError extends SpotifyProviderError { constructor(message = 'Spotify provider is unavailable') { super(message, 503, 'spotify_unavailable'); this.name = 'SpotifyUnavailableError'; } }
+/**
+ * Spotify embed + guest-token error classes.
+ *
+ * These replace the previous OAuth/Web API error hierarchy. Only the subset
+ * of error types actually used by the new implementation is defined here.
+ */
 
-/** YouTube errors remain here because downloader code already uses this module. */
-export class YouTubeError extends Error { readonly code: string; constructor(message: string, code = 'youtube_error') { super(message); this.name = 'YouTubeError'; this.code = code; } }
-export class YouTubeResolutionError extends YouTubeError { constructor(message = 'Failed to resolve a YouTube match') { super(message, 'youtube_resolution_error'); this.name = 'YouTubeResolutionError'; } }
-export class DownloadError extends YouTubeError { constructor(message = 'Download failed') { super(message, 'download_error'); this.name = 'DownloadError'; } }
-export class StreamResolutionError extends YouTubeError { constructor(message = 'Failed to extract audio stream URL') { super(message, 'stream_resolution_error'); this.name = 'StreamResolutionError'; } }
+// ─── Spotify errors ──────────────────────────────────────────────────────────
 
-export function toUiMessage(error: unknown): string { if (error instanceof SpotifyRateLimitError) { const secs = Math.ceil(error.retryAfterMs / 1000); return secs > 0 ? `Spotify is rate-limiting this app. Try again in ${secs}s.` : 'Spotify is rate-limiting this app. Please wait and retry.'; } if (error instanceof SpotifyAuthenticationError) return 'Please connect your Spotify account and try again.'; if (error instanceof SpotifyAuthorizationError) return 'Your Spotify account lacks permission for this action.'; if (error instanceof SpotifyNotFoundError) return 'This Spotify resource was not found.'; if (error instanceof SpotifyUnavailableError) return 'Spotify is temporarily unavailable. Please try again later.'; if (error instanceof SpotifyProviderError) return error.message; if (error instanceof YouTubeResolutionError) return 'Could not find a matching YouTube video for this track.'; if (error instanceof YouTubeError) return error.message; return error instanceof Error ? error.message : 'An unexpected error occurred.'; }
-export function spotifyErrorStatus(error: unknown): number { return error instanceof SpotifyProviderError && error.status >= 400 ? error.status : 500; }
+export class SpotifyEmbedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SpotifyEmbedError';
+  }
+}
+
+export class SpotifyGuestTokenError extends Error {
+  constructor(message = 'Failed to obtain Spotify guest token') {
+    super(message);
+    this.name = 'SpotifyGuestTokenError';
+  }
+}
+
+export class SpotifyApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'SpotifyApiError';
+  }
+}
+
+export class SpotifyNotFoundError extends SpotifyApiError {
+  constructor(message = 'Spotify playlist not found') {
+    super(message, 404);
+    this.name = 'SpotifyNotFoundError';
+  }
+}
+
+export class SpotifyRateLimitError extends SpotifyApiError {
+  constructor(
+    message = 'Spotify rate limit exceeded',
+    public readonly retryAfterMs = 0,
+  ) {
+    super(message, 429);
+    this.name = 'SpotifyRateLimitError';
+  }
+}
+
+/** Convert any error to a UI-safe message string. */
+export function toUiMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  return 'An unknown error occurred';
+}
+
+// ─── Shared non-Spotify errors ───────────────────────────────────────────────
+
+/** Thrown when an audio download fails. */
+export class DownloadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DownloadError';
+  }
+}
+
+/** Thrown when YouTube video resolution fails. */
+export class YouTubeResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'YouTubeResolutionError';
+  }
+}

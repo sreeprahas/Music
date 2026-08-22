@@ -8,6 +8,7 @@ import { cacheKey } from './cache/keys';
 import { getPersistent, setPersistent } from './cache/persistent';
 
 const croppedTrackIds = new Set<string>();
+const lyricsJobs = new Map<string, Promise<void>>();
 
 function accountFileKey(accountId = 'default') {
   return accountId.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_').slice(0, 120) || 'default';
@@ -127,9 +128,12 @@ function saveCache(cache: MetadataCache, accountId = 'default') {
 }
 
 function withPlaylistArtwork(playlist: Playlist, tracks: Track[]): Playlist {
-  const artworkTracks = tracks.slice(0, 4).filter((track) => Boolean(track.videoId));
-  playlist.thumbnailVideoIds = artworkTracks.map((track) => track.videoId);
-  playlist.thumbnailUrls = artworkTracks.map((track) => track.thumbnailUrl || getThumbnailUrl(track.videoId, track.title));
+  const artworkTracks = tracks.slice(0, 4).filter((track) => Boolean(track.videoId || track.sourceTrackId || track.thumbnailUrl));
+  playlist.thumbnailVideoIds = artworkTracks.map((track) => track.videoId || track.sourceTrackId || '');
+  playlist.thumbnailUrls = artworkTracks.map((track) => {
+    const key = track.videoId || track.sourceTrackId || '';
+    return track.thumbnailUrl || (key ? getThumbnailUrl(key, track.title) : '');
+  });
   return playlist;
 }
 
@@ -162,10 +166,39 @@ export function setCachedPlaylists(playlists: Playlist[], accountId = 'default')
 
 export function deleteCachedPlaylist(playlistId: string, accountId = 'default') {
   const cache = getCache(accountId);
+  const tracksToDelete = cache.playlistTracks[playlistId] || [];
   cache.playlists = cache.playlists.filter((p) => p.id !== playlistId);
   delete cache.playlistTracks[playlistId];
   cache.lastUpdated = Date.now();
   saveCache(cache, accountId);
+
+  // Purge thumbnail files from disk for deleted tracks (if not used in other playlists)
+  try {
+    const remainingKeys = new Set<string>();
+    for (const [plId, trackList] of Object.entries(cache.playlistTracks)) {
+      if (plId === playlistId) continue;
+      for (const t of trackList) {
+        if (t.videoId) remainingKeys.add(t.videoId);
+        if (t.sourceTrackId) remainingKeys.add(t.sourceTrackId);
+      }
+    }
+
+    for (const t of tracksToDelete) {
+      const key = t.sourceTrackId || t.videoId;
+      if (key && !remainingKeys.has(key)) {
+        const thumbPath = getLocalThumbnailPath(key);
+        if (fs.existsSync(thumbPath)) {
+          try { fs.unlinkSync(thumbPath); } catch {}
+        }
+      }
+    }
+
+    // Also remove playlist cover if present
+    const plCoverPath = getLocalThumbnailPath(`spotify-${playlistId}`);
+    if (fs.existsSync(plCoverPath)) {
+      try { fs.unlinkSync(plCoverPath); } catch {}
+    }
+  } catch {}
 }
 
 export function upsertLocalPlaylist(playlist: Playlist, tracks?: Track[]): Playlist {
@@ -280,9 +313,14 @@ export function setYoutubeMapping(mapping: YoutubeMapping): void {
   const cache = getCache('default');
   if (!cache.spotifyYoutubeMap) cache.spotifyYoutubeMap = {};
   cache.spotifyYoutubeMap[mapping.spotifyTrackId] = mapping;
+  const mappingEntries = Object.entries(cache.spotifyYoutubeMap);
+  if (mappingEntries.length > 512) {
+    mappingEntries.sort(([, left], [, right]) => left.resolvedAt - right.resolvedAt);
+    for (const [key] of mappingEntries.slice(0, mappingEntries.length - 512)) delete cache.spotifyYoutubeMap[key];
+  }
   cache.lastUpdated = Date.now();
   saveCache(cache, 'default');
-  setPersistent(cacheKey.match(mapping.spotifyTrackId), { spotifyTrackId: mapping.spotifyTrackId, youtubeVideoId: mapping.youtubeVideoId, matchMethod: mapping.matchMethod || 'metadata', diagnostics: [], matchedAt: mapping.resolvedAt, sourceTitle: mapping.matchedTitle, sourceArtist: mapping.matchedArtist, sourceDuration: mapping.duration }, 0);
+  setPersistent(cacheKey.match(mapping.spotifyTrackId), { spotifyTrackId: mapping.spotifyTrackId, youtubeVideoId: mapping.youtubeVideoId, matchMethod: mapping.matchMethod || 'metadata', diagnostics: [], matchedAt: mapping.resolvedAt, sourceTitle: mapping.matchedTitle, sourceArtist: mapping.matchedArtist, sourceDuration: mapping.duration }, 30 * 24 * 60 * 60 * 1000);
 }
 
 /** Remove a cached mapping (e.g., when the YouTube video becomes unavailable). */
@@ -420,6 +458,16 @@ async function toLosslessWebp(source: Buffer): Promise<Buffer> {
  * Returns the local API URL to store in metadata, or the original
  * getThumbnailUrl() path if the download fails.
  */
+function isAllowedImageHost(hostname: string): boolean {
+  return (
+    hostname === 'i.ytimg.com' ||
+    hostname.endsWith('.googleusercontent.com') ||
+    hostname === 'googleusercontent.com' ||
+    hostname.endsWith('.scdn.co') ||
+    hostname.endsWith('.spotifycdn.com')
+  );
+}
+
 export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: string): Promise<void> {
   if (!videoId) return;
   const localPath = getLocalThumbnailPath(videoId);
@@ -432,7 +480,9 @@ export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: str
     let source: Buffer | null = null;
     for (const url of urls) {
       try {
-        const res = await fetch(url);
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:' || !isAllowedImageHost(parsed.hostname)) continue;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
         if (res.ok) {
           source = Buffer.from(await res.arrayBuffer());
           break;
@@ -454,18 +504,24 @@ export async function downloadAndCacheThumbnail(videoId: string, remoteUrl?: str
 /**
  * Eagerly download ALL thumbnails for a list of tracks at import time.
  * Each track's remote thumbnailUrl is downloaded, lossless-cropped, and saved.
- * After this call every videoId has a local .webp file on disk.
+ * After this call every videoId/sourceTrackId has a local .webp file on disk.
  * Returns a new tracks array with thumbnailUrl replaced by the local API URL.
  */
 export async function downloadAllTrackThumbnails(tracks: Track[]): Promise<Track[]> {
   ensureDirs();
   // Use bounded concurrency to avoid overwhelming the network with hundreds of simultaneous fetches.
-  await runWithConcurrency(tracks, 10, (track) => downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl));
+  await runWithConcurrency(tracks, 10, (track) => {
+    const key = track.videoId || track.sourceTrackId || '';
+    return downloadAndCacheThumbnail(key, track.thumbnailUrl);
+  });
   // Replace each track's thumbnailUrl with the stable local API URL.
-  return tracks.map((track) => ({
-    ...track,
-    thumbnailUrl: getThumbnailUrl(track.videoId, track.title),
-  }));
+  return tracks.map((track) => {
+    const key = track.videoId || track.sourceTrackId || '';
+    return {
+      ...track,
+      thumbnailUrl: key ? getThumbnailUrl(key, track.title) : track.thumbnailUrl,
+    };
+  });
 }
 
 // ─── Bulk metadata image download ─────────────────────────────────────────────
@@ -504,7 +560,26 @@ export async function downloadAllMetadataImages(accountId = 'default'): Promise<
 // ─── Background lyrics prefetch (thumbnails handled at import time) ───────────
 
 async function prefetchLyrics(tracks: Track[]): Promise<void> {
-  setTimeout(async () => {
+  for (const track of tracks.slice(0, 500)) {
+    const key = `${cleanArtistName(track.artist)}\u0000${track.title}`.toLowerCase();
+    if (lyricsJobs.has(key)) continue;
+    const job = (async () => {
+      try {
+        const cleanedArtist = cleanArtistName(track.artist);
+        if (!getSavedLyrics(cleanedArtist, track.title)) {
+          const lrclibUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(track.title)}&artist_name=${encodeURIComponent(cleanedArtist)}`;
+          const res = await fetch(lrclibUrl, { signal: AbortSignal.timeout(5000), headers: { 'Lrclib-Client': 'YTMusicPersonal/1.0.0' } });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.syncedLyrics || data.plainLyrics) saveLyrics(cleanedArtist, track.title, { syncedLyrics: data.syncedLyrics ?? null, plainLyrics: data.plainLyrics ?? null, trackName: data.trackName, artistName: data.artistName });
+          }
+        }
+      } catch { /* background metadata is best effort */ }
+    })().finally(() => lyricsJobs.delete(key));
+    lyricsJobs.set(key, job);
+  }
+  await Promise.allSettled([...lyricsJobs.values()].slice(0, 10));
+  /*
     for (const track of tracks) {
       try {
         const cleanedArtist = cleanArtistName(track.artist);
@@ -527,7 +602,7 @@ async function prefetchLyrics(tracks: Track[]): Promise<void> {
         // Ignore background errors
       }
     }
-  }, 100);
+  */
 }
 
 /**
@@ -535,16 +610,8 @@ async function prefetchLyrics(tracks: Track[]): Promise<void> {
  * Kept for any callers that may still exist outside the import flow.
  */
 export async function prefetchTrackMetadata(tracks: Track[]): Promise<void> {
-  setTimeout(async () => {
-    for (const track of tracks) {
-      try {
-        if (!hasLocalThumbnail(track.videoId)) {
-          await downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl);
-        }
-      } catch {
-        // Ignore
-      }
-    }
-  }, 100);
+  await runWithConcurrency(tracks.slice(0, 500), 8, async (track) => {
+    if (!hasLocalThumbnail(track.videoId)) await downloadAndCacheThumbnail(track.videoId, track.thumbnailUrl);
+  });
   await prefetchLyrics(tracks);
 }

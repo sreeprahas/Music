@@ -46,6 +46,11 @@ export function getPersistent<T>(key: string, now = Date.now()): T | undefined {
 export function setPersistent<T>(key: string, value: T, ttlMs = 0): void {
   const envelope = readEnvelope();
   envelope.entries[key] = { value, storedAt: Date.now(), expiresAt: ttlMs > 0 ? Date.now() + ttlMs : 0 };
+  const entries = Object.entries(envelope.entries);
+  if (entries.length > 512) {
+    entries.sort(([, left], [, right]) => left.storedAt - right.storedAt);
+    for (const [oldKey] of entries.slice(0, entries.length - 512)) delete envelope.entries[oldKey];
+  }
   writeEnvelope(envelope);
 }
 
@@ -54,4 +59,13 @@ export function deletePersistent(key: string): void {
   if (!(key in envelope.entries)) return;
   delete envelope.entries[key];
   writeEnvelope(envelope);
+}
+
+export function clearPersistentPrefix(prefix: string): void {
+  const envelope = readEnvelope();
+  let changed = false;
+  for (const key of Object.keys(envelope.entries)) {
+    if (key.startsWith(prefix)) { delete envelope.entries[key]; changed = true; }
+  }
+  if (changed) writeEnvelope(envelope);
 }

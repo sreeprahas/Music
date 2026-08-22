@@ -11,19 +11,10 @@ export interface Track {
   downloaded?: boolean;
   playlistId?: string;
   sourcePlaylistId?: string;
-  /** Spotify track ID (when the track originated from Spotify). */
-  spotifyId?: string;
-  /** Spotify track URI (spotify:track:...). */
-  spotifyUri?: string;
-  /** Spotify album and primary artist identities for browsing. */
-  spotifyAlbumId?: string;
-  spotifyArtistId?: string;
-  /** Cached YouTube video ID resolved from Spotify metadata. */
-  youtubeId?: string;
   /** Stable source identity used by linked playlist synchronization. */
   sourceTrackId?: string;
   /** Source platform for this track when it belongs to a linked playlist. */
-  source?: 'spotify' | 'youtube' | 'local';
+  source?: 'youtube' | 'local' | 'spotify';
 }
 
 export interface Playlist {
@@ -38,15 +29,9 @@ export interface Playlist {
   importedAt?: string;
   createdAt?: string;
   sourceUrl?: string;
-  /** Spotify playlist ID (when the playlist originated from Spotify). */
-  spotifyId?: string;
-  /** Spotify owner user ID. */
-  spotifyOwnerId?: string;
-  /** Spotify snapshot ID — used to detect playlist changes. */
-  spotifySnapshotId?: string;
-  /** Source platform. Local playlists never synchronize remotely. */
-  source?: 'local' | 'spotify' | 'youtube';
-  /** Source playlist identifier on Spotify or YouTube. */
+  /** Source platform. Spotify playlists are static local snapshots after import. */
+  source?: 'local' | 'youtube' | 'spotify';
+  /** Source playlist identifier on YouTube. */
   sourcePlaylistId?: string;
   /** Last known source revision or canonical content hash. */
   sourceRevision?: string;
@@ -128,7 +113,7 @@ export interface MatchDiagnostic {
 }
 
 export interface MatchRecord {
-  spotifyTrackId: string;
+  trackId: string;
   youtubeVideoId: string | null;
   matchMethod: 'manual_override' | 'metadata' | 'artwork_fallback' | 'no_match';
   score?: number;
@@ -141,7 +126,7 @@ export interface MatchRecord {
 
 export interface PlaylistSyncState {
   playlistId: string;
-  source: 'spotify' | 'youtube';
+  source: 'youtube';
   sourcePlaylistId: string;
   lastCommonRevision?: string;
   remoteRevision?: string;

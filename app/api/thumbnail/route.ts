@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { getLocalThumbnailPath } from '@/lib/db';
-import { NextRequest, NextResponse } from 'next/server';
+import { getLocalPreviewImagePath } from '@/lib/spotify/previewCache';
+import { NextRequest } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,9 +15,10 @@ export async function GET(request: NextRequest) {
   if (!videoId) {
     return new Response('Missing videoId', { status: 400 });
   }
+  if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(videoId)) return new Response('Invalid videoId', { status: 400 });
 
+  // 1. Real data thumbnail
   const localPath = getLocalThumbnailPath(videoId);
-
   if (fs.existsSync(localPath)) {
     return new Response(fs.readFileSync(localPath), {
       headers: {
@@ -26,30 +28,41 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Image not on disk — try fetching from YouTube directly as a fallback.
-  // This allows preview images to load before the import downloads them locally.
-  const remoteUrls = [
-    `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-    `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-  ];
-  for (const remoteUrl of remoteUrls) {
-    try {
-      const res = await fetch(remoteUrl);
-      if (res.ok) {
-        const buffer = Buffer.from(await res.arrayBuffer());
-        return new Response(buffer, {
-          headers: {
-            'Content-Type': res.headers.get('content-type') || 'image/jpeg',
-            'Cache-Control': 'public, max-age=86400',
-          },
-        });
+  // 2. Preview cache thumbnail
+  const previewPath = getLocalPreviewImagePath(videoId);
+  if (fs.existsSync(previewPath)) {
+    return new Response(fs.readFileSync(previewPath), {
+      headers: {
+        'Content-Type': 'image/webp',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    });
+  }
+
+  // 3. YouTube fallback if 11-char ID
+  if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    const remoteUrls = [
+      `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+      `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    ];
+    for (const remoteUrl of remoteUrls) {
+      try {
+        const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(10_000) });
+        if (res.ok) {
+          const buffer = Buffer.from(await res.arrayBuffer());
+          return new Response(buffer, {
+            headers: {
+              'Content-Type': res.headers.get('content-type') || 'image/jpeg',
+              'Cache-Control': 'public, max-age=86400',
+            },
+          });
+        }
+      } catch {
+        // try next
       }
-    } catch {
-      // try next
     }
   }
 
-  // Return SVG placeholder rather than fetching remotely.
   return new Response(SVG_PLACEHOLDER, {
     headers: { 'Content-Type': 'image/svg+xml' },
   });

@@ -29,7 +29,8 @@ export function deleteTrack(videoId: string): boolean {
 export function downloadTrack(
   videoId: string,
   title?: string,
-  artist?: string
+  artist?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     ensureMp3Dir();
@@ -37,8 +38,10 @@ export function downloadTrack(
       try {
         ensureMp3Dir();
         if (isDownloaded(videoId)) return resolve();
-        const resolved = await resolvePlayback(videoId);
-        const response = await fetch(resolved.streamUrl, { signal: AbortSignal.timeout(300_000) });
+        const resolved = await resolvePlayback(videoId, signal);
+        const timeout = AbortSignal.timeout(300_000);
+        const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+        const response = await fetch(resolved.streamUrl, { signal: combined });
         if (!response.ok || !response.body) throw new Error(`Audio stream failed (${response.status})`);
         await writeAudioStream(videoId, response.body);
         setAudioMimeType(videoId, resolved.mimeType);

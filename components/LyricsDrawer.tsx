@@ -5,7 +5,7 @@ import type { Track } from '@/types';
 import { X, Music2, Image as ImageIcon } from 'lucide-react';
 import { parseLRC, getActiveLyricIndex } from '@/lib/lyrics';
 import type { LyricLine } from '@/lib/lyrics';
-import { getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { Skeleton } from './Skeleton';
 
 interface LyricsData {
@@ -77,9 +77,9 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
         if (colors.length > 0) setPalette(colors);
       } catch { /* Some browser image policies can block canvas sampling. */ }
     };
-    image.src = getThumbnailUrl(track.videoId, track.title);
+    image.src = getTrackThumbnailUrl(track);
     return () => { cancelled = true; };
-  }, [track?.thumbnailUrl, track?.videoId]);
+  }, [track?.thumbnailUrl, track?.videoId, track?.sourceTrackId]);
 
   useEffect(() => {
     if (!track) return;
@@ -158,9 +158,9 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
     <div className="h-full flex flex-col overflow-hidden relative select-none" style={{ background: imageTheme ? `linear-gradient(135deg, ${palette[0]} 0%, var(--color-background) 58%, ${palette[1] || palette[0]} 100%)` : 'var(--color-background)' }}>
       {/* Ambient bg */}
       <div className={`ambient-art absolute inset-0 opacity-[0.18] pointer-events-none z-0 ${imageTheme ? '' : 'hidden'}`}>
-        {track.thumbnailUrl && (
+        {track && (
           <img
-            src={getThumbnailUrl(track.videoId, track.title)}
+            src={getTrackThumbnailUrl(track)}
             alt=""
             className="w-full h-full object-cover blur-xl scale-150"
           />
@@ -201,7 +201,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-14 h-14 rounded-xl overflow-hidden opacity-50">
               <img
-                src={getThumbnailUrl(track.videoId, track.title)}
+                src={getTrackThumbnailUrl(track)}
                 alt=""
                 className="w-full h-full object-cover"
               />
@@ -271,7 +271,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
       <div className="relative z-10 border-t border-border px-5 py-3 shrink-0 flex items-center gap-3 bg-overlay/30">
         <div className="w-8 h-8 rounded-md overflow-hidden shrink-0">
           <img
-            src={getThumbnailUrl(track.videoId, track.title)}
+            src={getTrackThumbnailUrl(track)}
             alt={track.title}
             className="w-full h-full object-cover"
           />

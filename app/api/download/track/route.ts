@@ -7,7 +7,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const { videoId, title, artist, action } = await request.json();
 
-    if (!videoId || typeof videoId !== 'string') {
+    if (!videoId || typeof videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
       return new Response('Missing videoId', { status: 400 });
     }
 
@@ -19,7 +19,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // Default action: download individual track
-    await downloadTrack(videoId, title, artist);
+    await downloadTrack(videoId, title, artist, request.signal);
     return new Response(JSON.stringify({ success: true }), {
       headers: { 'Content-Type': 'application/json' },
     });

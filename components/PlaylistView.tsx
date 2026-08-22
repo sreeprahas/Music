@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import type { Playlist, Track } from '@/types';
-import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { formatDuration, cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripVertical, ArrowUpDown, Check, ListPlus, Loader2, RefreshCw, Link2 } from 'lucide-react';
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
@@ -804,12 +804,12 @@ export function PlaylistView({
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 border border-border-subtle">
-                            <img
-                              src={getThumbnailUrl(track.videoId, track.title)}
-                              alt={track.title}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                            />
+                             <img
+                               src={getTrackThumbnailUrl(track)}
+                               alt={track.title}
+                               className="w-full h-full object-cover"
+                               loading="lazy"
+                             />
                           </div>
                           <div className="min-w-0">
                             <p className={`text-sm font-medium truncate ${isActive ? 'text-accent' : 'text-text'}`}>

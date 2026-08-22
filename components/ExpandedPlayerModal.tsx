@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import type { Track, RepeatMode } from '@/types';
-import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { formatDuration, cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { LyricsDrawer } from './LyricsDrawer';
 import {
   ChevronDown,
@@ -91,7 +91,7 @@ export function ExpandedPlayerModal({
           <div className="flex-1 min-h-0 flex items-center justify-center py-4">
             <div className="rounded-[4px] overflow-hidden shadow-2xl bg-transparent aspect-square w-full max-w-[min(45vw,320px)] shrink-0">
               <img
-                src={getThumbnailUrl(track.videoId, track.title)}
+                src={getTrackThumbnailUrl(track)}
                 alt={track.title}
                 className="w-full h-full object-cover object-center"
               />

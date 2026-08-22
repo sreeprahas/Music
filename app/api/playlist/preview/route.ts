@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { url?: string };
-    if (!body.url) {
+    if (typeof body.url !== 'string' || body.url.length > 2000) {
       return NextResponse.json({ error: 'Missing url' }, { status: 400 });
     }
 

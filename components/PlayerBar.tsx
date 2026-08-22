@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Playlist, Track, RepeatMode, SleepTimer } from '@/types';
-import { formatDuration, cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { formatDuration, cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import {
   Play,
   Pause,
@@ -356,7 +356,7 @@ export function PlayerBar({
           // YouTube Music through the in-process matcher. The player itself never knows how Spotify auth
         // works — it just asks for a playable videoId.
         let videoId = track.videoId;
-        if (!videoId && track.spotifyId) {
+        if (!videoId && track.sourceTrackId) {
           if (cancelled || loadGeneration !== loadGenerationRef.current) return;
           try {
             const res = await fetch('/api/spotify/resolve', {
@@ -366,7 +366,7 @@ export function PlayerBar({
                 title: track.title,
                 artist: track.artist,
                 duration: track.duration,
-                spotifyId: track.spotifyId,
+                spotifyId: track.sourceTrackId,
                 thumbnailUrl: track.thumbnailUrl,
               }),
             });
@@ -438,7 +438,7 @@ export function PlayerBar({
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.videoId, track?.spotifyId, trackLoadKey]);
+  }, [track?.videoId, track?.sourceTrackId, trackLoadKey]);
 
   // OS Lockscreen & Hardware Media Controls (MediaSession API)
   useEffect(() => {
@@ -447,8 +447,9 @@ export function PlayerBar({
     // Use the local thumbnail route for Windows media controls. The route
     // serves the cached file from the data directory (and caches it on the
     // first request), avoiding a direct dependency on the remote image URL.
-    const localArtwork = track.videoId
-      ? `${window.location.origin}${getThumbnailUrl(track.videoId, track.title)}`
+    const thumb = getTrackThumbnailUrl(track);
+    const localArtwork = thumb
+      ? (thumb.startsWith('http') ? thumb : `${window.location.origin}${thumb}`)
       : '';
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
@@ -586,7 +587,7 @@ export function PlayerBar({
               className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 cursor-pointer group relative shadow-md"
           >
             <img
-              src={getThumbnailUrl(track.videoId, track.title)}
+              src={getTrackThumbnailUrl(track)}
               alt={track.title}
               className="w-full h-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
             />

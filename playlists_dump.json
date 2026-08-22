@@ -1,0 +1,1968 @@
+{
+  "data": {
+    "me": {
+      "libraryV3": {
+        "__typename": "LibraryPage",
+        "availableFilters": [
+          {
+            "id": "Playlists",
+            "name": "Playlists"
+          },
+          {
+            "id": "Albums",
+            "name": "Albums"
+          }
+        ],
+        "availableSortOrders": [
+          {
+            "id": "Recents",
+            "name": "Recents"
+          },
+          {
+            "id": "Recently Added",
+            "name": "Recently Added"
+          },
+          {
+            "id": "Alphabetical",
+            "name": "Alphabetical"
+          },
+          {
+            "id": "Creator",
+            "name": "Creator"
+          }
+        ],
+        "breadcrumbs": [],
+        "items": [
+          {
+            "addedAt": {
+              "isoString": "2024-08-10T13:04:31Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:5RSFQL0HI2EnyQGAwBZlC3",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#A00030",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e024718e2b124f79258be7bc452ab67616d00001e02a3eff72f62782fb589a492f9ab67616d00001e02cdfe93fe3032b8eba8520f57ab67616d00001e02da6f73a25f4c79d0e6b4a8bd",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e024718e2b124f79258be7bc452ab67616d00001e02a3eff72f62782fb589a492f9ab67616d00001e02cdfe93fe3032b8eba8520f57ab67616d00001e02da6f73a25f4c79d0e6b4a8bd",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e024718e2b124f79258be7bc452ab67616d00001e02a3eff72f62782fb589a492f9ab67616d00001e02cdfe93fe3032b8eba8520f57ab67616d00001e02da6f73a25f4c79d0e6b4a8bd",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Something Good Ig",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAA2+4VgpvoKZ/NPnLDcHYmebMqbEUJ",
+                "uri": "spotify:playlist:5RSFQL0HI2EnyQGAwBZlC3"
+              }
+            },
+            "pinnable": true,
+            "pinned": true,
+            "playedAt": {
+              "isoString": "2026-08-18T17:46:21.521Z"
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "2026-02-27T11:52:49Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:4d8UhmrP8THXld2c713REP",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#502820",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e020e62daaea2c7b94053e1c142ab67616d00001e02a48964b5d9a3d6968ae3e0deab67616d00001e02c02eda7009734297d34e2f43ab67616d00001e02d7812467811a7da6e6a44902",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e020e62daaea2c7b94053e1c142ab67616d00001e02a48964b5d9a3d6968ae3e0deab67616d00001e02c02eda7009734297d34e2f43ab67616d00001e02d7812467811a7da6e6a44902",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e020e62daaea2c7b94053e1c142ab67616d00001e02a48964b5d9a3d6968ae3e0deab67616d00001e02c02eda7009734297d34e2f43ab67616d00001e02d7812467811a7da6e6a44902",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Current Likings",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAASNpjMJWG2byyYZDWTNXJZdNUtOGQ",
+                "uri": "spotify:playlist:4d8UhmrP8THXld2c713REP"
+              }
+            },
+            "pinnable": true,
+            "pinned": true,
+            "playedAt": {
+              "isoString": "2026-08-16T13:47:55.247Z"
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "2026-07-26T14:55:20Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:16wdFAizCOzbsWh6lVoHlL",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#535353",
+                          "isFallback": true
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e02245aa43805ea59914d8f59eeab67616d00001e02460b137f921b16041901104aab67616d00001e028863bc11d2aa12b54f5aeb36ab67616d00001e02de79f330bc297af3fae736da",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e02245aa43805ea59914d8f59eeab67616d00001e02460b137f921b16041901104aab67616d00001e028863bc11d2aa12b54f5aeb36ab67616d00001e02de79f330bc297af3fae736da",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e02245aa43805ea59914d8f59eeab67616d00001e02460b137f921b16041901104aab67616d00001e028863bc11d2aa12b54f5aeb36ab67616d00001e02de79f330bc297af3fae736da",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "The Weeknd ",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAABlx90l3OgMuOyNPurX3Hdapc2FOj",
+                "uri": "spotify:playlist:16wdFAizCOzbsWh6lVoHlL"
+              }
+            },
+            "pinnable": true,
+            "pinned": true,
+            "playedAt": {
+              "isoString": "2026-08-16T11:04:50.031Z"
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-04-10T06:29:33Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:1NxLwYqMP1RGYmor78t3sF",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#73777B",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e020735b9b1d06b65bbd8814825ab67616d00001e022281f3aa39da2848f25175ddab67616d00001e02493849e01bb8587af134d589ab67616d00001e02e565df794fc9d1f69bd2475a",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e020735b9b1d06b65bbd8814825ab67616d00001e022281f3aa39da2848f25175ddab67616d00001e02493849e01bb8587af134d589ab67616d00001e02e565df794fc9d1f69bd2475a",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e020735b9b1d06b65bbd8814825ab67616d00001e022281f3aa39da2848f25175ddab67616d00001e02493849e01bb8587af134d589ab67616d00001e02e565df794fc9d1f69bd2475a",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Anime ;)",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAPE8PU2e2PNCMFqOx5SyEFp6TVCNS",
+                "uri": "spotify:playlist:1NxLwYqMP1RGYmor78t3sF"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": {
+              "isoString": "2026-08-18T18:13:18.690Z"
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "2026-08-05T15:18:55Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "LibraryPseudoPlaylistResponseWrapper",
+              "_uri": "spotify:collection:tracks",
+              "data": {
+                "__typename": "PseudoPlaylist",
+                "count": 201,
+                "image": {
+                  "extractedColors": {
+                    "colorDark": {
+                      "hex": "#5018F0",
+                      "isFallback": false
+                    }
+                  },
+                  "sources": [
+                    {
+                      "height": 64,
+                      "url": "https://misc.scdn.co/liked-songs/liked-songs-64.png",
+                      "width": 64
+                    },
+                    {
+                      "height": 300,
+                      "url": "https://misc.scdn.co/liked-songs/liked-songs-300.png",
+                      "width": 300
+                    },
+                    {
+                      "height": 640,
+                      "url": "https://misc.scdn.co/liked-songs/liked-songs-640.png",
+                      "width": 640
+                    }
+                  ]
+                },
+                "name": "Liked Songs",
+                "uri": "spotify:collection:tracks"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-03-05T02:40:19Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:37i9dQZF1DX6bnzK9KPvrz",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [
+                  {
+                    "key": "uri",
+                    "value": "spotify:user:spotify:playlist:37i9dQZF1DX6bnzK9KPvrz"
+                  },
+                  {
+                    "key": "status",
+                    "value": "PUBLISHED"
+                  },
+                  {
+                    "key": "isAlgotorial",
+                    "value": "false"
+                  },
+                  {
+                    "key": "editorial.series",
+                    "value": "this-is"
+                  },
+                  {
+                    "key": "primary_color",
+                    "value": "#FFFFFF"
+                  },
+                  {
+                    "key": "recs.hasArtists",
+                    "value": "spotify:artist:1Xyo4u8uXC1ZmMpatF05PJ,spotify:artist:1h6Cn3P4NGzXbaXidqURXs,spotify:artist:0iEtIxbK0KxaSlF7G42ZOp,spotify:artist:1RyvyyTE3xzB2ZywiAwp0i,spotify:artist:0Y5tJX1MQlPlqiwlOH1tJY"
+                  },
+                  {
+                    "key": "header_image_url_desktop",
+                    "value": "https://i.scdn.co/image/ab6768640000fe89878bb334a1d391d47f802388"
+                  },
+                  {
+                    "key": "image_url",
+                    "value": "https://i.scdn.co/image/ab67686d00003ae0918dc1fbf3f8cee34399055c"
+                  },
+                  {
+                    "key": "episode_description",
+                    "value": "The essential tracks from The Weeknd."
+                  },
+                  {
+                    "key": "is_video_first",
+                    "value": "false"
+                  },
+                  {
+                    "key": "correlation-id",
+                    "value": "ssp~065991941584f68091646494195d2dddf760"
+                  }
+                ],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "The essential tracks from The Weeknd.",
+                "format": "format-shows-shuffle",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#D72B8F",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://i.scdn.co/image/ab67706f000000022e4d94d607aceaee7ffa6b3d",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "This Is The Weeknd",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "spotify",
+                    "name": "Spotify",
+                    "socialHandle": null,
+                    "uri": "spotify:user:spotify",
+                    "username": "spotify"
+                  }
+                },
+                "revisionId": "AAAAABaC6oeTFHJk3inZC2L+HH8BW3/2",
+                "uri": "spotify:playlist:37i9dQZF1DX6bnzK9KPvrz"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": {
+              "isoString": "2026-07-26T04:23:05.847Z"
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "2026-07-21T10:39:25Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "AlbumResponseWrapper",
+              "_uri": "spotify:album:2ErbY8ys8IReUjHjBOWxHD",
+              "data": {
+                "__typename": "Album",
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Jeff Guo"
+                      },
+                      "uri": "spotify:artist:7AryCuy6Y0Q2GXqn85dvRi"
+                    }
+                  ]
+                },
+                "coverArt": {
+                  "extractedColors": {
+                    "colorDark": {
+                      "hex": "#383838",
+                      "isFallback": false
+                    }
+                  },
+                  "sources": [
+                    {
+                      "height": 300,
+                      "url": "https://i.scdn.co/image/ab67616d00001e02b528b22c9f7013168b8a231c",
+                      "width": 300
+                    },
+                    {
+                      "height": 64,
+                      "url": "https://i.scdn.co/image/ab67616d00004851b528b22c9f7013168b8a231c",
+                      "width": 64
+                    },
+                    {
+                      "height": 640,
+                      "url": "https://i.scdn.co/image/ab67616d0000b273b528b22c9f7013168b8a231c",
+                      "width": 640
+                    }
+                  ]
+                },
+                "date": {
+                  "isoString": "2026-06-20T00:00:00Z",
+                  "precision": "DAY"
+                },
+                "name": "Claude's Plan",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "preReleaseEndDateTime": null,
+                "type": "SINGLE",
+                "uri": "spotify:album:2ErbY8ys8IReUjHjBOWxHD"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2023-11-11T15:28:58Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:3GHDvZYWhArRSMOup0aKql",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#AC6700",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e02093145d26ca7d4dee7117a21ab67616d00001e02104dd5b024f21f58dbe9eb83ab67616d00001e02512e62d06b1063fcfd0bd9a3ab67616d00001e02d25326bf74c89ae5b45ac1d0",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e02093145d26ca7d4dee7117a21ab67616d00001e02104dd5b024f21f58dbe9eb83ab67616d00001e02512e62d06b1063fcfd0bd9a3ab67616d00001e02d25326bf74c89ae5b45ac1d0",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e02093145d26ca7d4dee7117a21ab67616d00001e02104dd5b024f21f58dbe9eb83ab67616d00001e02512e62d06b1063fcfd0bd9a3ab67616d00001e02d25326bf74c89ae5b45ac1d0",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "AmongUs",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAACv6bWHdljdK4g8qhdm4ZislNONQg",
+                "uri": "spotify:playlist:3GHDvZYWhArRSMOup0aKql"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": {
+              "isoString": "2026-07-13T16:33:40.380Z"
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "2026-03-04T05:15:49Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:0GA8AzdnsyyWRYV3gPtD5t",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#3048A8",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://i.scdn.co/image/ab67616d00001e028cd26989f23d90fbe06d57b0",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Columbus",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAA/q01bBFsGAlx1zG3nWYSn8xUkti",
+                "uri": "spotify:playlist:0GA8AzdnsyyWRYV3gPtD5t"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-12-04T16:00:44Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:37i9dQZEVXcXHWVVT0lfDq",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [
+                  {
+                    "key": "request_id",
+                    "value": "ssp~0659919d1b82df253e1229908c55600ee88d"
+                  },
+                  {
+                    "key": "madeFor.username",
+                    "value": "Luffytaro29"
+                  },
+                  {
+                    "key": "wrapped.globalUri",
+                    "value": "spotify:playlist:37i9dQZEVXcXHWVVT0lfDq"
+                  },
+                  {
+                    "key": "header_image_url_desktop",
+                    "value": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/wrapped25/yts-desktop/en"
+                  },
+                  {
+                    "key": "image_url",
+                    "value": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/wrapped25/yts-mobile/en"
+                  },
+                  {
+                    "key": "correlation-id",
+                    "value": "ssp~0659919d1b82df253e1229908c55600ee88d"
+                  },
+                  {
+                    "key": "wrapped.isEligible",
+                    "value": "true"
+                  }
+                ],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "Spotify Wrapped presents the songs you loved this year",
+                "format": "wrapped-2025-top100",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#777777",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/wrapped25/yts/en",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Your Top Songs 2025",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "spotify",
+                    "name": "Spotify",
+                    "socialHandle": null,
+                    "uri": "spotify:user:spotify",
+                    "username": "spotify"
+                  }
+                },
+                "revisionId": "AAAAAJLQhq6OdyrnUkltfnHw0WXeFGyq",
+                "uri": "spotify:playlist:37i9dQZEVXcXHWVVT0lfDq"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-11-22T04:45:23Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:7lEvpFZCM8fzAlS9wFKwqb",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#485840",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e021d18320593e1d980c45684c1ab67616d00001e028d18d73bbfc8985d52865edfab67616d00001e02c2504e80ba2f258697ab2954ab67616d00001e02fddfffec51b4580acae727c1",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e021d18320593e1d980c45684c1ab67616d00001e028d18d73bbfc8985d52865edfab67616d00001e02c2504e80ba2f258697ab2954ab67616d00001e02fddfffec51b4580acae727c1",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e021d18320593e1d980c45684c1ab67616d00001e028d18d73bbfc8985d52865edfab67616d00001e02c2504e80ba2f258697ab2954ab67616d00001e02fddfffec51b4580acae727c1",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Spotify might be cooking....",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAEIUhhmctD+hlo95rarDbqcTE8H3R",
+                "uri": "spotify:playlist:7lEvpFZCM8fzAlS9wFKwqb"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-08-14T18:30:00Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "AlbumResponseWrapper",
+              "_uri": "spotify:album:0cMIntDigHjfYqnvgJjd3Q",
+              "data": {
+                "__typename": "Album",
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Maroon 5"
+                      },
+                      "uri": "spotify:artist:04gDigrS5kc9YWfZHwBETP"
+                    }
+                  ]
+                },
+                "coverArt": {
+                  "extractedColors": {
+                    "colorDark": {
+                      "hex": "#182070",
+                      "isFallback": false
+                    }
+                  },
+                  "sources": [
+                    {
+                      "height": 300,
+                      "url": "https://i.scdn.co/image/ab67616d00001e02ce86d53b3ee10aaf89c9d9c0",
+                      "width": 300
+                    },
+                    {
+                      "height": 64,
+                      "url": "https://i.scdn.co/image/ab67616d00004851ce86d53b3ee10aaf89c9d9c0",
+                      "width": 64
+                    },
+                    {
+                      "height": 640,
+                      "url": "https://i.scdn.co/image/ab67616d0000b273ce86d53b3ee10aaf89c9d9c0",
+                      "width": 640
+                    }
+                  ]
+                },
+                "date": {
+                  "isoString": "2025-08-15T00:00:00Z",
+                  "precision": "DAY"
+                },
+                "name": "Love Is Like",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "preReleaseEndDateTime": {
+                  "isoString": "2025-08-14T18:30:00Z"
+                },
+                "type": "ALBUM",
+                "uri": "spotify:album:0cMIntDigHjfYqnvgJjd3Q"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-07-19T11:01:46.727Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:37i9dQZF1EJH3kZhszwtvF",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "A Blend of music for Luffytaro29, Lucky, and Angel.",
+                "format": "blend",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#0A8667",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://blend-playlist-covers.spotifycdn.com/group-blends-v1/group-blend-green-2-DEFAULT-en.jpg",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Angel + Lucky + Luffytaro29",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "spotify",
+                    "name": "Spotify",
+                    "socialHandle": null,
+                    "uri": "spotify:user:spotify",
+                    "username": "spotify"
+                  }
+                },
+                "revisionId": "AAAAAAAAAABbuI3tBbc1uHpd5xhdHLjJ",
+                "uri": "spotify:playlist:37i9dQZF1EJH3kZhszwtvF"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-05-06T00:28:49Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:0n81ha8dSdYLDVc8VpCPsd",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "Relaxing Music 2026 \u263a Chill Songs, Acoustic Covers of Popular Songs, Sleep Playlist, driving songs - Sad Songs to listen to while crying, Sad love songs, sad music, calm/slow songs for broken hearts and couples, late night songs, Best of Billie Eilish, Lord Huron, Cigarettes after sex",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#B85040",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://image-cdn-ak.spotifycdn.com/image/ab67706c0000d72c110bc6d3e7461cd5e352584a",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Relaxing Music 2026 \ud83d\ude0c Late Night Drive Songs",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8261732a68645f010caebc5916",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8561732a68645f010caebc5916",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "magicmusicsquad",
+                    "name": "Magic Records",
+                    "socialHandle": null,
+                    "uri": "spotify:user:magicmusicsquad",
+                    "username": "magicmusicsquad"
+                  }
+                },
+                "revisionId": "AAAH+1ZR6M7WflTQfFo4VH1LtGOcgMtn",
+                "uri": "spotify:playlist:0n81ha8dSdYLDVc8VpCPsd"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-02-18T07:52:25Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:4bRQf8bwAIVgCb6Lcoursx",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#9A6D4F",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e02459d675aa0b6f3b211357370ab67616d00001e0259ce61a220822995a3ccd27fab67616d00001e02bb7e572c37d8b2aa7e18b9bcab67616d00001e02fc2101e6889d6ce9025f85f2",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e02459d675aa0b6f3b211357370ab67616d00001e0259ce61a220822995a3ccd27fab67616d00001e02bb7e572c37d8b2aa7e18b9bcab67616d00001e02fc2101e6889d6ce9025f85f2",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e02459d675aa0b6f3b211357370ab67616d00001e0259ce61a220822995a3ccd27fab67616d00001e02bb7e572c37d8b2aa7e18b9bcab67616d00001e02fc2101e6889d6ce9025f85f2",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "English sad songs to cry",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b825b5a2d9fe387839076dfbab6",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee855b5a2d9fe387839076dfbab6",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31byv2p7rlgq52pnphk53fanrdyq",
+                    "name": "Purple_ocean7",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31byv2p7rlgq52pnphk53fanrdyq",
+                    "username": "31byv2p7rlgq52pnphk53fanrdyq"
+                  }
+                },
+                "revisionId": "AAAANn8mqEXihkHv4SuM5/Vxf9dYxumk",
+                "uri": "spotify:playlist:4bRQf8bwAIVgCb6Lcoursx"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2025-01-10T17:33:13.976Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:0fpLC6dznIUOy3xmtBF43q",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "Contains songs u often heard in youtube vedios but dont know the names \ud83d\udc51 Also added some songs personally !! It will help u a lot , Follow meh 4 more \u270c\ud83c\udffb\ud83d\udd25",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#401010",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://image-cdn-ak.spotifycdn.com/image/ab67706c0000d72c3f2b29c743f7c58dbf4f0454",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "24kGoldn - Mood \u2764\ufe0f (FreeFire)",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b82af7d2700e9f1e978c09bb162",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee85af7d2700e9f1e978c09bb162",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "j5g7bcjog4dzbydfiquc39x8i",
+                    "name": "leXi",
+                    "socialHandle": null,
+                    "uri": "spotify:user:j5g7bcjog4dzbydfiquc39x8i",
+                    "username": "j5g7bcjog4dzbydfiquc39x8i"
+                  }
+                },
+                "revisionId": "AAAAKqnRYJZbysIxqLs6VI1JR0UQfUM/",
+                "uri": "spotify:playlist:0fpLC6dznIUOy3xmtBF43q"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-12-15T16:15:29Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:2Fn7upuiStDZIqhoiFo9j7",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#403848",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e02407bd04707c463bbb3410737ab67616d00001e024718e2b124f79258be7bc452ab67616d00001e02a3eff72f62782fb589a492f9ab67616d00001e02da6f73a25f4c79d0e6b4a8bd",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e02407bd04707c463bbb3410737ab67616d00001e024718e2b124f79258be7bc452ab67616d00001e02a3eff72f62782fb589a492f9ab67616d00001e02da6f73a25f4c79d0e6b4a8bd",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e02407bd04707c463bbb3410737ab67616d00001e024718e2b124f79258be7bc452ab67616d00001e02a3eff72f62782fb589a492f9ab67616d00001e02da6f73a25f4c79d0e6b4a8bd",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "English Only?!",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAiRR2MSqCi4YlXCp7ewozg1ElpECo",
+                "uri": "spotify:playlist:2Fn7upuiStDZIqhoiFo9j7"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-12-06T03:08:47Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:37i9dQZF1FoyQGyinuuvRu",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [
+                  {
+                    "key": "request_id",
+                    "value": "ssp~0659919d1d9734d133484d508cbc879f203d"
+                  },
+                  {
+                    "key": "madeFor.username",
+                    "value": "Luffytaro29"
+                  },
+                  {
+                    "key": "wrapped.globalUri",
+                    "value": "spotify:playlist:37i9dQZF1FoyQGyinuuvRu"
+                  },
+                  {
+                    "key": "header_image_url_desktop",
+                    "value": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/wrapped/yts-desktop/en"
+                  },
+                  {
+                    "key": "image_url",
+                    "value": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/wrapped/yts-mobile/en"
+                  },
+                  {
+                    "key": "correlation-id",
+                    "value": "ssp~0659919d1d9734d133484d508cbc879f203d"
+                  },
+                  {
+                    "key": "wrapped.isEligible",
+                    "value": "true"
+                  }
+                ],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "The songs you played most in 2024.",
+                "format": "wrapped-2024-top100",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#403030",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/wrapped/yts/en-GB",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Your Top Songs 2024",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "spotify",
+                    "name": "Spotify",
+                    "socialHandle": null,
+                    "uri": "spotify:user:spotify",
+                    "username": "spotify"
+                  }
+                },
+                "revisionId": "AAAAAOfLN5lsmPYCCBbPyWxg7al/M/e4",
+                "uri": "spotify:playlist:37i9dQZF1FoyQGyinuuvRu"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-11-21T02:14:21Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:0g9B137PBlgLiMOFilNotg",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#D02060",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e020ae4f4d42e4a09f3a29f64adab67616d00001e022d564195ed3dd7b70d64862cab67616d00001e028ff7c3580d429c8212b9a3b6ab67616d00001e02a9897f65d1ead1be10a51e3f",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e020ae4f4d42e4a09f3a29f64adab67616d00001e022d564195ed3dd7b70d64862cab67616d00001e028ff7c3580d429c8212b9a3b6ab67616d00001e02a9897f65d1ead1be10a51e3f",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e020ae4f4d42e4a09f3a29f64adab67616d00001e022d564195ed3dd7b70d64862cab67616d00001e028ff7c3580d429c8212b9a3b6ab67616d00001e02a9897f65d1ead1be10a51e3f",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Cooool",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAJXEQNm6pcAoXK1b1qsn7dhG59WJT",
+                "uri": "spotify:playlist:0g9B137PBlgLiMOFilNotg"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-10-30T12:11:52Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:0qLf5XqRfnRwjQq1DDpoUc",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#956E4D",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e02043a40737b9cded403f02ee4ab67616d00001e02062fd03d7ef8ad5f773b89e7ab67616d00001e02ac00afb9d0d09ff1fec578a0ab67616d00001e02e37b56b30e0d3d6bc73694da",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e02043a40737b9cded403f02ee4ab67616d00001e02062fd03d7ef8ad5f773b89e7ab67616d00001e02ac00afb9d0d09ff1fec578a0ab67616d00001e02e37b56b30e0d3d6bc73694da",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e02043a40737b9cded403f02ee4ab67616d00001e02062fd03d7ef8ad5f773b89e7ab67616d00001e02ac00afb9d0d09ff1fec578a0ab67616d00001e02e37b56b30e0d3d6bc73694da",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "TheFatRat",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAEvKgXx0uZZ0NhFmKA8LGV6JctwHX",
+                "uri": "spotify:playlist:0qLf5XqRfnRwjQq1DDpoUc"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-10-22T18:37:32Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:5PyZyQh9JyKJWT0ORO3pj3",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#182838",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e022fb9cbc9a24d3bfd090678c3ab67616d00001e0260dbbb589dff0c57a3a4ffb2ab67616d00001e02a6a335d613d151c626895a83ab67616d00001e02ba5db46f4b838ef6027e6f96",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e022fb9cbc9a24d3bfd090678c3ab67616d00001e0260dbbb589dff0c57a3a4ffb2ab67616d00001e02a6a335d613d151c626895a83ab67616d00001e02ba5db46f4b838ef6027e6f96",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e022fb9cbc9a24d3bfd090678c3ab67616d00001e0260dbbb589dff0c57a3a4ffb2ab67616d00001e02a6a335d613d151c626895a83ab67616d00001e02ba5db46f4b838ef6027e6f96",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Random likings",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAHuv7Hb/GvBy6y3dCCytO5Z+/bLNw",
+                "uri": "spotify:playlist:5PyZyQh9JyKJWT0ORO3pj3"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-10-03T03:27:30Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:37i9dQZF1E8PzrnE6iMeYu",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [
+                  {
+                    "key": "request_id",
+                    "value": "ssp~065991941590c23ace21c234f515d80f077f"
+                  },
+                  {
+                    "key": "madeFor.username",
+                    "value": "Luffytaro29"
+                  },
+                  {
+                    "key": "should_show_promo_disclosure",
+                    "value": "true"
+                  },
+                  {
+                    "key": "send-impression-for-rows",
+                    "value": "true"
+                  },
+                  {
+                    "key": "correlation-id",
+                    "value": "ssp~065991941590c23ace21c234f515d80f077f"
+                  }
+                ],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "With Eibell, sapientdream, Famy and more",
+                "format": "inspiredby-mix",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#C0574A",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/track/7IFAwaH6gDfY74xn9TDqc8/en",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "Mary On A Cross Radio",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "spotify",
+                    "name": "Spotify",
+                    "socialHandle": null,
+                    "uri": "spotify:user:spotify",
+                    "username": "spotify"
+                  }
+                },
+                "revisionId": "AAAAAM36bhjQuAVUuvsyseNJSv4f3RDE",
+                "uri": "spotify:playlist:37i9dQZF1E8PzrnE6iMeYu"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2024-08-17T15:40:28Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:37i9dQZF1DWWY64wDtewQt",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [
+                  {
+                    "key": "uri",
+                    "value": "spotify:user:spotify:playlist:37i9dQZF1DWWY64wDtewQt"
+                  },
+                  {
+                    "key": "status",
+                    "value": "PUBLISHED"
+                  },
+                  {
+                    "key": "isAlgotorial",
+                    "value": "false"
+                  },
+                  {
+                    "key": "primary_color",
+                    "value": "#ffffff"
+                  },
+                  {
+                    "key": "recs.hasArtists",
+                    "value": "spotify:artist:4Q2hJ2sAi0Tw1G5Gxv668a,spotify:artist:1yevH7mkPMXeSTnA9SwHvq,spotify:artist:6l3xqTokYcPPqrFhTlq9qQ,spotify:artist:0PEgH2YVz5tadElsDE8ZpD,spotify:artist:2cEiz8Q3ZntEQl2rJr1An7"
+                  },
+                  {
+                    "key": "header_image_url_desktop",
+                    "value": "https://i.scdn.co/image/ab6768640000fe8983dca266050a6e0993ea7749"
+                  },
+                  {
+                    "key": "image_url",
+                    "value": "https://i.scdn.co/image/ab67686d00003ae070e8503c5ce446d8d38330f6"
+                  },
+                  {
+                    "key": "episode_description",
+                    "value": "the beat of your drift"
+                  },
+                  {
+                    "key": "is_video_first",
+                    "value": "false"
+                  },
+                  {
+                    "key": "correlation-id",
+                    "value": "ssp~065991941584f68091646494195d2dddf760"
+                  }
+                ],
+                "currentUserCapabilities": {
+                  "canEditItems": false,
+                  "canView": true
+                },
+                "description": "the beat of your drift",
+                "format": "format-shows-shuffle",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#9808E0",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": null,
+                          "url": "https://i.scdn.co/image/ab67706f0000000271ff720f409999d89f09a8e4",
+                          "width": null
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "phonk",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "spotify",
+                    "name": "Spotify",
+                    "socialHandle": null,
+                    "uri": "spotify:user:spotify",
+                    "username": "spotify"
+                  }
+                },
+                "revisionId": "AAAAALjviFpaQFWCuA0r1o9LMbsA1O3t",
+                "uri": "spotify:playlist:37i9dQZF1DWWY64wDtewQt"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          },
+          {
+            "addedAt": {
+              "isoString": "2023-07-14T15:36:48Z"
+            },
+            "depth": 0,
+            "item": {
+              "__typename": "PlaylistResponseWrapper",
+              "_uri": "spotify:playlist:3TP1RwcfZAnan5rvEmefGy",
+              "data": {
+                "__typename": "Playlist",
+                "attributes": [],
+                "currentUserCapabilities": {
+                  "canEditItems": true,
+                  "canView": true
+                },
+                "description": "",
+                "format": "",
+                "images": {
+                  "items": [
+                    {
+                      "extractedColors": {
+                        "colorDark": {
+                          "hex": "#203838",
+                          "isFallback": false
+                        }
+                      },
+                      "sources": [
+                        {
+                          "height": 640,
+                          "url": "https://mosaic.scdn.co/640/ab67616d00001e023cf1c1dbcfa3f1ab7282719bab67616d00001e02407bd04707c463bbb3410737ab67616d00001e025675e83f707f1d7271e5cf8aab67616d00001e02fc915b69600dce2991a61f13",
+                          "width": 640
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://mosaic.scdn.co/300/ab67616d00001e023cf1c1dbcfa3f1ab7282719bab67616d00001e02407bd04707c463bbb3410737ab67616d00001e025675e83f707f1d7271e5cf8aab67616d00001e02fc915b69600dce2991a61f13",
+                          "width": 300
+                        },
+                        {
+                          "height": 60,
+                          "url": "https://mosaic.scdn.co/60/ab67616d00001e023cf1c1dbcfa3f1ab7282719bab67616d00001e02407bd04707c463bbb3410737ab67616d00001e025675e83f707f1d7271e5cf8aab67616d00001e02fc915b69600dce2991a61f13",
+                          "width": 60
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "name": "My music",
+                "ownerV2": {
+                  "data": {
+                    "__typename": "User",
+                    "avatar": {
+                      "sources": [
+                        {
+                          "height": 64,
+                          "url": "https://i.scdn.co/image/ab67757000003b821140b61076b15de2c2353454",
+                          "width": 64
+                        },
+                        {
+                          "height": 300,
+                          "url": "https://i.scdn.co/image/ab6775700000ee851140b61076b15de2c2353454",
+                          "width": 300
+                        }
+                      ]
+                    },
+                    "id": "31qoe46caxkl6lfm7us7gdba54nm",
+                    "name": "Luffytaro29",
+                    "socialHandle": null,
+                    "uri": "spotify:user:31qoe46caxkl6lfm7us7gdba54nm",
+                    "username": "31qoe46caxkl6lfm7us7gdba54nm"
+                  }
+                },
+                "revisionId": "AAAAEsQvvsOYBhK25GWZLYNJ/JMrdu1/",
+                "uri": "spotify:playlist:3TP1RwcfZAnan5rvEmefGy"
+              }
+            },
+            "pinnable": true,
+            "pinned": false,
+            "playedAt": null
+          }
+        ],
+        "pagingInfo": {
+          "limit": 50,
+          "offset": 0
+        },
+        "selectedFilters": [],
+        "selectedSortOrder": {
+          "id": "Recents",
+          "name": "Recents"
+        },
+        "totalCount": 24
+      }
+    }
+  }
+}

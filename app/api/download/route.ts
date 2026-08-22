@@ -65,7 +65,7 @@ export async function GET(request: Request): Promise<Response> {
             });
 
             try {
-              await downloadTrack(track.videoId, track.title, track.artist);
+              await downloadTrack(track.videoId, track.title, track.artist, abortSignal);
               processed++;
               successful++;
               send({

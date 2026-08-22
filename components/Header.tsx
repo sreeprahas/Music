@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DownloadJob, UserProfile, Track } from '@/types';
 import { Download, LogOut, Radio, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home, Settings, ChevronDown, Layers3, FolderOpen } from 'lucide-react';
-import { cleanArtistName, getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 
 interface HeaderProps {
   spotifyConnected?: boolean;
@@ -325,7 +325,7 @@ export function Header({
                       }`}
                     >
                       <img
-                        src={getThumbnailUrl(track.videoId, track.title)}
+                        src={getTrackThumbnailUrl(track)}
                         alt=""
                         className="w-9 h-9 rounded-lg object-cover shrink-0 bg-surface"
                       />

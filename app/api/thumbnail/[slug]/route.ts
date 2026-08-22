@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { getLocalThumbnailPath } from '@/lib/db';
+import { getLocalPreviewImagePath } from '@/lib/spotify/previewCache';
 import { NextRequest } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -18,9 +19,10 @@ export async function GET(
   if (!videoId) {
     return new Response('Missing videoId', { status: 400 });
   }
+  if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(videoId)) return new Response('Invalid videoId', { status: 400 });
 
+  // 1. Real data thumbnail
   const localPath = getLocalThumbnailPath(videoId);
-
   if (fs.existsSync(localPath)) {
     return new Response(fs.readFileSync(localPath), {
       headers: {
@@ -30,7 +32,17 @@ export async function GET(
     });
   }
 
-  // Image not on disk — return placeholder, do not fetch remotely.
+  // 2. Preview cache thumbnail
+  const previewPath = getLocalPreviewImagePath(videoId);
+  if (fs.existsSync(previewPath)) {
+    return new Response(fs.readFileSync(previewPath), {
+      headers: {
+        'Content-Type': 'image/webp',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    });
+  }
+
   return new Response(SVG_PLACEHOLDER, {
     headers: { 'Content-Type': 'image/svg+xml' },
   });

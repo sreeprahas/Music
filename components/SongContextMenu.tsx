@@ -161,6 +161,7 @@ export function SongContextMenu({
   useEffect(() => {
     return () => {
       if (menuCloseTimeoutRef.current) clearTimeout(menuCloseTimeoutRef.current);
+      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
     };
   }, []);
 
@@ -269,11 +270,6 @@ export function SongContextMenu({
         )
       )}
 
-      {onSetMatchOverride && track.spotifyId && (
-        <button onClick={() => run(() => onSetMatchOverride(track))} className={menuAction}>
-          Set YouTube match
-        </button>
-      )}
 
       <div
         className="relative"

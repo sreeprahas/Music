@@ -24,6 +24,8 @@ export async function compareArtwork(sourceUrl: string, candidateUrl: string): P
 
 async function imageVector(url: string): Promise<number[] | null> {
   try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || !['i.ytimg.com', 'lh3.googleusercontent.com', 'images.unsplash.com'].includes(parsed.hostname)) return null;
     const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) return null;
     const buffer = Buffer.from(await response.arrayBuffer());

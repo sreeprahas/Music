@@ -1,3 +1,5 @@
+import type { Track } from '@/types';
+
 export function cleanArtistName(artist?: string): string {
   return (artist || '').replace(/\s*-\s*Topic$/i, '').replace(/\s+Topic$/i, '').trim();
 }
@@ -15,4 +17,15 @@ export function getThumbnailUrl(videoId: string, title?: string): string {
     return `/api/thumbnail/${encodeURIComponent(slug)}?v=${encodeURIComponent(videoId)}`;
   }
   return `/api/thumbnail?v=${encodeURIComponent(videoId)}`;
+}
+
+/**
+ * Get the best available thumbnail URL for a track.
+ * Prefers the stored thumbnailUrl (which may be a local API URL after import),
+ * then falls back to generating from videoId or sourceTrackId.
+ */
+export function getTrackThumbnailUrl(track: Pick<Track, 'thumbnailUrl' | 'videoId' | 'title'> & { sourceTrackId?: string }): string {
+  if (track.thumbnailUrl) return track.thumbnailUrl;
+  const key = track.videoId || track.sourceTrackId || '';
+  return getThumbnailUrl(key, track.title);
 }

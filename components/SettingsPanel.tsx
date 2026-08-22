@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Database, ExternalLink, Gauge, X, User, Palette, Layers, Radio, Sparkles } from 'lucide-react';
@@ -238,112 +238,34 @@ function ConnectionsPage() {
     packageVersion?: string;
   }>({});
 
-  const [spotifyAuth, setSpotifyAuth] = useState<{
-    connected: boolean;
-    expiresAt: number | null;
-  }>({ connected: false, expiresAt: null });
-
-  const [authBusy, setAuthBusy] = useState(false);
-
-  const fetchTransport = () =>
+  useEffect(() => {
     fetch('/api/settings/transport', { cache: 'no-store' })
       .then((r) => r.json())
       .then(setTransport)
       .catch(() => undefined);
-
-  const fetchSpotifyStatus = () =>
-    fetch('/api/auth/spotify/status', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then(setSpotifyAuth)
-      .catch(() => undefined);
-
-    useEffect(() => {
-      fetchTransport();
-      fetchSpotifyStatus();
-      const statusTimer = window.setInterval(fetchSpotifyStatus, 2500);
-
-    // Re-check auth status if redirected back after OAuth
-    const params = new URLSearchParams(window.location.search);
-    const authResult = params.get('spotify_auth');
-      if (authResult) {
-      // Clean the query param without reloading
-      const cleanUrl = window.location.pathname;
-      window.history.replaceState({}, '', cleanUrl);
-      }
-      return () => window.clearInterval(statusTimer);
-    }, []);
-
-    const handleConnect = async () => {
-      await handlePopupConnect();
-    };
-
-    const handlePopupConnect = async () => {
-      if (!window.electron?.openSpotApiPopup) return;
-      setAuthBusy(true);
-      try { const result = await window.electron.openSpotApiPopup(); if (result.connected) { setSpotifyAuth({ connected: true, expiresAt: null }); } }
-      finally { setAuthBusy(false); }
-    };
-
-  const handleDisconnect = async () => {
-    setAuthBusy(true);
-    try {
-      await fetch('/api/auth/spotify/disconnect', { method: 'POST' });
-      setSpotifyAuth({ connected: false, expiresAt: null });
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const expiryLabel = spotifyAuth.expiresAt
-    ? new Date(spotifyAuth.expiresAt).toLocaleTimeString()
-    : null;
+  }, []);
 
   return (
     <div className="space-y-4">
-      {/* Spotify account card */}
-      <Card>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${spotifyAuth.connected ? 'bg-accent' : 'bg-warning'}`} />
-            <div>
-              <h3 className="font-bold theme-text">Spotify account</h3>
-              {spotifyAuth.connected ? (
-                <p className="mt-1 text-sm theme-muted">
-                  Connected.{expiryLabel && ` Token expires at ${expiryLabel}.`}
-                </p>
-              ) : (
-                <p className="mt-1 text-sm theme-muted">
-                  Not connected. Connect your Spotify account to enable search, album, and artist metadata.
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {spotifyAuth.connected && <button type="button" disabled={authBusy} onClick={handleDisconnect} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold theme-muted hover:bg-surface disabled:opacity-50">Disconnect</button>}
-            {!spotifyAuth.connected && <button type="button" disabled={authBusy} onClick={handleConnect} className="rounded-lg bg-accent px-3 py-2 text-xs font-bold text-background hover:bg-accent-hover disabled:opacity-50">Connect Spotify</button>}
-          </div>
-        </div>
-      </Card>
-
       {/* Spotify provider card */}
       <Card>
         <div className="flex items-start gap-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 theme-accent" />
           <div>
-            <h3 className="font-bold theme-text">Spotify provider</h3>
-              <p className="mt-1 text-sm leading-6 theme-muted">
-                SpotAPI-only mode. Connect opens Spotify in an Electron popup, captures the web session, and saves it for private playlists and library access.
-              </p>
+            <h3 className="font-bold theme-text">Providers</h3>
+            <p className="mt-1 text-sm leading-6 theme-muted">
+              Spotify playlist importing via embed preview & guest token. YouTube playback & search via GraphQL / YouTube Music.
+            </p>
             <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
               <Status
-                label="Spotify / SpotAPI"
+                label="Spotify Embed & Guest"
                 state={transport.spotify}
-                statusText={transport.spotify?.configured ? 'configured' : 'unconfigured'}
+                statusText={transport.spotify?.status || 'ready'}
               />
               <Status
                 label="YouTube GraphQL"
                 state={transport.youtube}
-                statusText={transport.youtube?.status || 'unsupported'}
+                statusText={transport.youtube?.status || 'configured'}
               />
             </div>
           </div>
