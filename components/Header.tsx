@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DownloadJob, UserProfile, Track } from '@/types';
-import { Download, LogOut, Radio, CheckCircle, AlertCircle, Loader2, X, Search, Undo2, Redo2, Wifi, WifiOff, Home, Settings, ChevronDown, Layers3, FolderOpen } from 'lucide-react';
+import { Download, Radio, CheckCircle, AlertCircle, Loader2, X, Search, ChevronLeft, ChevronRight, Wifi, WifiOff, Home, Settings, ChevronDown, Layers3, FolderOpen } from 'lucide-react';
 import { cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 
 interface HeaderProps {
@@ -23,6 +23,7 @@ interface HeaderProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  isHidden?: boolean;
 }
 
 export function Header({
@@ -43,6 +44,7 @@ export function Header({
   onRedo,
   canUndo = false,
   canRedo = false,
+  isHidden = false,
 }: HeaderProps) {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isDownloadClosing, setIsDownloadClosing] = useState(false);
@@ -224,7 +226,7 @@ export function Header({
             title="Back"
             className="p-2 rounded-xl text-text hover:text-accent hover:bg-surface-hover hover:shadow-accent-soft disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
-            <Undo2 className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={onRedo}
@@ -232,7 +234,7 @@ export function Header({
             title="Forward"
             className="p-2 rounded-xl text-text hover:text-accent hover:bg-surface-hover hover:shadow-accent-soft disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
-            <Redo2 className="w-4 h-4" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -538,7 +540,7 @@ export function Header({
             >
               <div className="px-3 py-2 border-b border-border-subtle mb-1">
                 <p className="text-xs font-bold text-text truncate">{user.name}</p>
-                <p className="text-[11px] text-text-muted truncate">{user.email}</p>
+                <p className="text-[11px] text-text-muted truncate">{user.email || 'User'}</p>
               </div>
 
               <button
@@ -550,22 +552,6 @@ export function Header({
                 Settings & connections
               </button>
 
-              <div className="px-3 py-2 text-[11px] leading-5 text-text-muted">
-                Connect Spotify to use the configured external provider. Provider credentials remain on the server.
-              </div>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  try { window.localStorage.removeItem('music_profile_photo'); } catch { /* ignore */ }
-                  try { await caches.delete('music-profile-v1'); } catch { /* ignore */ }
-                  window.location.reload();
-                }}
-                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-text hover:bg-accent/10 hover:text-accent transition-all duration-300 w-full font-semibold"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign Out
-              </button>
             </div>
           )}
         </div>

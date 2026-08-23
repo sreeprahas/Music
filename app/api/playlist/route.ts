@@ -38,10 +38,12 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log(`[SpotifyImport] API route POST received import request for: ${body.url}`);
     const { reconcilePlaylist } = await import('@/lib/storage/playlists');
     const { importPlaylistUrl } = await import('@/lib/playlistImporter');
 
     const imported = await importPlaylistUrl(body.url!);
+    console.log(`[SpotifyImport] metadata retrieved, persisting ${imported.tracks.length} tracks to SQLite`);
 
     // Persist via reconcile (transactional + thumbnail download)
     const { playlist, tracks } = await reconcilePlaylist(
@@ -49,9 +51,11 @@ export async function POST(request: Request) {
       imported.tracks,
       imported.playlist.thumbnailUrl || undefined,
     );
+    console.log(`[SpotifyImport] SQLite persistence complete, API route returning response for: ${playlist.id}`);
 
     return NextResponse.json({ success: true, local: true, playlist, tracks });
   } catch (error) {
+    console.error(`[SpotifyImport] API route import error:`, error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Playlist import failed' },
       { status: 500 },

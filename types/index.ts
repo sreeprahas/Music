@@ -46,6 +46,7 @@ export interface Playlist {
 export interface UserProfile {
   name: string;
   email: string;
+  accountType?: 'guest' | 'google';
   picture?: string;
   image?: string;
 }

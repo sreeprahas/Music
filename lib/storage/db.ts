@@ -24,8 +24,16 @@ export function getDb(): DatabaseSync {
   const dbPath = getDbPath();
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   _db = new DatabaseSync(dbPath);
-  // WAL mode for concurrent reads without blocking writes
-  _db.exec('PRAGMA journal_mode = WAL');
+  // Never let a second process (for example a database viewer in VS Code)
+  // freeze the Electron UI while SQLite waits for its file lock.
+  _db.exec('PRAGMA busy_timeout = 1500');
+  // WAL mode improves concurrent reads, but changing journal mode needs an
+  // exclusive lock. Treat that optimization as best-effort at startup.
+  try {
+    _db.exec('PRAGMA journal_mode = WAL');
+  } catch (error) {
+    console.warn('[db] WAL mode unavailable; continuing with the existing journal mode:', error instanceof Error ? error.message : error);
+  }
   _db.exec('PRAGMA foreign_keys = ON');
   _db.exec('PRAGMA synchronous = NORMAL');
   initSchema(_db);
@@ -93,6 +101,17 @@ function initSchema(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS user_settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL DEFAULT '{}'
+    );
+
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      provider     TEXT NOT NULL,
+      account_id   TEXT NOT NULL,
+      name         TEXT NOT NULL DEFAULT '',
+      email        TEXT NOT NULL DEFAULT '',
+      picture_url  TEXT NOT NULL DEFAULT '',
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL,
+      PRIMARY KEY (provider, account_id)
     );
 
     CREATE TABLE IF NOT EXISTS spotify_youtube_map (

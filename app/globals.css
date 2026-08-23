@@ -131,6 +131,11 @@ body {
 [data-theme='green'] { --color-accent: #42e6a4; --color-accent-rgb: 66 230 164; --color-accent-hover: #20ba7e; --color-accent-hover-rgb: 32 186 126; --color-accent-active: #168a5c; --color-accent-active-rgb: 22 138 92; --color-border: #2f4b40; --color-border-rgb: 47 75 64; }
 [data-theme='amber'] { --color-accent: #ffbf69; --color-accent-rgb: 255 191 105; --color-accent-hover: #e59a3f; --color-accent-hover-rgb: 229 154 63; --color-accent-active: #b87324; --color-accent-active-rgb: 184 115 36; --color-border: #514332; --color-border-rgb: 81 67 50; }
 [data-theme='rose'] { --color-accent: #ff7aa8; --color-accent-rgb: 255 122 168; --color-accent-hover: #e65386; --color-accent-hover-rgb: 230 83 134; --color-accent-active: #b83262; --color-accent-active-rgb: 184 50 98; --color-border: #533444; --color-border-rgb: 83 52 68; }
+[data-theme='blue'] { --color-accent: #5cb8ff; --color-accent-rgb: 92 184 255; --color-accent-hover: #3699e8; --color-accent-hover-rgb: 54 153 232; --color-accent-active: #2175b8; --color-accent-active-rgb: 33 117 184; --color-border: #2f4c67; --color-border-rgb: 47 76 103; }
+[data-theme='indigo'] { --color-accent: #9b8cff; --color-accent-rgb: 155 140 255; --color-accent-hover: #7b6ce8; --color-accent-hover-rgb: 123 108 232; --color-accent-active: #5f50bb; --color-accent-active-rgb: 95 80 187; --color-border: #403b6b; --color-border-rgb: 64 59 107; }
+[data-theme='orange'] { --color-accent: #ff9f5a; --color-accent-rgb: 255 159 90; --color-accent-hover: #e9823c; --color-accent-hover-rgb: 233 130 60; --color-accent-active: #b85d22; --color-accent-active-rgb: 184 93 34; --color-border: #60422d; --color-border-rgb: 96 66 45; }
+[data-theme='mint'] { --color-accent: #63e6be; --color-accent-rgb: 99 230 190; --color-accent-hover: #3bc49b; --color-accent-hover-rgb: 59 196 155; --color-accent-active: #239b78; --color-accent-active-rgb: 35 155 120; --color-border: #2f5d51; --color-border-rgb: 47 93 81; }
+[data-theme='magenta'] { --color-accent: #f08cff; --color-accent-rgb: 240 140 255; --color-accent-hover: #d967ec; --color-accent-hover-rgb: 217 103 236; --color-accent-active: #ad43be; --color-accent-active-rgb: 173 67 190; --color-border: #603568; --color-border-rgb: 96 53 104; }
 
 /* Backward-compatible aliases for the existing chrome selectors. */
 :root,
@@ -158,6 +163,11 @@ body {
 .theme-swatch[data-theme-preview='green'] { background: #42e6a4; }
 .theme-swatch[data-theme-preview='amber'] { background: #ffbf69; }
 .theme-swatch[data-theme-preview='rose'] { background: #ff7aa8; }
+.theme-swatch[data-theme-preview='blue'] { background: #5cb8ff; }
+.theme-swatch[data-theme-preview='indigo'] { background: #9b8cff; }
+.theme-swatch[data-theme-preview='orange'] { background: #ff9f5a; }
+.theme-swatch[data-theme-preview='mint'] { background: #63e6be; }
+.theme-swatch[data-theme-preview='magenta'] { background: #f08cff; }
 
 /* The header may tint the original mark; native app branding keeps the
    original asset unchanged. */
@@ -335,6 +345,51 @@ body {
   animation: fadeIn 0.18s ease-out both;
 }
 
+@keyframes profileZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.86) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes profileAuroraFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-profile-zoom-in {
+  animation: profileZoomIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.profile-aurora {
+  position: relative;
+  padding: 2px;
+  background-image: linear-gradient(
+    115deg,
+    #38bdf8,
+    #2563eb,
+    #93c5fd,
+    #1d4ed8,
+    #38bdf8
+  );
+  background-size: 280% 280%;
+  animation: profileAuroraFlow 5s ease-in-out infinite;
+  box-shadow:
+    0 0 28px rgb(56 189 248 / 0.35),
+    0 24px 70px rgb(37 99 235 / 0.25);
+}
+
 @keyframes settingsIn {
   from { opacity: 0; transform: scale(0.98); }
   to { opacity: 1; transform: scale(1); }
@@ -481,6 +536,11 @@ input[type='range']:active::-moz-range-thumb {
 .music-header a,
 .music-header [role='button'] {
   -webkit-app-region: no-drag;
+}
+
+.settings-back-button {
+  -webkit-app-region: no-drag !important;
+  pointer-events: auto !important;
 }
 
 .fullscreen-modal-header {

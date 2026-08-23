@@ -46,6 +46,9 @@ export {
   DEFAULT_SETTINGS,
 } from './storage/settings';
 
+export { getLocalProfile, saveLocalProfile } from './storage/profile';
+export type { StoredProfile } from './storage/profile';
+
 export {
   getYoutubeMapping,
   setYoutubeMapping,

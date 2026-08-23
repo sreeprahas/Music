@@ -3,7 +3,7 @@
  *
  * Spotify flow:
  *   Preview — fetchEmbedPreview (scrapes artwork, caches metadata + images in preview cache)
- *   Import  — guest-token + internal API, promotes preview cache to real data, downloads all track artwork
+ *   Import  — hidden Electron WebContents; promotes preview cache before background artwork
  *
  * YouTube flow: unchanged.
  */
@@ -12,8 +12,7 @@ import type { Playlist, Track } from '@/types';
 import { getThumbnailUrl } from './ytmusicFormat';
 import { getAllYouTubePlaylistTracks } from './youtube/playlists';
 import { fetchEmbedPreview } from './spotify/embed';
-import { fetchGuestToken } from './spotify/guestToken';
-import { fetchAllPlaylistTracks, fetchPlaylistMeta } from './spotify/apiClient';
+import { fetchPlaylistWithHiddenWebContents } from './spotify/webContentsProvider';
 import { toAppTrack, toAppPlaylist } from './spotify/normalize';
 import { extractPlaylistId, isSpotifyPlaylistUrl } from './spotify/validation';
 
@@ -117,22 +116,30 @@ export async function importPlaylistUrl(rawUrl: string): Promise<{ playlist: Pla
   };
 }
 
-// ─── Spotify import (full, paginated) ────────────────────────────────────────
+// ─── Spotify import (full, rendered by hidden WebContents) ───────────────────
 
 async function importSpotify(rawUrl: string): Promise<{ playlist: Playlist; tracks: Track[] }> {
   const id = extractPlaylistId(rawUrl);
   if (!id) throw new Error('Could not extract a Spotify playlist id from that URL');
 
-  const { accessToken } = await fetchGuestToken(id);
+  const { playlist: meta, tracks: scrapedTracks } = await fetchPlaylistWithHiddenWebContents(rawUrl);
 
-  const [meta, rawTracks] = await Promise.all([
-    fetchPlaylistMeta(id, accessToken),
-    fetchAllPlaylistTracks(id, accessToken),
-  ]);
-
-  const localId = `spotify-${id}`;
-  const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
-  const playlist = toAppPlaylist(id, meta.name, meta.image, rawUrl, appTracks);
+  // Every explicit import creates another independent local copy.
+  const localId = `sp-${id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const normalizedTracks = scrapedTracks.map((track) => ({
+    name: track.title,
+    artists: track.artist,
+    duration_ms: track.durationMs || 0,
+    image: track.image || '',
+    added_at: track.addedAt || new Date().toISOString(),
+    spotifyTrackId: track.id,
+    album: track.album,
+  }));
+  const appTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
+  const playlist = {
+    ...toAppPlaylist(id, meta.name, meta.image, rawUrl, appTracks),
+    id: localId,
+  };
 
   // Return raw tracks — caller (reconcilePlaylist) handles thumbnail download
   return { playlist, tracks: appTracks };

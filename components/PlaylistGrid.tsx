@@ -25,7 +25,9 @@ export function PlaylistGridSkeleton() {
     <div className="h-full flex flex-col min-h-0">
       <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 space-y-8 select-none scrollbar-thin">
         <section aria-label="Loading playlists">
-          <Skeleton className="mb-6 h-9 w-56 rounded-lg" />
+          <Skeleton className="mb-2 h-3 w-16 rounded-lg" />
+          <Skeleton className="mb-2 h-9 w-56 rounded-lg" />
+          <Skeleton className="mb-6 h-4 w-72 rounded-lg" />
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
             {Array.from({ length: 10 }, (_, index) => (
               <div key={index} className="w-[180px] min-w-[180px]">
@@ -69,12 +71,14 @@ export function PlaylistGrid({
   return (
     <div ref={gridRef} className="h-full flex flex-col min-h-0 relative">
       <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 space-y-8 select-none scrollbar-thin">
+        <header className="mb-2">
+        </header>
         {/* Pinned Playlists Section */}
         {pinnedPlaylists.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Pin className="w-4 h-4 text-accent fill-accent" />
-              <h2 className="text-xl font-bold text-text tracking-tight">Pinned Playlists</h2>
+              <h2 className="text-3xl font-bold text-text tracking-tight">Pinned Playlists</h2>
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
               {pinnedPlaylists.map((pl) => (

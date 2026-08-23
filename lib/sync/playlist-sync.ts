@@ -71,18 +71,30 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
   if (source === 'spotify') {
     try {
       const spotifyId = playlist.sourcePlaylistId;
-      const { fetchGuestToken } = await import('@/lib/spotify/guestToken');
-      const { fetchPlaylistMeta, fetchAllPlaylistTracks } = await import('@/lib/spotify/apiClient');
+      console.log(`[Sync] started Spotify sync for playlist: ${playlistId} (${spotifyId})`);
+      const { fetchPlaylistWithHiddenWebContents } = await import('@/lib/spotify/webContentsProvider');
       const { toAppTrack, toAppPlaylist } = await import('@/lib/spotify/normalize');
       const { reconcilePlaylist } = await import('@/lib/storage/playlists');
 
+      console.log(`[Sync] fetching Spotify playlist: ${spotifyId}`);
       // Fetch fresh Spotify data
-      const { accessToken } = await fetchGuestToken(spotifyId);
-      const meta = await fetchPlaylistMeta(spotifyId, accessToken);
-      const rawTracks = await fetchAllPlaylistTracks(spotifyId, accessToken);
+      const { playlist: meta, tracks: scrapedTracks } =
+        await fetchPlaylistWithHiddenWebContents(
+          playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
+        );
 
+      console.log(`[Sync] Spotify provider returned ${scrapedTracks.length} tracks`);
       const localId = playlist.id;
-      const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
+      const normalizedTracks = scrapedTracks.map((track) => ({
+        name: track.title,
+        artists: track.artist,
+        duration_ms: track.durationMs || 0,
+        image: track.image || '',
+        added_at: track.addedAt || new Date().toISOString(),
+        spotifyTrackId: track.id,
+        album: track.album,
+      }));
+      const appTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
       const newPlaylist = toAppPlaylist(
         spotifyId,
         meta.name || playlist.title,
@@ -100,14 +112,17 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
         lastSyncedAt: new Date().toISOString(),
       };
 
+      console.log(`[Sync] starting SQLite reconciliation for ${appTracks.length} tracks`);
       // Reconcile with SQLite (instant persistence + background artwork)
       await reconcilePlaylist(mergedPlaylist, appTracks, meta.image || undefined, true);
+      console.log(`[Sync] reconciliation completed, returning response`);
 
       state.status = 'idle';
       state.updatedAt = Date.now();
       setPersistent(stateKey(playlistId), state, 0);
       return state;
     } catch (error) {
+      console.error(`[Sync] Spotify sync failed:`, error);
       state.status = 'error';
       state.error = error instanceof Error ? error.message : 'Spotify playlist synchronization failed';
       state.updatedAt = Date.now();

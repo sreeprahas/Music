@@ -2,13 +2,18 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-export type ThemeName = 'cyan' | 'purple' | 'green' | 'amber' | 'rose';
+export type ThemeName = 'cyan' | 'purple' | 'green' | 'amber' | 'rose' | 'blue' | 'indigo' | 'orange' | 'mint' | 'magenta';
 export const THEME_PRESETS: Array<{ id: ThemeName; name: string; description: string }> = [
   { id: 'cyan', name: 'Neon cyan', description: 'The original electric accent' },
   { id: 'purple', name: 'Velvet purple', description: 'A calmer creative tone' },
   { id: 'green', name: 'Signal green', description: 'Bright and energetic' },
   { id: 'amber', name: 'Warm amber', description: 'Soft gold against charcoal' },
   { id: 'rose', name: 'Rose pulse', description: 'A vivid pink highlight' },
+  { id: 'blue', name: 'Ocean blue', description: 'Calm and focused' },
+  { id: 'indigo', name: 'Deep indigo', description: 'Rich night color' },
+  { id: 'orange', name: 'Sunset orange', description: 'Warm and expressive' },
+  { id: 'mint', name: 'Soft mint', description: 'Fresh and understated' },
+  { id: 'magenta', name: 'Electric magenta', description: 'Bold creative energy' },
 ];
 interface ThemeContextValue { theme: ThemeName; setTheme: (theme: ThemeName) => void; }
 const ThemeContext = createContext<ThemeContextValue | null>(null);

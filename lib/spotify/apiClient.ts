@@ -47,6 +47,7 @@ export interface NormalizedTrack {
   image: string;
   added_at: string;
   spotifyTrackId: string;
+  album?: string;
 }
 
 export type ProgressCallback = (fetched: number, total: number) => void;
@@ -485,7 +486,7 @@ function safeExtract(item: unknown): NormalizedTrack | null {
       ? obj['added_at']
       : new Date().toISOString();
 
-  return { name, artists, duration_ms, image, added_at, spotifyTrackId: id };
+  return { name, artists, duration_ms, image, added_at, spotifyTrackId: id, album: typeof t['album'] === 'object' && t['album'] ? String((t['album'] as Record<string, unknown>)['name'] || '') : '' };
 }
 
 function pickBestImage(images: unknown): string {

@@ -111,27 +111,31 @@ export function setPlaylistSyncOnOpen(playlistId: string, syncOnOpen: boolean): 
 // ─── Artwork aggregation ──────────────────────────────────────────────────────
 
 function withPlaylistArtwork(playlist: Playlist, tracks: Track[]): Playlist {
-  // Prefer playlist-scoped cover
-  const hasCover = fs.existsSync(getPlaylistCoverPath(playlist.id));
-  if (hasCover) {
+  // Playlist cards use a four-track mosaic. Keep playlist.thumbnailUrl as the
+  // dedicated cover for metadata/refresh workflows, but do not let it replace
+  // the track artwork grid.
+  const artTracks = tracks.slice(0, 4).filter((t) => t.videoId || t.sourceTrackId || t.thumbnailUrl);
+  if (artTracks.length > 0) {
+    const thumbnailUrls = artTracks.map((t) => {
+      if (t.thumbnailUrl) return t.thumbnailUrl;
+      const key = t.sourceTrackId || t.videoId;
+      return key ? trackThumbnailApiUrl(playlist.id, key, t.title) : '';
+    }).filter(Boolean);
+    const thumbnailVideoIds = artTracks.map((t) => t.videoId || t.sourceTrackId || '');
+
     return {
       ...playlist,
-      thumbnailUrl: playlistCoverApiUrl(playlist.id),
-      thumbnailUrls: [playlistCoverApiUrl(playlist.id)],
-      thumbnailVideoIds: [],
+      thumbnailUrls,
+      thumbnailVideoIds,
     };
   }
 
-  // Fall back to first 4 track thumbnails
-  const artTracks = tracks.slice(0, 4).filter((t) => t.videoId || t.sourceTrackId || t.thumbnailUrl);
-  const thumbnailUrls = artTracks.map((t) => {
-    if (t.thumbnailUrl) return t.thumbnailUrl;
-    const key = t.sourceTrackId || t.videoId;
-    return key ? trackThumbnailApiUrl(playlist.id, key, t.title) : '';
-  }).filter(Boolean);
-  const thumbnailVideoIds = artTracks.map((t) => t.videoId || t.sourceTrackId || '');
+  if (fs.existsSync(getPlaylistCoverPath(playlist.id))) {
+    const coverUrl = playlistCoverApiUrl(playlist.id);
+    return { ...playlist, thumbnailUrls: [coverUrl], thumbnailVideoIds: [] };
+  }
 
-  return { ...playlist, thumbnailUrls, thumbnailVideoIds };
+  return { ...playlist, thumbnailUrls: [], thumbnailVideoIds: [] };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

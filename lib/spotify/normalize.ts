@@ -27,6 +27,7 @@ export function toAppTrack(
     playlistId,
     source: 'spotify',
     sourceTrackId: track.spotifyTrackId,
+    album: track.album || undefined,
   };
 }
 

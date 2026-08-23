@@ -168,6 +168,10 @@ export function PlayerBar({
       setTrackPlaylistIds(new Set());
       return;
     }
+    if (!track.videoId) {
+      setTrackPlaylistIds(track.playlistId ? new Set([track.playlistId]) : new Set());
+      return;
+    }
     const knownIds = getCachedPlaylistMemberships(track.videoId);
     if (track.playlistId) knownIds.add(track.playlistId);
     primePlaylistMemberships(track.videoId, knownIds);
@@ -383,7 +387,7 @@ export function PlayerBar({
 
         if (cancelled || loadGeneration !== loadGenerationRef.current) return;
         if (!videoId) {
-          console.error('[Track Load Error]: No videoId and Spotify resolution failed for', track.title);
+          console.warn('[Track unavailable]: No playable YouTube match is available for', track.title);
           setIsPlaying(false);
           return;
         }

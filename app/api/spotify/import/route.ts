@@ -1,7 +1,7 @@
 /**
  * POST /api/spotify/import
  *
- * Full Spotify playlist import via guest token + internal API.
+ * Full Spotify playlist import through one hidden Electron WebContents.
  * Streams NDJSON progress, then reconciles the playlist in SQLite
  * with playlist-scoped thumbnail storage.
  *
@@ -15,8 +15,10 @@
 
 import { NextResponse } from 'next/server';
 import { extractPlaylistId } from '@/lib/spotify/validation';
-import { fetchGuestToken } from '@/lib/spotify/guestToken';
-import { fetchAllPlaylistTracks, fetchPlaylistMeta } from '@/lib/spotify/apiClient';
+import {
+  fetchPlaylistWithHiddenWebContents,
+  toNormalizedSpotifyTrack,
+} from '@/lib/spotify/webContentsProvider';
 import { toAppTrack, toAppPlaylist } from '@/lib/spotify/normalize';
 import { toUiMessage } from '@/lib/spotify/errors';
 import { reconcilePlaylist } from '@/lib/storage/playlists';
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
 
     const encoder = new TextEncoder();
     const rawUrl = body.url;
+    const abortController = new AbortController();
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -53,23 +56,19 @@ export async function POST(request: Request) {
         };
 
         try {
-          // Obtain guest token (server-side only, never sent to client)
-          const { accessToken } = await fetchGuestToken(playlistId);
-
-          // Fetch playlist metadata
-          const meta = await fetchPlaylistMeta(playlistId, accessToken);
+          // Electron main owns the reusable hidden renderer and serializes imports.
+          const { playlist: meta, tracks: rawTracks } =
+            await fetchPlaylistWithHiddenWebContents(rawUrl, {
+              signal: abortController.signal,
+              onProgress: (fetched, total) => send({ type: 'progress', fetched, total }),
+            });
           send({ type: 'start', playlistName: meta.name });
-
-          // Paginate all tracks
-          const rawTracks = await fetchAllPlaylistTracks(
-            playlistId,
-            accessToken,
-            (fetched, total) => { send({ type: 'progress', fetched, total }); },
-          );
 
           // Build app models with unique local ID for every import
           const localId = `sp-${playlistId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-          const appTracks = rawTracks.map((t, i) => toAppTrack(t, i, localId));
+          const appTracks = rawTracks.map((track, i) =>
+            toAppTrack(toNormalizedSpotifyTrack(track), i, localId),
+          );
           const playlist = {
             ...toAppPlaylist(playlistId, meta.name, meta.image, rawUrl, appTracks),
             id: localId,
@@ -98,6 +97,9 @@ export async function POST(request: Request) {
         } finally {
           controller.close();
         }
+      },
+      cancel() {
+        abortController.abort(new Error('Spotify import was canceled.'));
       },
     });
 
