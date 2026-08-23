@@ -73,7 +73,7 @@ export {
 import fs from 'fs';
 import path from 'path';
 import { getDataDir } from './nativeData';
-import { cleanArtistName } from './ytmusicFormat';
+export { getSavedLyrics, saveLyrics, deleteSavedLyrics } from './storage/lyrics';
 
 function getLyricsDir(): string {
   return path.join(path.resolve(getDataDir()), 'lyrics');
@@ -95,23 +95,6 @@ export function ensureDirs(): void {
   } catch {}
   // Initialize SQLite DB
   _getDb();
-}
-
-export function getSavedLyrics(artist: string, title: string): unknown {
-  const dir = getLyricsDir();
-  const cleanedArtist = cleanArtistName(artist);
-  const safeName = `${cleanedArtist}_${title}`.replace(/[/\\?%*:|"<>]/g, '-').toLowerCase();
-  const filePath = path.join(dir, `${safeName}.json`);
-  if (!fs.existsSync(filePath)) return null;
-  try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return null; }
-}
-
-export function saveLyrics(artist: string, title: string, data: unknown): void {
-  const dir = getLyricsDir();
-  fs.mkdirSync(dir, { recursive: true });
-  const cleanedArtist = cleanArtistName(artist);
-  const safeName = `${cleanedArtist}_${title}`.replace(/[/\\?%*:|"<>]/g, '-').toLowerCase();
-  fs.writeFileSync(path.join(dir, `${safeName}.json`), JSON.stringify(data, null, 2));
 }
 
 // ─── Thumbnail helpers (legacy aliases — now playlist-scoped) ─────────────────

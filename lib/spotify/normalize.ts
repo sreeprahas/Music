@@ -59,6 +59,7 @@ export function formatPreviewResponse(embed: EmbedPreviewResult) {
   return {
     playlistName: embed.playlistName,
     coverImage: embed.coverImage,
+    totalTracks: embed.totalTracks,
     tracks: embed.tracks.map((t) => ({
       name: t.name,
       artists: t.artists,

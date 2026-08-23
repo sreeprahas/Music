@@ -18,12 +18,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { name?: unknown };
+    const body = await request.json() as { name?: unknown; pictureUrl?: unknown };
     if (typeof body.name !== 'string') {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    return NextResponse.json(saveLocalProfile({ name: body.name }));
+    if (body.pictureUrl !== undefined && typeof body.pictureUrl !== 'string') {
+      return NextResponse.json({ error: 'Invalid profile photo' }, { status: 400 });
+    }
+
+    return NextResponse.json(saveLocalProfile({ name: body.name, pictureUrl: body.pictureUrl as string | undefined }));
   } catch (error) {
     console.error('Failed to save profile:', error);
     const isMissingName = error instanceof Error && error.message === 'Name is required';

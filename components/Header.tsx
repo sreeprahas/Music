@@ -12,6 +12,7 @@ interface HeaderProps {
   onOpenPlaylist: (playlistId: string) => void;
   onHomeClick?: () => void;
   onOpenSettings?: () => void;
+  onCancelDownload?: (playlistId: string) => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onCommitSearch?: (query: string) => void;
@@ -33,6 +34,7 @@ export function Header({
   onOpenPlaylist,
   onHomeClick,
   onOpenSettings,
+  onCancelDownload,
   searchQuery = '',
   onSearchChange,
   onCommitSearch,
@@ -140,7 +142,16 @@ export function Header({
   // Keep the account avatar available for the cached/offline app shell.
   useEffect(() => {
     const picture = user.picture || user.image || '';
-    if (!picture) return;
+    if (!picture) {
+      setCachedProfilePicture('');
+      try { window.localStorage.removeItem('music_profile_photo'); } catch { /* quota/storage disabled */ }
+      return;
+    }
+    if (picture.startsWith('data:image/')) {
+      setCachedProfilePicture(picture);
+      try { window.localStorage.setItem('music_profile_photo', picture); } catch { /* quota/storage disabled */ }
+      return;
+    }
     if (cachedProfilePicture.startsWith('data:image/')) return;
     let cancelled = false;
     fetch(picture, { mode: 'cors', cache: 'force-cache' })
@@ -219,22 +230,22 @@ export function Header({
             Music
           </span>
         </button>
-        <div className="flex items-center gap-1 ml-1">
+        <div className="flex items-center gap-0 ml-1">
           <button
             onClick={onUndo}
             disabled={!canUndo}
             title="Back"
-            className="p-2 rounded-xl text-text hover:text-accent hover:bg-surface-hover hover:shadow-accent-soft disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
+            className="p-1 text-text hover:text-accent disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             onClick={onRedo}
             disabled={!canRedo}
             title="Forward"
-            className="p-2 rounded-xl text-text hover:text-accent hover:bg-surface-hover hover:shadow-accent-soft disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
+            className="p-1 text-text hover:text-accent disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -471,6 +482,7 @@ export function Header({
                             setIsDownloadOpen(false);
                             onOpenPlaylist(job.playlistId);
                           }}
+                          onCancel={onCancelDownload}
                         />
                       ))}
                     </div>
@@ -491,6 +503,7 @@ export function Header({
                             setIsDownloadOpen(false);
                             onOpenPlaylist(job.playlistId);
                           }}
+                          onCancel={onCancelDownload}
                         />
                       ))}
                     </div>
@@ -560,7 +573,7 @@ export function Header({
   );
 }
 
-function DropdownJobRow({ job, onSelect }: { job: DownloadJob; onSelect: () => void }) {
+function DropdownJobRow({ job, onSelect, onCancel }: { job: DownloadJob; onSelect: () => void; onCancel?: (playlistId: string) => void }) {
   const pct = job.toDownload > 0 ? Math.round((job.done / job.toDownload) * 100) : 0;
 
   return (
@@ -599,6 +612,11 @@ function DropdownJobRow({ job, onSelect }: { job: DownloadJob; onSelect: () => v
             <span>{job.status === 'done' ? '100%' : `${pct}%`}</span>
           </div>
         </div>
+      )}
+      {(job.status === 'running' || job.status === 'starting') && onCancel && (
+        <button type="button" onClick={() => onCancel(job.playlistId)} className="mt-2 w-full rounded-lg border border-border px-2 py-1.5 text-[11px] font-semibold text-text-secondary transition hover:border-error/40 hover:bg-error/10 hover:text-error">
+          Cancel downloads
+        </button>
       )}
     </div>
   );

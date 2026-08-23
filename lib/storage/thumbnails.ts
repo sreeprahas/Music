@@ -10,7 +10,6 @@
  * `trackKey` = sourceTrackId (Spotify 22-char ID) or videoId (YT 11-char ID).
  *
  * The global DATA_DIR/thumbnails/*.webp flat layout is no longer used.
- * Preview cache remains at DATA_DIR/cache/preview/ (unchanged).
  */
 
 import fs from 'fs';
@@ -299,48 +298,6 @@ export function deletePlaylistThumbnailDir(playlistId: string): void {
   const dir = getPlaylistThumbnailDir(playlistId);
   if (fs.existsSync(dir)) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-  }
-}
-
-/** Promote preview cache images into the playlist-scoped thumbnail dir. */
-export async function promotePreviewToPlaylistDir(
-  playlistId: string,
-  tracks: Track[],
-  previewDir: string,
-): Promise<void> {
-  const destDir = getPlaylistThumbnailDir(playlistId);
-  fs.mkdirSync(destDir, { recursive: true });
-
-  const rawId = playlistId.replace(/^spotify-/, '');
-
-  // Playlist cover
-  for (const name of [`playlist-${playlistId}.webp`, `playlist-${rawId}.webp`]) {
-    const previewCover = path.join(previewDir, name);
-    const destCover = getPlaylistCoverPath(playlistId);
-    if (fs.existsSync(previewCover) && !fs.existsSync(destCover)) {
-      try { fs.copyFileSync(previewCover, destCover); break; } catch {}
-    }
-  }
-
-  // Per-track images
-  for (let i = 0; i < tracks.length; i++) {
-    const track = tracks[i];
-    const trackKey = track.sourceTrackId || track.videoId;
-    if (!trackKey) continue;
-    const dest = getTrackThumbnailPath(playlistId, trackKey);
-    if (fs.existsSync(dest)) continue;
-    // Try by track ID first
-    const byId = path.join(previewDir, `${trackKey}.webp`);
-    if (fs.existsSync(byId)) {
-      try { fs.copyFileSync(byId, dest); continue; } catch {}
-    }
-    // Fallback by position
-    for (const posName of [`track-${playlistId}-${i}.webp`, `track-${rawId}-${i}.webp`]) {
-      const byPos = path.join(previewDir, posName);
-      if (fs.existsSync(byPos)) {
-        try { fs.copyFileSync(byPos, dest); break; } catch {}
-      }
-    }
   }
 }
 

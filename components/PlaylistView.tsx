@@ -7,8 +7,6 @@ import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripV
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
-import { useSpotifySyncAction } from '@/hooks/useSpotifySyncAction';
-import { SpotifySyncConfirmModal } from './SpotifySyncConfirmModal';
 
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -23,6 +21,8 @@ function formatRelativeDate(dateStr: string): string {
   if (diffWeeks <= 4) return diffWeeks === 1 ? '1 week ago' : `${diffWeeks} weeks ago`;
   return date.toLocaleDateString();
 }
+
+const trackIdentity = (track: Track) => track.videoId || track.sourceTrackId || `${track.title}\u0000${track.artist}`;
 
 export function PlaylistViewSkeleton() {
   return (
@@ -90,6 +90,8 @@ interface Props {
   isPlaying?: boolean;
   scrollToTrackRequest?: number;
   onEditOrderChange?: (isEditing: boolean) => void;
+  onSyncNow?: (playlistId: string) => Promise<void> | void;
+  isSyncingExternally?: boolean;
   recommendations?: Track[];
   playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
 }
@@ -119,6 +121,8 @@ export function PlaylistView({
   isPlaying = false,
   scrollToTrackRequest = 0,
   onEditOrderChange,
+  onSyncNow,
+  isSyncingExternally = false,
   recommendations = [],
   playlistMutation,
 }: Props) {
@@ -156,7 +160,11 @@ export function PlaylistView({
   const [hasReordered, setHasReordered] = useState(false);
   const [sourceSyncStatus, setSourceSyncStatus] = useState<Playlist['syncStatus']>(playlist.syncStatus ?? 'idle');
   const [sourceSyncError, setSourceSyncError] = useState(playlist.syncError ?? '');
-  const [isSyncingSource, setIsSyncingSource] = useState(false);
+  const [isSyncingSource, setIsSyncingSource] = useState(isSyncingExternally);
+
+  useEffect(() => {
+    setIsSyncingSource(isSyncingExternally);
+  }, [isSyncingExternally]);
 
 
   const dragIndexRef = useRef<number | null>(null);
@@ -187,26 +195,27 @@ export function PlaylistView({
     return () => { cancelled = true; };
   }, [playlist.id, playlist.source, playlist.sourcePlaylistId, playlist.syncError, playlist.syncStatus]);
 
-  // ── Shared Spotify sync confirmation flow ────────────────────────────────────
-  const { requestSyncAction, isModalOpen, handleModalCancel, handleModalContinue } = useSpotifySyncAction();
-
-  /** Executes a one-time Spotify sync without any modal (called after confirmation). */
+  /** Executes a one-time Spotify sync. */
   const executeSyncNow = useCallback(async () => {
     if (!playlist.source || !playlist.sourcePlaylistId || isSyncingSource) return;
     setIsSyncingSource(true);
     setSourceSyncStatus('syncing');
     setSourceSyncError('');
     try {
-      const response = await fetch('/api/playlist/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlistId: playlist.id }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Sync failed');
-      const state = result.state;
-      setSourceSyncStatus(state?.status ?? 'idle');
-      setSourceSyncError(state?.error ?? '');
+      if (onSyncNow) {
+        await onSyncNow(playlist.id);
+      } else {
+        const response = await fetch('/api/playlist/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playlistId: playlist.id }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Sync failed');
+        const state = result.state;
+        setSourceSyncStatus(state?.status ?? 'idle');
+        setSourceSyncError(state?.error ?? '');
+      }
 
       // Dynamically refresh tracks from SQLite
       const res = await fetch(`/api/playlist?playlistId=${encodeURIComponent(playlist.id)}&limit=999&offset=0`);
@@ -222,12 +231,12 @@ export function PlaylistView({
     } finally {
       setIsSyncingSource(false);
     }
-  }, [isSyncingSource, playlist, playlist.id, playlist.source, playlist.sourcePlaylistId]);
+  }, [isSyncingSource, onSyncNow, playlist, playlist.id, playlist.source, playlist.sourcePlaylistId]);
 
-  /** Handles "Sync now" button — runs through confirmation flow first. */
+  /** Handles "Sync now" button. */
   const handleSyncSource = useCallback(() => {
-    requestSyncAction({ onConfirm: executeSyncNow });
-  }, [requestSyncAction, executeSyncNow]);
+    void executeSyncNow();
+  }, [executeSyncNow]);
 
 
   const handleDragStart = useCallback((e: React.DragEvent, idx: number, videoId: string) => {
@@ -355,9 +364,10 @@ export function PlaylistView({
   const handleRemoveTrackLocal = useCallback((track: Track, targetPlaylistId: string) => {
     if (onRemoveFromPlaylist) {
       setTracks((prev) => {
-        const idx = prev.findIndex((t) => t.videoId === track.videoId);
-        if (idx !== -1) removedTrackIndexRef.current.set(track.videoId, idx);
-        return prev.filter((t) => t.videoId !== track.videoId);
+        const identity = trackIdentity(track);
+        const idx = prev.findIndex((t) => trackIdentity(t) === identity);
+        if (idx !== -1) removedTrackIndexRef.current.set(identity, idx);
+        return prev.filter((t) => trackIdentity(t) !== identity);
       });
       onRemoveFromPlaylist(track, targetPlaylistId);
     }
@@ -366,7 +376,7 @@ export function PlaylistView({
   const handleAddTrackLocal = useCallback(async (track: Track, targetPlaylistId: string) => {
     if (targetPlaylistId === playlist.id) {
       setTracks((prev) => {
-        if (prev.some((item) => item.videoId === track.videoId)) return prev;
+        if (prev.some((item) => trackIdentity(item) === trackIdentity(track))) return prev;
         return [...prev, { ...track, playlistId: targetPlaylistId, position: prev.length }];
       });
     }
@@ -375,13 +385,14 @@ export function PlaylistView({
 
   useEffect(() => {
     if (!playlistMutation || playlistMutation.playlistId !== playlist.id) return;
+    const identity = trackIdentity(playlistMutation.track);
     if (playlistMutation.type === 'remove') {
-      setTracks((prev) => prev.some((item) => item.videoId === playlistMutation.track.videoId)
-        ? prev.filter((item) => item.videoId !== playlistMutation.track.videoId)
+      setTracks((prev) => prev.some((item) => trackIdentity(item) === identity)
+        ? prev.filter((item) => trackIdentity(item) !== identity)
         : prev);
       return;
     }
-    setTracks((prev) => prev.some((item) => item.videoId === playlistMutation.track.videoId)
+    setTracks((prev) => prev.some((item) => trackIdentity(item) === identity)
       ? prev
       : [...prev, { ...playlistMutation.track, playlistId: playlist.id, position: prev.length }]);
   }, [playlist.id, playlistMutation, tracks]);
@@ -417,10 +428,11 @@ export function PlaylistView({
   useEffect(() => {
     if (!restoredTrack || restoredTrack.playlistId !== playlist.id) return;
     const restored = restoredTrack.track;
+    const identity = trackIdentity(restored);
     setTracks((prev) => {
-      if (prev.some((t) => t.videoId === restored.videoId)) return prev;
-      const originalIdx = removedTrackIndexRef.current.get(restored.videoId);
-      removedTrackIndexRef.current.delete(restored.videoId);
+      if (prev.some((t) => trackIdentity(t) === identity)) return prev;
+      const originalIdx = removedTrackIndexRef.current.get(identity);
+      removedTrackIndexRef.current.delete(identity);
       const next = [...prev];
       const insertAt = originalIdx !== undefined ? Math.min(originalIdx, next.length) : next.length;
       next.splice(insertAt, 0, restored);
@@ -512,13 +524,6 @@ export function PlaylistView({
 
   return (
     <div ref={playlistViewRef} className="h-full w-full min-w-0 flex flex-col min-h-0 relative overflow-hidden">
-      {/* Spotify Sync Confirmation Modal */}
-      {isModalOpen && (
-        <SpotifySyncConfirmModal
-          onCancel={handleModalCancel}
-          onContinue={handleModalContinue}
-        />
-      )}
       {/* Sticky top mini header that smoothly merges in when scrolled */}
       <div
         className={`absolute top-0 left-0 right-0 z-20 px-6 py-3 bg-background-secondary backdrop-blur-md border-b border-border flex items-center justify-between gap-4 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${

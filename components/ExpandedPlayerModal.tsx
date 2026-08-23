@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import type { Track, RepeatMode } from '@/types';
 import { formatDuration, cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { LyricsDrawer } from './LyricsDrawer';
+import { VolumeControl } from './VolumeControl';
 import {
   ChevronDown,
   Play,
@@ -13,8 +14,6 @@ import {
   Shuffle,
   Repeat,
   Repeat1,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 
 interface Props {
@@ -59,11 +58,7 @@ export function ExpandedPlayerModal({
   onClose,
   isClosing = false,
 }: Props) {
-  const [volumeHover, setVolumeHover] = useState<number | null>(null);
   if (!track) return null;
-
-  const actualVolume = isMuted ? 0 : volume * 100;
-  const previewVolume = volumeHover ?? actualVolume;
 
   return (
     <div className={`fixed inset-0 z-50 bg-background overflow-hidden flex flex-col ${
@@ -173,41 +168,7 @@ export function ExpandedPlayerModal({
             </div>
 
             {/* Volume */}
-            <div className="flex items-center gap-2 max-w-[150px] w-full">
-              <button
-                onClick={onToggleMute}
-                className="text-text-secondary hover:text-accent hover:bg-surface-hover transition-all duration-300 p-1 rounded-lg shrink-0"
-              >
-                {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-error" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-              <div
-                className="relative flex-1 h-1 flex items-center group"
-                onMouseEnter={() => setVolumeHover(0)}
-                onMouseLeave={() => setVolumeHover(null)}
-                onMouseMove={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setVolumeHover(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)));
-                }}
-              >
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={isMuted ? 0 : Math.round(volume * 100)}
-                  onChange={(e) => onVolumeChange(parseFloat(e.target.value) / 100)}
-                  className="absolute inset-0 w-full opacity-0 cursor-pointer z-10 h-full"
-                  aria-label="Volume"
-                />
-                <div className="relative h-1 w-full bg-surface-active rounded-full overflow-visible group-hover:h-1.5 transition-all">
-                  <div
-                    className={`h-full rounded-full transition-colors ${volumeHover !== null ? 'bg-accent shadow-accent-strong' : 'bg-accent'}`}
-                    style={{ width: `${previewVolume}%` }}
-                  />
-                  {volumeHover !== null && <span className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface" style={{ left: `${previewVolume}%` }} />}
-                </div>
-              </div>
-            </div>
+            <VolumeControl volume={volume} isMuted={isMuted} onVolumeChange={onVolumeChange} onToggleMute={onToggleMute} className="w-full max-w-[150px]" iconClassName="h-4 w-4" />
           </div>
         </div>
 

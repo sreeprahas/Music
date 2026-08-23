@@ -11,7 +11,6 @@
 
 import { SpotifyEmbedError, SpotifyNotFoundError } from './errors';
 import { requireSpotifyId } from './validation';
-import { cachePreviewImages } from './previewCache';
 
 export interface EmbedPreviewTrack {
   id?: string;
@@ -27,6 +26,7 @@ export interface EmbedPreviewResult {
   playlistName: string;
   coverImage: string;
   tracks: EmbedPreviewTrack[];
+  totalTracks: number;
 }
 
 const EMBED_BASE = 'https://open.spotify.com/embed/playlist/';
@@ -61,9 +61,6 @@ export async function fetchEmbedPreview(playlistId: string): Promise<EmbedPrevie
 
   // Scrape individual album artwork for each preview song
   await scrapeIndividualTrackImages(result.tracks, result.coverImage);
-
-  // Cache images temporarily into preview cache for instant rendering
-  await cachePreviewImages(playlistId, result).catch(() => {});
 
   return result;
 }
@@ -148,8 +145,9 @@ function parsePayload(payload: unknown, playlistId: string): EmbedPreviewResult 
   const coverImage = findPlaylistCover(payload as Record<string, unknown>) || '';
 
   const tracks: EmbedPreviewTrack[] = trackItems.slice(0, 10).map(normalizeEmbedTrack);
+  const totalTracks = findTotalTrackCount(payload as Record<string, unknown>, trackItems.length);
 
-  return { playlistName, coverImage, tracks };
+  return { playlistName, coverImage, tracks, totalTracks };
 }
 
 function findTrackItems(root: Record<string, unknown>): unknown[] {
@@ -167,6 +165,27 @@ function findTrackItems(root: Record<string, unknown>): unknown[] {
   }
 
   return findTrackArrayInTree(root) || [];
+}
+
+function findTotalTrackCount(root: Record<string, unknown>, fallback: number): number {
+  let best = fallback;
+  const visit = (value: unknown, depth: number) => {
+    if (!value || typeof value !== 'object' || depth > 12) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1);
+      return;
+    }
+    const object = value as Record<string, unknown>;
+    const hasTrackItems = Array.isArray(object.items) || Array.isArray(object.trackList) ||
+      (object.items && typeof object.items === 'object');
+    for (const key of ['totalCount', 'trackCount', 'totalTracks', 'total']) {
+      const count = Number(object[key]);
+      if (hasTrackItems && Number.isFinite(count) && count >= best) best = count;
+    }
+    for (const child of Object.values(object)) visit(child, depth + 1);
+  };
+  visit(root, 0);
+  return Math.max(fallback, Math.floor(best));
 }
 
 function getPath(obj: unknown, dotPath: string): unknown {

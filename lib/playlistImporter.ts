@@ -2,8 +2,8 @@
  * Playlist importer — coordinates preview and import for Spotify and YouTube URLs.
  *
  * Spotify flow:
- *   Preview — fetchEmbedPreview (scrapes artwork, caches metadata + images in preview cache)
- *   Import  — hidden Electron WebContents; promotes preview cache before background artwork
+ *   Preview — fetchEmbedPreview for a lightweight confirmation preview
+ *   Import  — hidden Electron WebContents; persists scraper-provided artwork
  *
  * YouTube flow: unchanged.
  */
@@ -30,6 +30,7 @@ export async function previewPlaylistUrl(rawUrl: string): Promise<{
   title: string;
   coverUrl?: string;
   tracks: PlaylistPreviewTrack[];
+  totalTracks: number;
   isPublic: boolean;
 }> {
   if (typeof rawUrl !== 'string' || rawUrl.length > 2000) throw new Error('Playlist URL is invalid');
@@ -42,6 +43,7 @@ export async function previewPlaylistUrl(rawUrl: string): Promise<{
       title: embed.playlistName,
       coverUrl: embed.coverImage || undefined,
       isPublic: true,
+      totalTracks: embed.totalTracks,
       tracks: embed.tracks.map((t) => ({
         title: t.name,
         artist: t.artists,
@@ -62,6 +64,7 @@ export async function previewPlaylistUrl(rawUrl: string): Promise<{
       ? getThumbnailUrl(imported.items[0].videoId, imported.items[0].title)
       : undefined,
     isPublic: true,
+    totalTracks: imported.items.length,
     tracks: imported.items.map((item) => ({
       title: item.title,
       artist: item.channel || 'Unknown artist',
@@ -123,6 +126,7 @@ async function importSpotify(rawUrl: string): Promise<{ playlist: Playlist; trac
   if (!id) throw new Error('Could not extract a Spotify playlist id from that URL');
 
   const { playlist: meta, tracks: scrapedTracks } = await fetchPlaylistWithHiddenWebContents(rawUrl);
+  const playlistName = meta.name?.trim() || 'Spotify Playlist';
 
   // Every explicit import creates another independent local copy.
   const localId = `sp-${id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -137,7 +141,7 @@ async function importSpotify(rawUrl: string): Promise<{ playlist: Playlist; trac
   }));
   const appTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
   const playlist = {
-    ...toAppPlaylist(id, meta.name, meta.image, rawUrl, appTracks),
+    ...toAppPlaylist(id, playlistName || 'Spotify Playlist', meta.image, rawUrl, appTracks),
     id: localId,
   };
 

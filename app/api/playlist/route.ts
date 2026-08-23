@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { action?: string; url?: string };
+    const body = (await request.json()) as { action?: string; url?: string; title?: string };
     if (body.action !== 'import' || !body.url) {
       return NextResponse.json(
         { error: 'Expected action: import and a playlist URL' },
@@ -43,6 +43,8 @@ export async function POST(request: Request) {
     const { importPlaylistUrl } = await import('@/lib/playlistImporter');
 
     const imported = await importPlaylistUrl(body.url!);
+    const requestedTitle = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : '';
+    if (requestedTitle) imported.playlist.title = requestedTitle;
     console.log(`[SpotifyImport] metadata retrieved, persisting ${imported.tracks.length} tracks to SQLite`);
 
     // Persist via reconcile (transactional + thumbnail download)

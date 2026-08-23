@@ -22,9 +22,6 @@ import {
 import { toAppTrack, toAppPlaylist } from '@/lib/spotify/normalize';
 import { toUiMessage } from '@/lib/spotify/errors';
 import { reconcilePlaylist } from '@/lib/storage/playlists';
-import { promotePreviewToPlaylistDir, getPlaylistThumbnailDir } from '@/lib/storage/thumbnails';
-import path from 'path';
-import { getDataDir } from '@/lib/nativeData';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -75,21 +72,15 @@ export async function POST(request: Request) {
             syncOnOpen: false,
           };
 
-          // Promote cached preview images into playlist-scoped thumbnail dir
-          const previewDir = path.join(path.resolve(getDataDir()), 'cache', 'preview');
-          await promotePreviewToPlaylistDir(localId, appTracks, previewDir).catch(() => {});
-
-          // Reconcile: transactional SQLite update + non-blocking background artwork
+          // Reconcile: transactional SQLite update + non-blocking artwork
+          // download. The playlist and track images here come from the hidden
+          // Spotify WebContents scraper.
           const { playlist: stored, tracks } = await reconcilePlaylist(
             playlist,
             appTracks,
             meta.image || undefined,
             true, // async background artwork
           );
-
-          // Clear transient preview cache after promotion
-          const { clearPreviewCache } = await import('@/lib/spotify/previewCache');
-          clearPreviewCache(playlistId);
 
           send({ type: 'done', success: true, playlist: stored, tracks });
         } catch (err) {

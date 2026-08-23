@@ -94,10 +94,19 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
         spotifyTrackId: track.id,
         album: track.album,
       }));
-      const appTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
+      const remoteTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
+      const remoteKeys = new Set(remoteTracks.map((track) => track.sourceTrackId || track.videoId || track.title));
+      const localOnlyTracks = getCachedTracks(localId)
+        .filter((track) => !remoteKeys.has(track.sourceTrackId || track.videoId || track.title))
+        .map((track, index) => ({ ...track, playlistId: localId, position: remoteTracks.length + index }));
+      const appTracks = [...remoteTracks, ...localOnlyTracks];
+
+      // The hidden WebContents scraper is the only source for fresh Spotify
+      // metadata and artwork in import/sync flows.
+      const playlistName = meta.name?.trim() || playlist.title;
       const newPlaylist = toAppPlaylist(
         spotifyId,
-        meta.name || playlist.title,
+        playlistName || playlist.title,
         meta.image || playlist.thumbnailUrl,
         playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
         appTracks,
@@ -106,7 +115,7 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
       const mergedPlaylist = {
         ...newPlaylist,
         id: playlist.id,
-        title: playlist.title, // Preserve local unique title
+        title: playlistName || playlist.title,
         syncOnOpen: playlist.syncOnOpen,
         createdAt: playlist.createdAt,
         lastSyncedAt: new Date().toISOString(),
@@ -149,6 +158,7 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
     setCachedTracks(playlistId, tracks);
     upsertLocalPlaylist({
       ...playlist,
+      title: remote.title || playlist.title,
       sourceRevision: remote.revision,
       syncStatus: 'idle',
       syncError: undefined,
@@ -168,7 +178,7 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
   }
 }
 
-async function readYouTubeRemote(sourcePlaylistId: string): Promise<{ tracks: Track[]; revision: string }> {
+async function readYouTubeRemote(sourcePlaylistId: string): Promise<{ title: string; tracks: Track[]; revision: string }> {
   const result = await getAllYouTubePlaylistTracks(sourcePlaylistId);
   const tracks = result.items.map((item, position) => ({
     videoId: item.videoId,
@@ -181,7 +191,7 @@ async function readYouTubeRemote(sourcePlaylistId: string): Promise<{ tracks: Tr
     source: 'youtube' as const,
     sourceTrackId: item.videoId,
   }));
-  return { tracks, revision: canonicalRevision(tracks) };
+  return { title: result.title || '', tracks, revision: canonicalRevision(tracks) };
 }
 
 function preserveResolvedIdentities(remote: Track[], local: Track[]): Track[] {

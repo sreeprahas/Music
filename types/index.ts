@@ -74,7 +74,7 @@ export interface DownloadJob {
   total: number;
   toDownload: number;
   done: number;
-  status: 'starting' | 'running' | 'done' | 'error';
+  status: 'starting' | 'running' | 'done' | 'error' | 'cancelled';
   currentTitle?: string;
   currentArtist?: string;
   currentThumbnail?: string;

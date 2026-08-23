@@ -157,9 +157,11 @@ export function addTrackToPlaylist(playlistId: string, track: Track): void {
 }
 
 /** Remove a single track from a playlist by videoId. */
-export function removeTrackFromPlaylist(playlistId: string, videoId: string): void {
+export function removeTrackFromPlaylist(playlistId: string, videoId = '', sourceTrackId = ''): void {
   const db = getDb();
-  const trackRow = db.prepare('SELECT id FROM tracks WHERE video_id = ?').get(videoId) as { id: number } | undefined;
+  const trackRow = (sourceTrackId
+    ? db.prepare('SELECT id FROM tracks WHERE source_track_id = ? LIMIT 1').get(sourceTrackId)
+    : db.prepare('SELECT id FROM tracks WHERE video_id = ? LIMIT 1').get(videoId)) as { id: number } | undefined;
   if (!trackRow) return;
   db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?').run(playlistId, trackRow.id);
   // Re-sequence positions

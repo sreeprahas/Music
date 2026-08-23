@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Check, Disc3, LogOut, Palette, User, Youtube } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Check, Disc3, LogOut, Palette, Upload, User, X, Youtube } from 'lucide-react';
 import { THEME_PRESETS, type ThemeName, useTheme } from '@/components/ThemeProvider';
 import type { UserProfile } from '@/types';
 
@@ -79,6 +79,9 @@ function AccountPage({ user, onUserChange }: { user: UserProfile; onUserChange?:
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [integrationMessage, setIntegrationMessage] = useState('');
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState('');
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setName(user.name), [user.name]);
 
@@ -98,18 +101,67 @@ function AccountPage({ user, onUserChange }: { user: UserProfile; onUserChange?:
 
   const placeholder = (service: string, action: string) => setIntegrationMessage(`${service} ${action} will be available soon.`);
 
+  const savePhoto = async (pictureUrl: string) => {
+    if (photoSaving) return;
+    setPhotoSaving(true); setPhotoMessage('');
+    try {
+      const response = await fetch('/api/user/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: user.name, pictureUrl }) });
+      if (!response.ok) throw new Error();
+      onUserChange?.(await response.json() as UserProfile);
+      setPhotoMessage(pictureUrl ? 'Profile photo updated.' : 'Profile photo removed.');
+    } catch { setPhotoMessage('Could not update your profile photo.'); }
+    finally { setPhotoSaving(false); }
+  };
+
+  const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !file.type.startsWith('image/')) { setPhotoMessage('Choose an image file.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const size = 320;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const context = canvas.getContext('2d');
+        if (!context) { setPhotoMessage('Could not process that image.'); return; }
+        const scale = Math.max(size / image.width, size / image.height);
+        const width = image.width * scale;
+        const height = image.height * scale;
+        context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+        void savePhoto(canvas.toDataURL('image/webp', 0.84));
+      };
+      image.onerror = () => setPhotoMessage('Could not process that image.');
+      image.src = typeof reader.result === 'string' ? reader.result : '';
+    };
+    reader.onerror = () => setPhotoMessage('Could not read that image.');
+    reader.readAsDataURL(file);
+  };
+
+  const photoUrl = user.picture || user.image || '';
+
   return <div className="space-y-4">
     <Card>
-      <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-lg font-black theme-accent">{user.name.charAt(0).toUpperCase()}</div><div><h3 className="font-bold theme-text">Your profile</h3><p className="text-xs theme-muted">You are using Music as User.</p></div></div>
-      <form noValidate onSubmit={saveName} className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-end"><label className="min-w-0 flex-1"><span className="mb-1.5 block text-xs font-bold theme-muted">Name</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} aria-required="true" spellCheck={false} className="h-11 w-full rounded-full bg-surface border border-transparent px-4 text-sm text-text placeholder:text-text-muted outline-none focus:outline-none hover:border-accent/30 hover:bg-accent/10 hover:shadow-accent-soft focus:border-accent/45 focus:bg-accent/14 focus:shadow-accent-medium caret-accent transition-[background-color,box-shadow] duration-500 ease-out" /></label><button type="submit" disabled={!name.trim() || name.trim() === user.name || saving} className="h-11 rounded-xl bg-accent px-4 text-xs font-bold text-background transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40">{saving ? 'Saving…' : 'Save name'}</button></form>
+      <div className="flex flex-wrap items-center gap-4">
+        {photoUrl ? <img src={photoUrl} alt="Profile" className="h-14 w-14 rounded-full object-cover ring-2 ring-accent/25" /> : <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent/15 text-xl font-black theme-accent">{user.name.charAt(0).toUpperCase()}</div>}
+        <div className="min-w-0 flex-1"><h1 className="font-bold theme-text">Your profile</h1><p className="mt-1 text-xs theme-muted">Add a photo to personalize your profile.</p></div>
+        <div className="flex items-center gap-2">
+          <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+          <button type="button" onClick={() => photoInputRef.current?.click()} disabled={photoSaving} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3 text-xs font-bold text-background transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"><Upload className="h-3.5 w-3.5" />Upload</button>
+          {photoUrl && <button type="button" onClick={() => void savePhoto('')} disabled={photoSaving} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-xs font-semibold theme-muted transition hover:border-error/40 hover:text-error disabled:cursor-not-allowed disabled:opacity-50"><X className="h-3.5 w-3.5" />Remove</button>}
+        </div>
+      </div>
+      {photoMessage && <p className="mt-3 text-xs font-semibold theme-accent">{photoMessage}</p>}
+      <form noValidate onSubmit={saveName} className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-end"><label className="min-w-0 flex-1"><span className="mb-1.5 block text-xs font-bold theme-muted">Name</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} aria-required="true" spellCheck={false} className="h-11 w-full rounded-xl bg-surface border border-transparent px-4 text-sm text-text placeholder:text-text-muted outline-none focus:outline-none hover:border-accent/30 hover:bg-accent/10 hover:shadow-accent-soft focus:border-accent/45 focus:bg-accent/14 focus:shadow-accent-medium caret-accent transition-[background-color,box-shadow] duration-500 ease-out" /></label><button type="submit" disabled={!name.trim() || name.trim() === user.name || saving} className="h-11 rounded-xl bg-accent px-4 text-xs font-bold text-background transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40">{saving ? 'Saving…' : 'Save name'}</button></form>
       {message && <p className="mt-3 text-xs font-semibold theme-accent">{message}</p>}
     </Card>
 
     <Card>
       <div className="flex items-start justify-between gap-4"><div><h3 className="font-bold theme-text">Integrations</h3><p className="mt-1 text-xs leading-5 theme-muted">Connect optional music services. These controls are placeholders for now.</p></div><Disc3 className="h-5 w-5 shrink-0 theme-muted" /></div>
       <div className="mt-4 space-y-2">
-        <IntegrationRow icon={<Youtube className="h-4 w-4 text-red-400" />} service="YouTube Music" onConnect={() => placeholder('YouTube Music', 'connection')} onSignOut={() => placeholder('YouTube Music', 'sign out')} />
-        <IntegrationRow icon={<span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1ed760] text-[9px] font-black text-[#071b0d]">●</span>} service="Spotify" onConnect={() => placeholder('Spotify', 'connection')} onSignOut={() => placeholder('Spotify', 'sign out')} />
+        <IntegrationRow icon={<img src="/youtube-mark.svg" alt="YouTube Music" className="h-4 w-4" />} service="YouTube Music" onConnect={() => placeholder('YouTube Music', 'connection')} onSignOut={() => placeholder('YouTube Music', 'sign out')} />
+        <IntegrationRow icon={<img src="/spotify-logo.png" alt="Spotify" className="h-4 w-4 rounded-full" />} service="Spotify" onConnect={() => placeholder('Spotify', 'connection')} onSignOut={() => placeholder('Spotify', 'sign out')} />
       </div>
       {integrationMessage && <p className="mt-3 text-xs font-semibold theme-accent">{integrationMessage}</p>}
     </Card>

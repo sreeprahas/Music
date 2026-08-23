@@ -7,6 +7,7 @@
 
 import { getDb } from './db';
 import { getPlaylistTracks, setPlaylistTracks } from './tracks';
+import { deleteSavedLyrics } from './lyrics';
 import {
   reconcilePlaylistThumbnails,
   deletePlaylistThumbnailDir,
@@ -209,10 +210,41 @@ export function upsertPlaylist(playlist: Playlist, tracks?: Track[]): Playlist {
 
 export function deletePlaylist(playlistId: string): void {
   const db = getDb();
-  // playlist_tracks rows cascade via FK ON DELETE CASCADE
-  db.prepare('DELETE FROM playlists WHERE id = ?').run(playlistId);
-  // Delete artwork directory
+  const tracksBeingRemoved = getPlaylistTracks(playlistId);
+
+  db.exec('BEGIN');
+  try {
+    // playlist_tracks rows cascade via FK ON DELETE CASCADE.
+    db.prepare('DELETE FROM playlists WHERE id = ?').run(playlistId);
+
+    // Track rows are shared between playlists. Remove only rows that became
+    // orphaned, and clean mappings for Spotify tracks no longer in the library.
+    db.exec('DELETE FROM tracks WHERE id NOT IN (SELECT track_id FROM playlist_tracks)');
+    db.exec(`
+      DELETE FROM spotify_youtube_map
+      WHERE spotify_track_id NOT IN (
+        SELECT source_track_id FROM tracks WHERE source_track_id <> ''
+      )
+    `);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+
+  // Remove all playlist-scoped artwork. Lyrics are shared by title/artist, so
+  // delete a lyric file only when no remaining track can use it.
   deletePlaylistThumbnailDir(playlistId);
+  for (const track of tracksBeingRemoved) {
+    const stillUsed = db.prepare(`
+      SELECT 1
+      FROM playlist_tracks pt
+      JOIN tracks t ON t.id = pt.track_id
+      WHERE t.title = ? AND t.artist = ?
+      LIMIT 1
+    `).get(track.title, track.artist);
+    if (!stillUsed) deleteSavedLyrics(track.artist, track.title);
+  }
 }
 
 /**
@@ -220,8 +252,7 @@ export function deletePlaylist(playlistId: string): void {
  * 1. Allocates unique title to prevent collisions
  * 2. Prepares local track thumbnail URLs
  * 3. Runs single SQLite transaction: upserts playlist & replaces track memberships
- * 4. Promotes preview cache files immediately
- * 5. Downloads/reconciles remaining artwork in background asynchronously
+ * 4. Downloads/reconciles scraper-provided artwork in background asynchronously
  * Returns stored Playlist + Track[] immediately.
  */
 export async function reconcilePlaylist(

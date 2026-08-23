@@ -13,8 +13,6 @@ import {
   Repeat1,
   Mic2,
   ListMusic,
-  Volume2,
-  VolumeX,
   Maximize2,
   Maximize,
   Library,
@@ -24,6 +22,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { AddToPlaylistDropdown, getCachedPlaylistMemberships, primePlaylistMemberships } from './AddToPlaylistDropdown';
+import { VolumeControl } from './VolumeControl';
 
 interface Props {
   track: Track | null;
@@ -112,7 +111,6 @@ export function PlayerBar({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [progressHover, setProgressHover] = useState<number | null>(null);
-  const [volumeHover, setVolumeHover] = useState<number | null>(null);
   const volume = volumeProp;
   const isMuted = isMutedProp;
   const [isSeeking, setIsSeeking] = useState(false);
@@ -558,9 +556,6 @@ export function PlayerBar({
     return null;
   }
 
-  const actualVolumePercent = isMuted ? 0 : volume * 100;
-  const displayedVolumePercent = volumeHover ?? actualVolumePercent;
-
   return (
     <>
       <audio
@@ -832,61 +827,7 @@ export function PlayerBar({
           </button>
 
           {/* Volume */}
-          <div className="flex items-center gap-2 w-[140px] max-[1200px]:w-[88px] group relative">
-            <button
-              onClick={() => {
-                if (onMuteChange) onMuteChange(!isMuted);
-              }}
-              className="text-text hover:text-accent hover:bg-surface-hover transition-all duration-300 p-1 rounded-lg shrink-0"
-              title={isMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMuted || volume === 0 ? (
-                <VolumeX className="w-4 h-4 text-error" />
-              ) : (
-                <Volume2 className="w-4 h-4" />
-              )}
-            </button>
-            <div
-              className="relative flex-1 h-1 flex items-center group"
-              onMouseEnter={() => setVolumeHover(0)}
-              onMouseLeave={() => setVolumeHover(null)}
-              onMouseMove={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setVolumeHover(Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)));
-              }}
-            >
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={isMuted ? 0 : Math.round(volume * 100)}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) / 100;
-                  if (isMuted && onMuteChange) onMuteChange(false);
-                  if (onVolumeChange) onVolumeChange(val);
-                }}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer z-20 h-full"
-                aria-label="Volume"
-              />
-              {/* Background Track */}
-              <div className="relative w-full h-1 bg-surface-active rounded-full overflow-visible">
-                {/* Active Volume Fill */}
-                <div
-                  className={`h-full rounded-full transition-colors duration-150 ${volumeHover !== null ? 'bg-accent shadow-accent-small' : 'bg-text'}`}
-                  style={{ width: `${displayedVolumePercent}%` }}
-                />
-                {volumeHover !== null && (
-                  <>
-                    <span
-                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface"
-                      style={{ left: `${displayedVolumePercent}%` }}
-                    />
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+          <VolumeControl volume={volume} isMuted={isMuted} onVolumeChange={(value) => onVolumeChange?.(value)} onToggleMute={() => onMuteChange?.(!isMuted)} className="w-[140px] max-[1200px]:w-[88px]" />
 
           <div className="relative" onMouseEnter={cancelPopoverClose}>
             <button

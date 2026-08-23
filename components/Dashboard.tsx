@@ -22,6 +22,8 @@ const QUEUE_MAX = 28;
 const LYRICS_MIN = 18;
 const LYRICS_MAX = 30;
 const SIDEBAR_EXPANDED_WIDTH = 20;
+
+const trackIdentity = (track: Track) => track.videoId || track.sourceTrackId || `${track.title}\u0000${track.artist}`;
 const SIDEBAR_COLLAPSED_WIDTH = 5.5;
 
 function clamp(val: number, min: number, max: number) {
@@ -173,7 +175,7 @@ export function Dashboard({ user, onUserChange }: Props) {
   const [importError, setImportError] = useState('');
   // Bulk import queue: each entry is a URL with optional preview data.
   type PreviewTrack = { title: string; artist: string; duration?: number; videoId?: string; thumbnailUrl?: string };
-  type ImportEntry = { url: string; title?: string; coverUrl?: string; tracks?: PreviewTrack[]; previewing?: boolean; previewOpen?: boolean; error?: string; isPublic?: boolean };
+  type ImportEntry = { url: string; title?: string; coverUrl?: string; tracks?: PreviewTrack[]; totalTracks?: number; previewing?: boolean; previewOpen?: boolean; error?: string; isPublic?: boolean };
   const [importQueue, setImportQueue] = useState<ImportEntry[]>([]);
   const [importingAll, setImportingAll] = useState(false);
   const handleOpenImportModal = useCallback(() => {
@@ -227,7 +229,7 @@ export function Dashboard({ user, onUserChange }: Props) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || 'Preview failed');
-        setImportQueue((prev) => prev.map((e) => e.url === url ? { ...e, title: data.title, coverUrl: data.coverUrl, tracks: data.tracks, previewing: false, isPublic: data.isPublic !== false, error: data.isPublic === false ? 'This playlist is not public. Make it public on Spotify to import.' : undefined } : e));
+        setImportQueue((prev) => prev.map((e) => e.url === url ? { ...e, title: data.title, coverUrl: data.coverUrl, tracks: data.tracks, totalTracks: data.totalTracks, previewing: false, isPublic: data.isPublic !== false, error: data.isPublic === false ? 'This playlist is not public. Make it public on Spotify to import.' : undefined } : e));
       } catch (e) {
         setImportQueue((prev) => prev.map((entry) => entry.url === url ? { ...entry, previewing: false, error: e instanceof Error ? e.message : 'Preview failed' } : entry));
       }
@@ -251,7 +253,7 @@ export function Dashboard({ user, onUserChange }: Props) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || 'Preview failed');
-        setImportQueue((prev) => prev.map((e) => e.url === url ? { ...e, title: data.title, coverUrl: data.coverUrl, tracks: data.tracks, previewing: false, isPublic: data.isPublic !== false, error: data.isPublic === false ? 'This playlist is not public. Make it public on Spotify to import.' : undefined } : e));
+        setImportQueue((prev) => prev.map((e) => e.url === url ? { ...e, title: data.title, coverUrl: data.coverUrl, tracks: data.tracks, totalTracks: data.totalTracks, previewing: false, isPublic: data.isPublic !== false, error: data.isPublic === false ? 'This playlist is not public. Make it public on Spotify to import.' : undefined } : e));
       } catch (e) {
         setImportQueue((prev) => prev.map((entry) => entry.url === url ? { ...entry, previewing: false, error: e instanceof Error ? e.message : 'Preview failed' } : entry));
       }
@@ -276,7 +278,7 @@ export function Dashboard({ user, onUserChange }: Props) {
         const res = await apiFetch('/api/playlist', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'import', url: entry.url }),
+          body: JSON.stringify({ action: 'import', url: entry.url, title: entry.title }),
         });
         const data = await res.json();
         if (data.playlist) {
@@ -484,6 +486,8 @@ export function Dashboard({ user, onUserChange }: Props) {
 
   const [downloadJobs, setDownloadJobs] = useState<Map<string, DownloadJob>>(new Map());
   const downloadSources = useRef<Map<string, EventSource>>(new Map());
+  const syncOperations = useRef<Map<string, Promise<void>>>(new Map());
+  const [syncingPlaylistIds, setSyncingPlaylistIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     apiFetch('/api/user/settings')
@@ -1001,17 +1005,18 @@ export function Dashboard({ user, onUserChange }: Props) {
   const handleAddToPlaylist = useCallback((track: Track, playlistId: string) => {
     const targetPl = playlists.find((p) => p.id === playlistId);
     const plTitle = targetPl ? targetPl.title : 'Playlist';
-    const previousMemberships = getCachedPlaylistMemberships(track.videoId);
+    const identity = trackIdentity(track);
+    const previousMemberships = getCachedPlaylistMemberships(identity);
     const alreadyExists = previousMemberships.has(playlistId);
 
     // Optimistically update every visible surface immediately.
     const nextMemberships = new Set(previousMemberships);
     nextMemberships.add(playlistId);
-    primePlaylistMemberships(track.videoId, nextMemberships);
+    primePlaylistMemberships(identity, nextMemberships);
     setPlaylistMutation({ type: 'add', track, playlistId, timestamp: Date.now() });
     setAllTracks((prev) => ({
       ...prev,
-      [track.videoId]: { ...track, playlistId, playlistTitle: plTitle },
+      [identity]: { ...track, playlistId, playlistTitle: plTitle },
     }));
     if (!alreadyExists) {
       setPlaylists((prev) =>
@@ -1025,10 +1030,10 @@ export function Dashboard({ user, onUserChange }: Props) {
     apiFetch('/api/playlist/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlistId, videoId: track.videoId, track }),
+      body: JSON.stringify({ playlistId, videoId: track.videoId, sourceTrackId: track.sourceTrackId, track }),
     }).catch(() => {
       // Rollback UI on network-level failure (operation engine handles retries).
-      primePlaylistMemberships(track.videoId, previousMemberships);
+      primePlaylistMemberships(identity, previousMemberships);
       setPlaylistMutation({ type: 'remove', track, playlistId, timestamp: Date.now() });
       if (!alreadyExists) {
         setPlaylists((prev) =>
@@ -1039,15 +1044,16 @@ export function Dashboard({ user, onUserChange }: Props) {
   }, [apiFetch, playlists]);
 
   const handleRemoveFromPlaylist = useCallback((track: Track, playlistId: string) => {
-    removePlaylistMembership(track.videoId, playlistId);
+    const identity = trackIdentity(track);
+    removePlaylistMembership(identity, playlistId);
     setPlaylistMutation({ type: 'remove', track, playlistId, timestamp: Date.now() });
     setPlaylists((prev) => prev.map((playlist) => playlist.id === playlistId
       ? { ...playlist, trackCount: Math.max(0, playlist.trackCount - 1) }
       : playlist));
     setAllTracks((prev) => {
-      if (prev[track.videoId]?.playlistId !== playlistId) return prev;
+      if (prev[identity]?.playlistId !== playlistId) return prev;
       const next = { ...prev };
-      delete next[track.videoId];
+      delete next[identity];
       return next;
     });
     if (currentTrack?.videoId === track.videoId && activePlaylistId === playlistId) {
@@ -1059,11 +1065,11 @@ export function Dashboard({ user, onUserChange }: Props) {
     apiFetch('/api/playlist/remove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId }),
+      body: JSON.stringify({ playlistId, playlistItemId: track.playlistItemId, videoId: track.videoId, sourceTrackId: track.sourceTrackId }),
     }).catch((error) => {
-      const memberships = getCachedPlaylistMemberships(track.videoId);
+      const memberships = getCachedPlaylistMemberships(identity);
       memberships.add(playlistId);
-      primePlaylistMemberships(track.videoId, memberships);
+      primePlaylistMemberships(identity, memberships);
       setPlaylistMutation({ type: 'add', track, playlistId, timestamp: Date.now() });
       setPlaylists((prev) => prev.map((playlist) => playlist.id === playlistId
         ? { ...playlist, trackCount: playlist.trackCount + 1 }
@@ -1078,9 +1084,9 @@ export function Dashboard({ user, onUserChange }: Props) {
     if (!undoAction) return;
     const target = undoAction;
     setUndoAction(null);
-    const memberships = getCachedPlaylistMemberships(target.track.videoId);
+    const memberships = getCachedPlaylistMemberships(trackIdentity(target.track));
     memberships.add(target.playlistId);
-    primePlaylistMemberships(target.track.videoId, memberships);
+    primePlaylistMemberships(trackIdentity(target.track), memberships);
     void handleAddToPlaylist(target.track, target.playlistId);
   }, [handleAddToPlaylist, undoAction]);
 
@@ -1260,7 +1266,7 @@ export function Dashboard({ user, onUserChange }: Props) {
         setDownloadJobs((prev) => {
           const next = new Map(prev);
           const current = next.get(playlistId);
-          if (current) next.set(playlistId, { ...current, status: 'error' });
+          if (current && current.status !== 'cancelled') next.set(playlistId, { ...current, status: 'error' });
           return next;
         });
         es.close();
@@ -1269,6 +1275,19 @@ export function Dashboard({ user, onUserChange }: Props) {
     },
     [playlists]
   );
+
+  const handleCancelDownload = useCallback((playlistId: string) => {
+    const source = downloadSources.current.get(playlistId);
+    source?.close();
+    downloadSources.current.delete(playlistId);
+    setDownloadJobs((prev) => {
+      const current = prev.get(playlistId);
+      if (!current || (current.status !== 'running' && current.status !== 'starting')) return prev;
+      const next = new Map(prev);
+      next.delete(playlistId);
+      return next;
+    });
+  }, []);
 
   const allJobs = Array.from(downloadJobs.values());
   const activeDownloadCount = allJobs.filter((j) => j.status === 'running' || j.status === 'starting').length;
@@ -1485,16 +1504,40 @@ export function Dashboard({ user, onUserChange }: Props) {
   );
 
   const handleSyncPlaylistNow = useCallback(
-    async (playlistId: string) => {
-      try {
-        await apiFetch('/api/playlist/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playlistId }),
-        });
-      } catch (e) {
-        console.error('Failed to sync playlist:', e);
-      }
+    (playlistId: string) => {
+      const existing = syncOperations.current.get(playlistId);
+      if (existing) return existing;
+      setSyncingPlaylistIds((previous) => new Set(previous).add(playlistId));
+      const operation = (async () => {
+        try {
+          await apiFetch('/api/playlist/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playlistId }),
+          });
+          const refreshed = await apiFetch('/api/playlists');
+          const refreshedData = await refreshed.json().catch(() => ({}));
+          if (Array.isArray(refreshedData?.playlists)) {
+            const nextPlaylists = refreshedData.playlists as Playlist[];
+            setPlaylists(nextPlaylists);
+            playlistsRef.current = nextPlaylists;
+            setSelectedPlaylist((current) => current?.id === playlistId
+              ? nextPlaylists.find((item) => item.id === playlistId) ?? current
+              : current);
+          }
+        } catch (e) {
+          console.error('Failed to sync playlist:', e);
+        } finally {
+          syncOperations.current.delete(playlistId);
+          setSyncingPlaylistIds((previous) => {
+            const next = new Set(previous);
+            next.delete(playlistId);
+            return next;
+          });
+        }
+      })();
+      syncOperations.current.set(playlistId, operation);
+      return operation;
     },
     [apiFetch]
   );
@@ -1682,6 +1725,14 @@ export function Dashboard({ user, onUserChange }: Props) {
   // room for names up to 20 characters. Longer names remain contained.
   const sidebarWidth = Math.min(310, Math.max(240, 210 + Math.min(20, longestPlaylistTitle) * 7));
 
+  const pageTransitionKey = showGlobalSearch
+    ? `search:${searchQuery}`
+    : showPlaylistManagement
+      ? 'playlist-management'
+      : selectedPlaylist
+        ? `playlist:${selectedPlaylist.id}`
+        : 'home';
+
   return (
     <div className="music-shell h-screen w-screen flex flex-col overflow-hidden">
       <Header
@@ -1734,6 +1785,7 @@ export function Dashboard({ user, onUserChange }: Props) {
           navigateRoute({ kind: 'home' });
         }}
         onOpenSettings={() => navigateRoute({ kind: 'settings' })}
+        onCancelDownload={handleCancelDownload}
       />
 
       <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
@@ -1768,6 +1820,7 @@ export function Dashboard({ user, onUserChange }: Props) {
 
         <div className="flex-1 min-w-0 h-full flex overflow-hidden">
           <div className="flex-1 min-w-0 h-full relative overflow-hidden flex flex-col">
+            <div key={pageTransitionKey} className="h-full min-h-0 animate-page-transition">
             {showGlobalSearch ? (
               <GlobalSearchResults
                 query={searchQuery}
@@ -1830,6 +1883,8 @@ export function Dashboard({ user, onUserChange }: Props) {
                 isPlaying={isPlaying}
                 scrollToTrackRequest={playlistScrollRequest}
                 onEditOrderChange={setIsPlaylistEditOrder}
+                onSyncNow={handleSyncPlaylistNow}
+                isSyncingExternally={syncingPlaylistIds.has(selectedPlaylist.id)}
                 recommendations={playlistRecommendations}
                 playlistMutation={playlistMutation}
               />
@@ -1851,6 +1906,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {isQueueOpen && (
@@ -1943,10 +1999,14 @@ export function Dashboard({ user, onUserChange }: Props) {
         volume={volume}
         isMuted={isMuted}
         onVolumeChange={(v) => {
+          if (v > 0) lastAudibleVolumeRef.current = v;
           if (isMuted) setIsMuted(false);
           setVolume(v);
         }}
-        onMuteChange={(m) => setIsMuted(m)}
+        onMuteChange={(m) => {
+          setIsMuted(m);
+          if (!m) setVolume(lastAudibleVolumeRef.current);
+        }}
         isQueueOpen={isQueueOpen}
         isLyricsOpen={isLyricsOpen}
         isShuffle={isShuffle}
@@ -2067,7 +2127,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-text">{entry.title || entry.url}</p>
                             <p className="truncate text-xs text-text-disabled">
-                              {entry.tracks ? `${entry.tracks.length} tracks` : entry.previewing ? 'Loading' : entry.url}
+                              {entry.tracks ? `${entry.totalTracks ?? entry.tracks.length} tracks` : entry.previewing ? 'Loading' : entry.url}
                             </p>
                           </div>
                           {entry.tracks && (

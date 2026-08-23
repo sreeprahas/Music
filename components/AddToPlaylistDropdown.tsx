@@ -50,10 +50,11 @@ export function AddToPlaylistDropdown({
   className = '',
 }: Props) {
   const [search, setSearch] = useState('');
+  const trackKey = track.videoId || track.sourceTrackId || `${track.title}\u0000${track.artist}`;
   // Local checked state — initialised from track.playlistId + optional checkedIds prop
   const initChecked = (): Set<string> => {
     const s = new Set<string>();
-    getCachedPlaylistMemberships(track.videoId).forEach((id) => s.add(id));
+    getCachedPlaylistMemberships(trackKey).forEach((id) => s.add(id));
     if (track.playlistId) s.add(track.playlistId);
     checkedIds?.forEach((id) => s.add(id));
     return s;
@@ -66,20 +67,20 @@ export function AddToPlaylistDropdown({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/playlist/memberships?videoId=${encodeURIComponent(track.videoId)}`)
+    fetch(`/api/playlist/memberships?videoId=${encodeURIComponent(track.videoId)}&sourceTrackId=${encodeURIComponent(track.sourceTrackId || '')}`)
       .then((response) => response.json())
       .then((data) => {
         if (cancelled || hasPendingChangesRef.current || !Array.isArray(data?.playlistIds)) return;
         const next = new Set<string>(data.playlistIds);
         if (track.playlistId) next.add(track.playlistId);
         checkedKey.split(',').filter(Boolean).forEach((id) => next.add(id));
-        primePlaylistMemberships(track.videoId, next);
+        primePlaylistMemberships(trackKey, next);
         setInitialChecked(next);
         setLocalChecked(next);
       })
       .catch(() => { });
     return () => { cancelled = true; };
-  }, [checkedKey, track.playlistId, track.videoId]);
+  }, [checkedKey, track.playlistId, track.videoId, track.sourceTrackId, trackKey]);
 
   // Close on outside click / Escape
   useEffect(() => {
@@ -122,7 +123,7 @@ export function AddToPlaylistDropdown({
 
   const commitChanges = () => {
     const committed = new Set(localChecked);
-    primePlaylistMemberships(track.videoId, committed);
+    primePlaylistMemberships(trackKey, committed);
     playlists.forEach((playlist) => {
       const wasChecked = initialChecked.has(playlist.id);
       const isChecked = localChecked.has(playlist.id);

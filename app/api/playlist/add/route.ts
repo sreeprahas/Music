@@ -3,12 +3,13 @@ import { addCachedTrack, getLocalPlaylists } from '@/lib/db';
 import { enqueuePlaylistOperation } from '@/lib/sync/playlist-sync';
 
 export async function POST(request: Request) {
-  const { playlistId, videoId, track } = await request.json();
-  if (!playlistId || !videoId || !track) {
-    return NextResponse.json({ error: 'Missing playlistId, videoId, or track' }, { status: 400 });
+  const { playlistId, videoId, sourceTrackId, track } = await request.json();
+  if (!playlistId || (!videoId && !sourceTrackId && !track?.sourceTrackId) || !track) {
+    return NextResponse.json({ error: 'Missing playlistId, track identity, or track' }, { status: 400 });
   }
   const playlist = getLocalPlaylists().find((item) => item.id === playlistId);
-  addCachedTrack(playlistId, { ...track, videoId, playlistId });
-  if (playlist) enqueuePlaylistOperation(playlist, 'add', { tracks: [{ ...track, videoId, playlistId }] });
+  const savedTrack = { ...track, videoId: videoId || track.videoId || '', sourceTrackId: sourceTrackId || track.sourceTrackId, playlistId };
+  addCachedTrack(playlistId, savedTrack);
+  if (playlist) enqueuePlaylistOperation(playlist, 'add', { tracks: [savedTrack] });
   return NextResponse.json({ success: true, local: true });
 }

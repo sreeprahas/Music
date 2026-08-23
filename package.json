@@ -1,7 +1,7 @@
 {
   "name": "music",
   "productName": "Music",
-  "description": "Your library. Downloaded. Yours.",
+  "description": "Your music, gathered in one place.",
   "author": "Prahas",
   "private": true,
   "version": "1.0.0",
