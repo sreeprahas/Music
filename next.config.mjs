@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  serverExternalPackages: ['node:sqlite'],
   // Electron serves the renderer from the fixed loopback port below. Next 16
   // otherwise blocks its dev scripts/HMR, leaving only the server HTML and a
   // permanently stuck loading shell.
