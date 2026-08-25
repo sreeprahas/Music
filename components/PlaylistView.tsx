@@ -141,6 +141,8 @@ export function PlaylistView({
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const lastSelectedIndexRef = useRef<number | null>(null);
   const [visibleRecommendations, setVisibleRecommendations] = useState<Track[]>(recommendations);
+  // Cache-bust local artwork whenever this playlist view mounts/changes.
+  const [artworkRefreshKey, setArtworkRefreshKey] = useState(() => Date.now());
   // Track which videoIds are currently being downloaded (spinner shown)
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -149,6 +151,9 @@ export function PlaylistView({
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
 
   useEffect(() => setVisibleRecommendations(recommendations), [recommendations]);
+  useEffect(() => {
+    setArtworkRefreshKey(Date.now());
+  }, [playlist.id]);
 
   // Edit order drag mode
   const [isEditOrder, setIsEditOrder] = useState(false);
@@ -784,7 +789,7 @@ export function PlaylistView({
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 aspect-square rounded-[4px] overflow-hidden shrink-0">
                             <img
-                              src={getTrackThumbnailUrl(track)}
+                              src={getTrackThumbnailUrl(track, artworkRefreshKey)}
                               alt={track.title}
                               className="w-full h-full object-cover"
                               loading="lazy"

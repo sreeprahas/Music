@@ -39,7 +39,6 @@ type SearchMode = 'auto' | 'spotify' | 'ytmusic' | 'local';
 type CachedTrack = Track & { playlistId: string; playlistTitle: string };
 type RouteState =
   | { kind: 'home' }
-  | { kind: 'settings' }
   | { kind: 'playlist'; playlistId: string }
   | { kind: 'management' }
   | { kind: 'search'; query: string; songId?: string };
@@ -78,7 +77,6 @@ function decodeSlug(value: string) {
 
 function readRoute(): RouteState {
   const parts = window.location.pathname.split('/').filter(Boolean).map(decodeSlug);
-  if (parts[0] === 'settings') return { kind: 'settings' };
   if (parts[0] === 'playlist' && parts[1]) return { kind: 'playlist', playlistId: parts[1] };
   // Playlist management temporarily on standby.
   // if (parts[0] === 'management' || parts[0] === 'hidden') return { kind: 'management' };
@@ -89,7 +87,6 @@ function readRoute(): RouteState {
 }
 
 function routeHref(route: RouteState) {
-  if (route.kind === 'settings') return '/settings';
   if (route.kind === 'playlist') return `/playlist/${encodeURIComponent(route.playlistId)}`;
   // Playlist management temporarily on standby.
   // if (route.kind === 'management') return '/management';
@@ -170,7 +167,7 @@ export function Dashboard({ user, onUserChange }: Props) {
   const [isFullscreenClosing, setIsFullscreenClosing] = useState(false);
   const handleOpenFullscreen = useCallback(() => setIsFullscreenOpen(true), []);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isSettingsPage, setIsSettingsPage] = useState(initialRoute.kind === 'settings');
+  const [isSettingsPage, setIsSettingsPage] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [importError, setImportError] = useState('');
   // Bulk import queue: each entry is a URL with optional preview data.
@@ -499,25 +496,23 @@ export function Dashboard({ user, onUserChange }: Props) {
       .catch(() => { });
   }, []);
 
-  const applyRoute = useCallback(
-    (route: RouteState) => {
-      setIsSettingsPage(route.kind === 'settings');
-      // Settings is an overlay route. Preserve the current playlist/search
-      // state so opening and closing it never remounts the page underneath.
-      if (route.kind === 'settings') return;
-      // Playlist management temporarily on standby â€” never activate it.
-      setShowPlaylistManagement(false);
-      const q = route.kind === 'search' ? route.query : '';
-      setSearchQuery(q);
-      setTypedSearchInput(q);
-      setSelectedPlaylist(
-        route.kind === 'playlist'
-          ? playlists.find((playlist) => playlist.id === route.playlistId) ?? null
-          : null
-      );
-    },
-    [playlists]
-  );
+  const applyRoute = useCallback((route: RouteState) => {
+    // Settings is a pure overlay and is intentionally not part of routing
+    // or the undo/redo history.
+    setShowPlaylistManagement(false);
+
+    const q = route.kind === 'search' ? route.query : '';
+    setSearchQuery(q);
+    setTypedSearchInput(q);
+
+    setSelectedPlaylist(
+      route.kind === 'playlist'
+        ? playlistsRef.current.find(
+            (playlist) => playlist.id === route.playlistId
+          ) ?? null
+        : null
+    );
+  }, []);
 
   useEffect(() => {
     const initialPosition = Number(window.history.state?.musicNavigationIndex ?? 0);
@@ -528,6 +523,13 @@ export function Dashboard({ user, onUserChange }: Props) {
     applyRoute(readRoute());
 
     const handlePopState = (event: PopStateEvent) => {
+      const pathname = window.location.pathname;
+
+      // Settings is a local overlay, never a navigation-history entry.
+      if (pathname === '/settings' || pathname.startsWith('/settings/')) {
+        return;
+      }
+
       const nextPosition = Number(event.state?.musicNavigationIndex ?? 0);
       historyPositionRef.current = nextPosition;
       setHistoryPosition(nextPosition);
@@ -1784,7 +1786,7 @@ export function Dashboard({ user, onUserChange }: Props) {
         onHomeClick={() => {
           navigateRoute({ kind: 'home' });
         }}
-        onOpenSettings={() => navigateRoute({ kind: 'settings' })}
+        onOpenSettings={() => setIsSettingsPage(true)}
         onCancelDownload={handleCancelDownload}
       />
 
@@ -2026,7 +2028,11 @@ export function Dashboard({ user, onUserChange }: Props) {
       )}
 
       {isSettingsPage && (
-        <SettingsPanel user={user} onUserChange={onUserChange} onClose={() => window.history.back()} />
+        <SettingsPanel
+          user={user}
+          onUserChange={onUserChange}
+          onClose={() => setIsSettingsPage(false)}
+        />
       )}
 
 

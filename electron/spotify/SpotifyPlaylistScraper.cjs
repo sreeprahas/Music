@@ -62,7 +62,7 @@ async function sleep(ms, signal) {
 }
 
 /** Extract complete embedded state first; DOM and accessibility labels are fallbacks. */
-function extractionScript(mode) {
+function extractionScript(mode, targetId = '') {
   const body = `(() => {
     function text(value) { return typeof value === 'string' ? value.trim() : ''; }
     function trackId(value) {
@@ -87,8 +87,9 @@ function extractionScript(mode) {
     }
     function imageFrom(value) {
       if (!value || typeof value !== 'object') return '';
+      const imgObj = value.images?.items ? value.images.items[0] : value.images;
       const sources = value.coverArt?.sources || value.album?.images ||
-        value.albumOfTrack?.coverArt?.sources || value.images;
+        value.albumOfTrack?.coverArt?.sources || (Array.isArray(imgObj) ? imgObj : imgObj?.sources || imgObj);
       if (!Array.isArray(sources)) return typeof value.url === 'string' ? value.url : '';
       const best = [...sources].sort((a, b) => (b.width || b.maxWidth || 0) - (a.width || a.maxWidth || 0))[0];
       return text(best?.url);
@@ -147,6 +148,7 @@ function extractionScript(mode) {
     }
     function findState() {
       const result = { name: '', cover: '', total: 0, tracks: [] };
+      const targetUri = '${targetId}' ? ('spotify:playlist:' + '${targetId}') : '';
       outer: for (const root of parseScripts()) {
         for (const value of walk(root)) {
           if (!result.total && Number.isFinite(value.total) &&
@@ -154,9 +156,13 @@ function extractionScript(mode) {
             result.total = value.total;
           }
           if (!result.total && Number.isFinite(value.trackCount)) result.total = value.trackCount;
-          if (typeof value.uri === 'string' && value.uri.startsWith('spotify:playlist:') && value.name) {
-            result.name = text(value.name);
-            result.cover = imageFrom(value);
+          const isTarget = targetUri
+            ? (value.uri === targetUri || value._uri === targetUri || (value.data && (value.data.uri === targetUri || value._uri === targetUri)))
+            : (typeof value.uri === 'string' && value.uri.startsWith('spotify:playlist:'));
+          const targetObj = (value.data && (value.data.uri === targetUri || value._uri === targetUri)) ? value.data : value;
+          if (isTarget && targetObj && targetObj.name) {
+            result.name = text(targetObj.name);
+            result.cover = imageFrom(targetObj);
           }
           const candidates = [value.trackList, value.tracks?.items, value.items];
           for (const list of candidates) {
@@ -463,7 +469,7 @@ class SpotifyPlaylistScraper {
         poll();
       }), PAGE_WAIT_MS, 'Spotify playlist rows did not render.', signal);
 
-      const metadataRaw = await withDeadline(contents.executeJavaScript(extractionScript('metadata'), false),
+      const metadataRaw = await withDeadline(contents.executeJavaScript(extractionScript('metadata', playlistId), false),
         10_000, 'Failed to inspect Spotify metadata.', signal);
       const metadata = JSON.parse(metadataRaw);
       if (isBlocked(metadata.location, '')) throw new SpotifyScrapeError(isBlocked(metadata.location, ''), 'access-blocked');
@@ -478,7 +484,7 @@ class SpotifyPlaylistScraper {
       let previousStructuredSize = -1;
       while (options.method !== 'dom-scroll' && Date.now() < structuredTriggerDeadline) {
         stopCheck();
-        const fastRaw = await withDeadline(contents.executeJavaScript(extractionScript('metadata'), false), 5000,
+        const fastRaw = await withDeadline(contents.executeJavaScript(extractionScript('metadata', playlistId), false), 5000,
           'Failed to read Spotify structured state.', signal);
         const fastSnapshot = JSON.parse(fastRaw);
         if (fastSnapshot.expectedTotal && !metadata.expectedTotal) metadata.expectedTotal = fastSnapshot.expectedTotal;
@@ -507,7 +513,7 @@ class SpotifyPlaylistScraper {
       const structuredComplete = Boolean(metadata.expectedTotal && structuredEntries.size >= metadata.expectedTotal);
       const structuredExtractionMs = Date.now() - fastPathStart;
       if (structuredComplete) {
-        const finalMetadata = JSON.parse(await contents.executeJavaScript(extractionScript('metadata'), false));
+        const finalMetadata = JSON.parse(await contents.executeJavaScript(extractionScript('metadata', playlistId), false));
         const tracks = [...structuredEntries.values()].sort((a, b) => a.firstIndex - b.firstIndex)
           .slice(0, finalMetadata.expectedTotal || undefined).map((entry) => ({ ...entry.track }));
         console.log(`[spotify-poc] Fast structured finished in ${Date.now() - startedAt}ms`);
@@ -555,7 +561,7 @@ class SpotifyPlaylistScraper {
 
       const collect = async () => {
         stopCheck();
-        const raw = await withDeadline(contents.executeJavaScript(extractionScript('all'), false), 20_000,
+        const raw = await withDeadline(contents.executeJavaScript(extractionScript('all', playlistId), false), 20_000,
           'Failed to extract rendered Spotify rows.', signal);
         const snapshot = JSON.parse(raw);
         // Partial page state is deliberately not merged into the DOM fallback.
@@ -674,7 +680,7 @@ class SpotifyPlaylistScraper {
       }
 
       await collect();
-      const finalMetadataRaw = await contents.executeJavaScript(extractionScript('metadata'), false);
+      const finalMetadataRaw = await contents.executeJavaScript(extractionScript('metadata', playlistId), false);
       const finalMetadata = JSON.parse(finalMetadataRaw);
       const expected = finalMetadata.expectedTotal || metadata.expectedTotal;
       let tracks = [...entries.values()].sort((a, b) => a.firstIndex - b.firstIndex)

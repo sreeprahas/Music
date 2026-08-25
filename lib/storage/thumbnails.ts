@@ -80,9 +80,23 @@ function isAllowedImageHost(hostname: string): boolean {
 }
 
 function normalizeMusicThumbnailUrl(url: string): string {
-  if (url.includes('lh3.googleusercontent.com')) return url;
-  if (url.includes('googleusercontent.com')) return url.replace(/=w\d+-h\d+/i, '=w1200-h1200');
-  if (url.includes('i.ytimg.com')) return url.replace(/hqdefault\.jpg/i, 'maxresdefault.jpg');
+  if (url.includes('googleusercontent.com')) {
+    return url.replace(/=w\d+-h\d+[^?#]*/i, '=w1200-h1200');
+  }
+  if (url.includes('i.ytimg.com')) {
+    return url.replace(/hqdefault\.jpg/i, 'maxresdefault.jpg');
+  }
+  if (url.includes('mosaic.scdn.co')) {
+    return url.replace(/\/mosaic\.scdn\.co\/\d+\//i, '/mosaic.scdn.co/640/');
+  }
+
+  // Spotify image URLs encode the requested rendition in the four hex digits
+  // after `ab67616d0000`. Force the 640x640 rendition for any Spotify image
+  // variant instead of only handling a couple of known size codes.
+  if (url.includes('i.scdn.co/image/')) {
+    return url.replace(/ab67616d0000[0-9a-f]{4}/i, 'ab67616d0000b273');
+  }
+
   return url;
 }
 
@@ -119,26 +133,47 @@ async function toLosslessWebp(source: Buffer): Promise<Buffer> {
   const metadata = await image.metadata();
   const width = metadata.width || 0;
   const height = metadata.height || 0;
+  let pipeline = sharp(source);
   if (width >= 1280 && height >= 720) {
     const left = 280;
     const top = Math.max(0, Math.floor((height - 720) / 2));
-    return image.extract({ left, top, width: 720, height: 720 }).webp({ lossless: true }).toBuffer();
-  }
-  if (width && height && width > height) {
+    pipeline = pipeline.extract({ left, top, width: 720, height: 720 });
+  } else if (width && height && width > height && (width / height) > 1.25) {
     const cropSize = Math.floor(height / 1.35);
     const left = Math.floor((width - cropSize) / 2);
     const top = Math.floor((height - cropSize) / 2);
-    return image.extract({ left, top, width: cropSize, height: cropSize }).webp({ lossless: true }).toBuffer();
+    pipeline = pipeline.extract({ left, top, width: cropSize, height: cropSize });
   }
-  return image.webp({ lossless: true }).toBuffer();
+  return pipeline.resize(640, 640, { fit: 'cover', position: 'center' }).webp({ lossless: true }).toBuffer();
+}
+
+/** Check if existing image file is already exactly 640x640. If smaller or different, upgrades it. */
+async function ensureExact640Image(destPath: string): Promise<boolean> {
+  if (!fs.existsSync(destPath)) return false;
+  try {
+    const raw = fs.readFileSync(destPath);
+    const meta = await sharp(raw).metadata();
+    if (meta.width === 640 && meta.height === 640) {
+      return true;
+    }
+    const upgraded = await toLosslessWebp(raw);
+    fs.writeFileSync(destPath, upgraded);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Download helpers ─────────────────────────────────────────────────────────
 
 /** Download a single image to a specific filesystem path. Returns true on success. */
-export async function downloadImageToPath(remoteUrl: string, destPath: string): Promise<boolean> {
+export async function downloadImageToPath(
+  remoteUrl: string,
+  destPath: string,
+  options: { forceRefresh?: boolean } = {},
+): Promise<boolean> {
   if (!remoteUrl || !destPath) return false;
-  if (fs.existsSync(destPath)) return true;
+  if (!options.forceRefresh && await ensureExact640Image(destPath)) return true;
   const urls = remoteUrl.startsWith('/api/') ? getThumbnailFallbackUrls(remoteUrl) : [remoteUrl, ...getThumbnailFallbackUrls(remoteUrl)].filter(Boolean);
   for (const url of urls) {
     try {
@@ -162,7 +197,7 @@ export async function downloadImageToPath(remoteUrl: string, destPath: string): 
 export async function downloadPlaylistCover(playlistId: string, remoteUrl: string): Promise<void> {
   if (!remoteUrl) return;
   const dest = getPlaylistCoverPath(playlistId);
-  await downloadImageToPath(remoteUrl, dest);
+  await downloadImageToPath(remoteUrl, dest, { forceRefresh: true });
 }
 
 /** Download a single track thumbnail into the playlist-scoped dir. */
@@ -173,10 +208,28 @@ export async function downloadTrackThumbnail(
 ): Promise<string> {
   if (!trackKey) return '';
   const dest = getTrackThumbnailPath(playlistId, trackKey);
-  if (fs.existsSync(dest)) return dest;
+  const isSpotifyTrack = /^[A-Za-z0-9]{22}$/.test(trackKey);
+  const isLocalApiUrl = Boolean(remoteUrl?.startsWith('/api/'));
 
-  let url = remoteUrl;
-  if (!url && /^[A-Za-z0-9]{22}$/.test(trackKey)) {
+  // A Spotify track must be downloaded from Spotify again when this function
+  // runs. Never treat an existing 640x640 cached/upscaled file as the source.
+  // Local API URLs are cache references, not remote image sources.
+  const forceRefresh = isSpotifyTrack || Boolean(remoteUrl && !isLocalApiUrl);
+  if (!forceRefresh && await ensureExact640Image(dest)) return dest;
+
+  const candidateUrls: string[] = [];
+  const addCandidate = (value?: string) => {
+    if (!value || value.startsWith('/api/')) return;
+    const normalized = normalizeMusicThumbnailUrl(value);
+    if (!candidateUrls.includes(normalized)) candidateUrls.push(normalized);
+  };
+
+  addCandidate(remoteUrl);
+
+  // For Spotify tracks, inspect every artwork source returned by the embed
+  // payload and try them from largest to smallest. This fixes tracks whose
+  // primary image URL is missing, broken, or points at a tiny rendition.
+  if (/^[A-Za-z0-9]{22}$/.test(trackKey)) {
     try {
       const trackRes = await fetch(`https://open.spotify.com/embed/track/${trackKey}`, {
         headers: {
@@ -185,27 +238,41 @@ export async function downloadTrackThumbnail(
         },
         signal: AbortSignal.timeout(8000),
       });
+
       if (trackRes.ok) {
         const html = await trackRes.text();
         const match = /<script\s+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i.exec(html);
-        if (match && match[1]) {
+        if (match?.[1]) {
           const data = JSON.parse(match[1]) as Record<string, unknown>;
           const entity = (data as any)?.props?.pageProps?.state?.data?.entity;
-          const viImages = entity?.visualIdentity?.image;
-          if (Array.isArray(viImages) && viImages.length > 0) {
-            const sorted = [...viImages].sort((a: any, b: any) => (b.maxWidth || 0) - (a.maxWidth || 0));
-            url = sorted[0]?.url || '';
-          } else {
-            url = entity?.coverArt?.sources?.[0]?.url || '';
-          }
+
+          const sources = [
+            ...((Array.isArray(entity?.visualIdentity?.image) ? entity.visualIdentity.image : []) as any[]),
+            ...((Array.isArray(entity?.coverArt?.sources) ? entity.coverArt.sources : []) as any[]),
+          ]
+            .filter((item) => item && typeof item === 'object' && typeof item.url === 'string')
+            .sort((a, b) => {
+              const aSize = Math.max(Number(a.width || 0), Number(a.height || 0), Number(a.maxWidth || 0), Number(a.maxHeight || 0));
+              const bSize = Math.max(Number(b.width || 0), Number(b.height || 0), Number(b.maxWidth || 0), Number(b.maxHeight || 0));
+              return bSize - aSize;
+            });
+
+          for (const source of sources) addCandidate(source.url);
         }
       }
     } catch {}
   }
 
-  if (url) {
-    await downloadImageToPath(url, dest);
+  // Last-resort fallback for sources that are not exposed by the Spotify
+  // embed payload.
+  if (candidateUrls.length === 0 && remoteUrl && !remoteUrl.startsWith('/api/')) {
+    addCandidate(remoteUrl);
   }
+
+  for (const url of candidateUrls) {
+    if (await downloadImageToPath(url, dest, { forceRefresh: true })) return dest;
+  }
+
   return dest;
 }
 
@@ -313,11 +380,13 @@ export async function downloadAllMetadataImages(
     }
   }
   for (const { playlistId, tracks } of allTracks) {
-    const toDownload = tracks.filter((t) => t.thumbnailUrl && t.thumbnailUrl.startsWith('http'));
+    // Do not filter out local `/api/thumbnail/...` references. Those are cache
+    // URLs and still need to trigger a real source download during refresh.
+    const toDownload = tracks.filter((t) => Boolean(t.sourceTrackId || t.videoId));
     if (toDownload.length === 0) continue;
     await runWithConcurrency(toDownload, 8, async (track) => {
       const key = track.sourceTrackId || track.videoId;
-      if (key && track.thumbnailUrl) {
+      if (key) {
         await downloadTrackThumbnail(playlistId, key, track.thumbnailUrl);
       }
     });

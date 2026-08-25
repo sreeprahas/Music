@@ -237,7 +237,7 @@ export function Header({
             title="Back"
             className="p-1 text-text hover:text-accent disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-6 h-6" />
           </button>
           <button
             onClick={onRedo}
@@ -245,7 +245,7 @@ export function Header({
             title="Forward"
             className="p-1 text-text hover:text-accent disabled:text-text-disabled disabled:hover:bg-transparent disabled:hover:shadow-none transition-all duration-300"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className="w-6 h-6" />
           </button>
         </div>
       </div>
