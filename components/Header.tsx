@@ -223,7 +223,7 @@ export function Header({
           className="flex items-center gap-2 cursor-pointer group"
           title="Music"
         >
-          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg shadow-md group-hover:scale-105 group-hover:shadow-accent-card transition-all duration-500 ease-out">
+          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-cyan-400/20 bg-black/20 shadow-[0_0_18px_rgba(34,211,238,0.12)] transition-all duration-500 ease-out group-hover:scale-105 group-hover:shadow-accent-card">
             <span aria-hidden="true" className="music-logo-mark block h-8 w-8" />
           </div>
           <span className="text-text font-black text-lg tracking-tight group-hover:text-accent transition-colors">

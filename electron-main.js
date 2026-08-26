@@ -68,10 +68,10 @@ function createWindow() {
     height: 800,
     minWidth: 1024,
     minHeight: 640,
-    backgroundColor: '#08090b',
+    backgroundColor: '#0D0F13',
     show: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0A0A0A', symbolColor: '#FFFFFF', height: 71 },
+    titleBarOverlay: { color: '#0D0F13', symbolColor: '#FFFFFF', height: 71 },
     title: 'Music',
     icon: fs.existsSync(musicIconPath) ? musicIconPath : undefined,
     webPreferences: {
