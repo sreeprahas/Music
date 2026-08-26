@@ -1,20 +1,18 @@
 /**
  * GET /api/search
  *
- * Unified search endpoint. Routes all queries to YouTube Music.
- * The old "spotify" mode is treated as "ytmusic" — no Spotify search API is used.
+ * Unified search endpoint routing queries to YouTube Music via the persistent sidecar.
  *
  * Query params:
  *   - q:     the search query (required)
- *   - mode:  'auto' (default) | 'ytmusic' | 'spotify' | 'local'
+ *   - mode:  'auto' (default) | 'ytmusic' | 'songs' | 'artists' | 'albums' | 'playlists'
  *   - limit: max results (default 20, capped at 50)
  */
 
 import { NextResponse } from 'next/server';
 import { searchYouTubeMusic } from '@/lib/youtube/search';
-import { getThumbnailUrl } from '@/lib/ytmusicFormat';
+import { candidateToTrack } from '@/lib/youtube/adapter';
 import { toUiMessage } from '@/lib/spotify/errors';
-import type { Track } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,19 +23,17 @@ export async function GET(request: Request) {
   const mode = searchParams.get('mode') || 'auto';
 
   if (q.length > 200) return NextResponse.json({ error: 'Search query is too long.', mode }, { status: 400 });
-  if (!q.trim()) return NextResponse.json({ tracks: [], mode });
+  if (!q.trim()) return NextResponse.json({ tracks: [], mode, total: 0 });
 
   try {
-    const candidates = await searchYouTubeMusic(q, limit);
-    const tracks: Track[] = candidates.map((c, i) => ({
-      videoId: c.videoId,
-      title: c.title,
-      artist: c.channel || 'Unknown artist',
-      thumbnailUrl: getThumbnailUrl(c.videoId, c.title),
-      duration: c.duration,
-      position: i,
-    }));
-    return NextResponse.json({ tracks, mode, total: tracks.length });
+    const filter = ['artists', 'albums', 'playlists', 'videos'].includes(mode)
+      ? (mode as any)
+      : 'songs';
+
+    const candidates = await searchYouTubeMusic(q, limit, undefined, { filter });
+    const tracks = candidates.map((c, i) => candidateToTrack(c, i));
+
+    return NextResponse.json({ tracks, candidates, mode, total: tracks.length });
   } catch (err) {
     return NextResponse.json({ error: toUiMessage(err), mode }, { status: 500 });
   }

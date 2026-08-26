@@ -585,37 +585,20 @@ function AccountPage({
             </h3>
 
             <p className="mt-1 text-xs leading-5 theme-muted">
-              Connect optional music services.
-              These controls are placeholders for
-              now.
+              Connect your YouTube Music account to access your personal library, playlists, and recommendations.
             </p>
           </div>
 
           <Disc3 className="h-5 w-5 shrink-0 theme-muted" />
         </div>
 
-        <div className="mt-4 space-y-2">
-          <IntegrationRow
-            icon={
-              <img
-                src="/youtube-mark.svg"
-                alt="YouTube Music"
-                className="h-4 w-4"
-              />
-            }
-            service="YouTube Music"
-            onConnect={() =>
-              placeholder(
-                'YouTube Music',
-                'connection',
-              )
-            }
-            onSignOut={() =>
-              placeholder(
-                'YouTube Music',
-                'sign out',
-              )
-            }
+        <div className="mt-4 space-y-3">
+          <YouTubeIntegrationRow
+            onStatusChange={(status) => {
+              if (status.authenticated && status.valid) {
+                setIntegrationMessage('YouTube Music connected successfully.');
+              }
+            }}
           />
 
           <IntegrationRow
@@ -627,6 +610,8 @@ function AccountPage({
               />
             }
             service="Spotify"
+            status="Embed / Guest"
+            connected={true}
             onConnect={() =>
               placeholder(
                 'Spotify',
@@ -648,23 +633,388 @@ function AccountPage({
           </p>
         )}
       </Card>
+
+      <SidecarDiagnosticsCard />
     </div>
+  );
+}
+
+function YouTubeIntegrationRow({
+  onStatusChange,
+}: {
+  onStatusChange?: (status: { authenticated: boolean; valid: boolean }) => void;
+}) {
+  const [authStatus, setAuthStatus] = useState<{
+    authenticated: boolean;
+    valid: boolean;
+    libraryPlaylistsCount?: number;
+    error?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [authMethod, setAuthMethod] = useState<'oauth' | 'headers'>('oauth');
+  const [oauthData, setOauthData] = useState<{
+    user_code?: string;
+    verification_url?: string;
+    device_code?: string;
+  } | null>(null);
+  const [oauthStarting, setOauthStarting] = useState(false);
+  const [oauthFinishing, setOauthFinishing] = useState(false);
+  const [rawHeaders, setRawHeaders] = useState('');
+  const [headersSubmitting, setHeadersSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const fetchStatus = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/youtube/status');
+      const data = await res.json();
+      setAuthStatus(data);
+      onStatusChange?.(data);
+    } catch {
+      setAuthStatus({ authenticated: false, valid: false });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  const handleStartOAuth = async () => {
+    setOauthStarting(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/auth/youtube/oauth');
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to start OAuth');
+      setOauthData(data);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Could not start OAuth flow');
+    } finally {
+      setOauthStarting(false);
+    }
+  };
+
+  const handleFinishOAuth = async () => {
+    setOauthFinishing(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/auth/youtube/oauth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Authorization not completed yet');
+      await fetchStatus();
+      setModalOpen(false);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Could not verify authorization');
+    } finally {
+      setOauthFinishing(false);
+    }
+  };
+
+  const handleHeadersSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rawHeaders.trim()) return;
+    setHeadersSubmitting(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/auth/youtube/headers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ headers: rawHeaders.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Invalid headers');
+      await fetchStatus();
+      setModalOpen(false);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Header authentication failed');
+    } finally {
+      setHeadersSubmitting(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/auth/youtube/logout', { method: 'POST' });
+      await fetchStatus();
+    } catch {} finally {
+      setLoading(false);
+    }
+  };
+
+  const isConnected = Boolean(authStatus?.authenticated && authStatus?.valid);
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background px-3.5 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <img
+            src="/youtube-mark.svg"
+            alt="YouTube Music"
+            className="h-4 w-4 shrink-0"
+          />
+
+          <span className="truncate text-sm font-semibold text-text">
+            YouTube Music
+          </span>
+
+          {loading ? (
+            <span className="rounded-full bg-surface px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide theme-muted">
+              Checking…
+            </span>
+          ) : isConnected ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Connected
+            </span>
+          ) : (
+            <span className="rounded-full bg-surface px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide theme-muted">
+              Not connected
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isConnected ? (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={loading}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-text-muted hover:bg-surface hover:text-text disabled:opacity-50 transition-colors"
+            >
+              <LogOut className="h-3 w-3" />
+              Sign out
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setModalOpen(true);
+                setErrorMsg('');
+                if (authMethod === 'oauth' && !oauthData) {
+                  handleStartOAuth();
+                }
+              }}
+              disabled={loading}
+              className="rounded-lg bg-accent/15 px-3 py-1.5 text-[11px] font-bold text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
+            >
+              Connect
+            </button>
+          )}
+        </div>
+      </div>
+
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
+        >
+          <div className="flex w-full max-w-md flex-col rounded-2xl border border-border bg-surface shadow-2xl overflow-hidden animate-fadeIn">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-surface-elevated/40">
+              <div className="flex items-center gap-2.5">
+                <img src="/youtube-mark.svg" alt="" className="h-5 w-5" />
+                <h3 className="text-base font-bold text-text">Connect YouTube Music</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="text-text-muted hover:text-text p-1 rounded-lg hover:bg-surface transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Auth Method Tabs */}
+            <div className="flex border-b border-border bg-background-secondary p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMethod('oauth');
+                  if (!oauthData) handleStartOAuth();
+                }}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${authMethod === 'oauth' ? 'bg-surface text-accent shadow-sm' : 'text-text-muted hover:text-text'}`}
+              >
+                Google Device Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMethod('headers')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${authMethod === 'headers' ? 'bg-surface text-accent shadow-sm' : 'text-text-muted hover:text-text'}`}
+              >
+                Browser Headers
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              {authMethod === 'oauth' ? (
+                <div className="space-y-4">
+                  <p className="text-xs text-text-muted leading-relaxed">
+                    Authorize YouTube Music via Google device code. Open Google's login page and enter the code below:
+                  </p>
+
+                  {oauthStarting ? (
+                    <div className="flex items-center justify-center py-6 gap-2 text-xs text-text-muted">
+                      <span className="h-3 w-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+                      Requesting device authorization code…
+                    </div>
+                  ) : oauthData?.user_code ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between rounded-xl border border-accent/30 bg-accent/10 px-4 py-3">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-accent/80 block">User Code</span>
+                          <span className="text-lg font-black tracking-widest text-text font-mono">{oauthData.user_code}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (oauthData.user_code) {
+                              navigator.clipboard.writeText(oauthData.user_code);
+                              setCopied(true);
+                              setTimeout(() => setCopied(false), 2000);
+                            }
+                          }}
+                          className="rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-background hover:bg-accent-hover transition-colors"
+                        >
+                          {copied ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <a
+                          href={oauthData.verification_url || 'https://www.google.com/device'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 text-center rounded-xl bg-surface-hover border border-border px-4 py-2.5 text-xs font-bold text-text hover:border-accent/40 transition-colors"
+                        >
+                          Open google.com/device ↗
+                        </a>
+                        <button
+                          type="button"
+                          onClick={handleFinishOAuth}
+                          disabled={oauthFinishing}
+                          className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-background hover:bg-accent-hover disabled:opacity-50 transition-colors"
+                        >
+                          {oauthFinishing ? 'Verifying…' : 'I Have Authorized'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleStartOAuth}
+                      className="w-full rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-background hover:bg-accent-hover"
+                    >
+                      Start Authorization
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <form onSubmit={handleHeadersSubmit} className="space-y-3">
+                  <p className="text-xs text-text-muted leading-relaxed">
+                    Paste your YouTube Music request headers or cookie string from browser devtools:
+                  </p>
+                  <textarea
+                    rows={5}
+                    value={rawHeaders}
+                    onChange={(e) => setRawHeaders(e.target.value)}
+                    placeholder="Cookie: ...&#10;Authorization: SAPISIDHASH ..."
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-mono text-text outline-none focus:border-accent/60 placeholder:text-text-disabled resize-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!rawHeaders.trim() || headersSubmitting}
+                    className="w-full rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-background hover:bg-accent-hover disabled:opacity-40 transition-colors"
+                  >
+                    {headersSubmitting ? 'Validating Headers…' : 'Save & Connect'}
+                  </button>
+                </form>
+              )}
+
+              {errorMsg && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400 font-medium">
+                  {errorMsg}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SidecarDiagnosticsCard() {
+  const [transportInfo, setTransportInfo] = useState<{
+    youtube?: {
+      provider: string;
+      status: string;
+      version?: string;
+      authFile?: string;
+      capabilities: string[];
+    };
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/settings/transport')
+      .then((r) => r.json())
+      .then(setTransportInfo)
+      .catch(() => {});
+  }, []);
+
+  if (!transportInfo?.youtube) return null;
+
+  const yt = transportInfo.youtube;
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-sm text-text">System & Sidecar Health</h3>
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          {yt.status}
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-xl border border-border bg-background p-2.5">
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-text-muted">Backend Provider</span>
+          <span className="font-semibold text-text">{yt.provider}</span>
+        </div>
+        <div className="rounded-xl border border-border bg-background p-2.5">
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-text-muted">ytmusicapi Version</span>
+          <span className="font-semibold text-text">{yt.version || '1.12.2'}</span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
 function IntegrationRow({
   icon,
   service,
+  status = 'Not connected',
+  connected = false,
   onConnect,
   onSignOut,
 }: {
   icon: React.ReactNode;
   service: string;
+  status?: string;
+  connected?: boolean;
   onConnect: () => void;
   onSignOut: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background px-3 py-3">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background px-3.5 py-3">
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         {icon}
 
@@ -672,28 +1022,32 @@ function IntegrationRow({
           {service}
         </span>
 
-        <span className="rounded-full bg-surface px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide theme-muted">
-          Not connected
+        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${connected ? 'bg-accent/15 text-accent' : 'bg-surface theme-muted'}`}>
+          {status}
         </span>
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onConnect}
-          className="rounded-lg bg-accent/12 px-2.5 py-1.5 text-[11px] font-bold text-accent hover:bg-accent/20"
-        >
-          Connect
-        </button>
+        {!connected && (
+          <button
+            type="button"
+            onClick={onConnect}
+            className="rounded-lg bg-accent/12 px-2.5 py-1.5 text-[11px] font-bold text-accent hover:bg-accent/20"
+          >
+            Connect
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold theme-muted hover:bg-surface hover:text-text"
-        >
-          <LogOut className="h-3 w-3" />
-          Sign out
-        </button>
+        {connected && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold theme-muted hover:bg-surface hover:text-text"
+          >
+            <LogOut className="h-3 w-3" />
+            Sign out
+          </button>
+        )}
       </div>
     </div>
   );

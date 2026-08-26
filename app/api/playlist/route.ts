@@ -30,10 +30,29 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { action?: string; url?: string; title?: string };
+    const body = (await request.json()) as { action?: string; url?: string; title?: string; description?: string };
+    
+    if (body.action === 'create') {
+      const { upsertPlaylist, allocateUniquePlaylistTitle } = await import('@/lib/storage/playlists');
+      const title = allocateUniquePlaylistTitle(typeof body.title === 'string' && body.title.trim() ? body.title.trim() : 'New Playlist');
+      const now = new Date().toISOString();
+      const id = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const playlist = {
+        id,
+        title,
+        description: typeof body.description === 'string' ? body.description.trim() : '',
+        thumbnailUrl: '',
+        trackCount: 0,
+        source: 'local' as const,
+        createdAt: now,
+      };
+      upsertPlaylist(playlist);
+      return NextResponse.json({ success: true, local: true, playlist, tracks: [] });
+    }
+
     if (body.action !== 'import' || !body.url) {
       return NextResponse.json(
-        { error: 'Expected action: import and a playlist URL' },
+        { error: 'Expected action: import (with url) or action: create (with title)' },
         { status: 400 },
       );
     }

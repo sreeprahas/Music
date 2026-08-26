@@ -13,7 +13,7 @@ import { QueueDrawer } from './QueueDrawer';
 import { LyricsDrawer } from './LyricsDrawer';
 import { ExpandedPlayerModal } from './ExpandedPlayerModal';
 import { ResizeDivider } from './ResizeDivider';
-import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronRight, Music } from 'lucide-react';
+import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronRight, Music, Music2 } from 'lucide-react';
 import { cleanArtistName, formatDuration, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { getCachedPlaylistMemberships, primePlaylistMemberships, removePlaylistMembership } from './AddToPlaylistDropdown';
 
@@ -1417,22 +1417,11 @@ export function Dashboard({ user, onUserChange }: Props) {
     };
   }, [apiFetch, handleTracksLoaded, playlists, searchQuery]);
 
-  // Online search â€” when the local library has no matches, query the dual
-  // Provider search engine using the selected
-  // mode (auto/spotify/ytmusic). Results are normalized Track objects; the
-  // renderer never sees tokens or secrets. In 'auto' mode both sources run
-  // in parallel, results are deduplicated, and Spotify takes priority.
+  // Online search — queries YouTube Music / provider search engine using the selected
+  // mode. Results are normalized Track objects.
   useEffect(() => {
     const q = (typedSearchInput || searchQuery).trim();
     if (!q) {
-      setOnlineSearchResults([]);
-      setOnlineSearching(false);
-      setOnlineSearchError('');
-      return;
-    }
-    // Only hit the online sources when the local library has no matches â€”
-    // avoids redundant API calls and respects the "local first" principle.
-    if (globalSearchResults.length > 0) {
       setOnlineSearchResults([]);
       setOnlineSearching(false);
       setOnlineSearchError('');
@@ -1451,7 +1440,7 @@ export function Dashboard({ user, onUserChange }: Props) {
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/search?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(searchMode)}&limit=20`,
+          `/api/search?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(searchMode)}&limit=25`,
           { cache: 'no-store' },
         );
         if (cancelled) return;
@@ -1472,11 +1461,32 @@ export function Dashboard({ user, onUserChange }: Props) {
       } finally {
         if (!cancelled) setOnlineSearching(false);
       }
-    }, 350); // debounce â€” avoids hammering the online sources on every keystroke
+    }, 250); // fast debounce for responsive search
 
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typedSearchInput, searchQuery, globalSearchResults.length, searchMode]);
+  }, [typedSearchInput, searchQuery, searchMode]);
+
+  const headerSearchResults = useMemo(() => {
+    if (searchMode === 'local') return globalSearchResults;
+    if (globalSearchResults.length > 0 && onlineSearchResults.length > 0) {
+      const seen = new Set<string>();
+      const combined: Track[] = [];
+      for (const t of globalSearchResults) {
+        seen.add(t.videoId || t.sourceTrackId || t.title);
+        combined.push(t);
+      }
+      for (const t of onlineSearchResults) {
+        const key = t.videoId || t.sourceTrackId || t.title;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push(t);
+        }
+      }
+      return combined;
+    }
+    return globalSearchResults.length > 0 ? globalSearchResults : onlineSearchResults;
+  }, [globalSearchResults, onlineSearchResults, searchMode]);
 
   const handleDeletePlaylist = useCallback(
     async (playlistId: string) => {
@@ -1757,7 +1767,7 @@ export function Dashboard({ user, onUserChange }: Props) {
           setSearchQuery(trimmed);
           navigateRoute(trimmed ? { kind: 'search', query: trimmed } : { kind: 'home' });
         }}
-        searchResults={globalSearchResults}
+        searchResults={headerSearchResults}
         onResultClick={(track) => {
           if (track.downloaded) {
             // Find the playlist this track belongs to and play it
@@ -1771,10 +1781,12 @@ export function Dashboard({ user, onUserChange }: Props) {
             } else {
               handlePlay(track, [track]);
             }
+          } else if (track.videoId || track.sourceTrackId) {
+            handlePlay(track, [track]);
+          } else if (track.playlistId) {
+            navigateRoute({ kind: 'playlist', playlistId: track.playlistId });
           } else {
-            // Navigate to the playlist containing this track
-            const playlistId = track.playlistId;
-            if (playlistId) navigateRoute({ kind: 'playlist', playlistId });
+            handlePlay(track, [track]);
           }
         }}
         searchMode={searchMode}
@@ -1833,15 +1845,37 @@ export function Dashboard({ user, onUserChange }: Props) {
                 isOnlineSearching={onlineSearching}
                 onlineSearchError={onlineSearchError}
                 onPlay={(track) => {
-                  // For online tracks without a videoId (Spotify-only), the
-                  // player resolves on-demand via /api/spotify/resolve. For
-                  // local tracks or YTMusic results, the videoId is known.
                   const queue = globalSearchResults.length > 0
                     ? (globalSearchResults as Track[])
                     : onlineSearchResults;
                   handlePlay(track, queue);
                   navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId || track.sourceTrackId || '' });
                 }}
+                onSearchChange={(q) => {
+                  setTypedSearchInput(q);
+                  setSearchQuery(q);
+                  navigateRoute({ kind: 'search', query: q });
+                }}
+                onOpenPlaylist={(id) => navigateRoute({ kind: 'playlist', playlistId: id })}
+                onImportPlaylistUrl={async (url) => {
+                  const res = await fetch('/api/playlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'import', url }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    if (data.playlist) {
+                      setPlaylists((prev) => [data.playlist, ...prev.filter((p) => p.id !== data.playlist.id)]);
+                      if (Array.isArray(data.tracks)) {
+                        handleTracksLoaded(data.playlist.id, data.tracks);
+                      }
+                      navigateRoute({ kind: 'playlist', playlistId: data.playlist.id });
+                    }
+                  }
+                }}
+                allPlaylists={playlists}
+                onAddToPlaylist={handleAddToPlaylist}
               />
             ) : loadingPlaylists ? (
               selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
@@ -2278,6 +2312,11 @@ function GlobalSearchResults({
   isOnlineSearching,
   onlineSearchError,
   onPlay,
+  onSearchChange,
+  onOpenPlaylist,
+  onImportPlaylistUrl,
+  allPlaylists,
+  onAddToPlaylist,
 }: {
   query: string;
   mode: SearchMode;
@@ -2287,123 +2326,352 @@ function GlobalSearchResults({
   isOnlineSearching?: boolean;
   onlineSearchError?: string;
   onPlay: (track: Track) => void;
+  onSearchChange?: (q: string) => void;
+  onOpenPlaylist?: (id: string) => void;
+  onImportPlaylistUrl?: (url: string) => Promise<void>;
+  allPlaylists?: Playlist[];
+  onAddToPlaylist?: (track: Track, playlistId: string) => void;
 }) {
-  const hasLocal = results.length > 0;
-  const showOnline = !hasLocal && onlineResults && onlineResults.length > 0;
-  const showOnlineSearching = !hasLocal && isOnlineSearching && (!onlineResults || onlineResults.length === 0);
-  const showEmpty = !hasLocal && !showOnline && !showOnlineSearching && !isIndexing;
+  const [activeTab, setActiveTab] = useState<'all' | 'songs' | 'artists' | 'albums' | 'playlists'>('all');
+  const [categoryResults, setCategoryResults] = useState<{
+    candidates?: any[];
+    tracks?: Track[];
+    loading?: boolean;
+    error?: string;
+  }>({});
+  const [importingUrl, setImportingUrl] = useState<string | null>(null);
 
-  const modeLabel = mode === 'auto' ? 'Auto (Spotify + YTMusic)' : mode === 'spotify' ? 'Spotify' : mode === 'local' ? 'Local' : 'YTMusic';
+  // Fetch category-specific search results when activeTab is artists, albums, or playlists
+  useEffect(() => {
+    if (!query.trim() || activeTab === 'all' || activeTab === 'songs') {
+      setCategoryResults({});
+      return;
+    }
+
+    let cancelled = false;
+    setCategoryResults({ loading: true });
+
+    fetch(`/api/search?q=${encodeURIComponent(query.trim())}&mode=${activeTab}&limit=24`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.error) {
+          setCategoryResults({ error: data.error, loading: false });
+        } else {
+          setCategoryResults({
+            candidates: data.candidates || [],
+            tracks: data.tracks || [],
+            loading: false,
+          });
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setCategoryResults({ error: err.message || 'Failed to search', loading: false });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [query, activeTab]);
+
+  const hasLocal = results.length > 0;
+  const songs = onlineResults || [];
+  const modeLabel = mode === 'auto' ? 'YouTube Music + Local' : mode === 'spotify' ? 'Spotify' : mode === 'local' ? 'Local' : 'YouTube Music';
+
+  const handleImportPlaylistClick = async (url: string) => {
+    if (importingUrl || !onImportPlaylistUrl) return;
+    setImportingUrl(url);
+    try {
+      await onImportPlaylistUrl(url);
+    } finally {
+      setImportingUrl(null);
+    }
+  };
 
   return (
     <div className="h-full min-h-0 overflow-y-auto px-8 py-8 scrollbar-thin animate-fadeIn">
-      <div className="mb-5">
-        <p className="text-xs uppercase tracking-[0.24em] text-text-muted">Global Search</p>
-        <h2 className="mt-2 text-2xl font-black text-text">
-          Results for "{query}"
-        </h2>
-        <p className="mt-1 text-sm text-text-muted">
-          {isIndexing
-            ? 'Loading songs from your playlists...'
-            : hasLocal
-              ? `${results.length} matching tracks in your library`
-              : showOnline
-                ? `${onlineResults!.length} tracks from ${modeLabel} (not yet in your library)`
-                : mode === 'local'
-                  ? 'No matches in your local library'
-                  : showOnlineSearching
-                    ? `Searching ${modeLabel}...`
-                    : `No local matches — searching ${modeLabel}...`}
-        </p>
+      {/* Header & Query info */}
+      <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.24em] text-text-muted font-bold">Search</p>
+          <h2 className="mt-1 text-2xl font-black text-text">
+            Results for &ldquo;{query}&rdquo;
+          </h2>
+          <p className="mt-1 text-xs text-text-muted">
+            {isIndexing
+              ? 'Indexing playlist library...'
+              : isOnlineSearching
+                ? `Searching ${modeLabel}...`
+                : `${hasLocal ? `${results.length} local • ` : ''}${songs.length} YouTube Music songs found`}
+          </p>
+        </div>
+
+        {/* Category Tabs */}
+        <div className="flex items-center gap-1.5 bg-surface p-1 rounded-2xl border border-border shrink-0">
+          {(['all', 'songs', 'artists', 'albums', 'playlists'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`rounded-xl px-3.5 py-1.5 text-xs font-bold capitalize transition-all duration-200 ${
+                activeTab === tab
+                  ? 'bg-accent text-background shadow-sm'
+                  : 'text-text-muted hover:text-text hover:bg-surface-hover'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="space-y-2">
-        {results.map((track) => (
-          <button
-            key={track.videoId}
-            onClick={() => onPlay(track)}
-            className="w-full flex items-center gap-4 rounded-3xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover transition-all duration-300 ease-out"
-          >
-            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
-              <img
-                src={getTrackThumbnailUrl(track)}
-                alt={track.title}
-                className="w-full h-full object-cover"
-              />
+      {/* Tab: Artists */}
+      {activeTab === 'artists' && (
+        <div className="space-y-4">
+          {categoryResults.loading ? (
+            <div className="py-16 text-center text-text-muted">
+              <Search className="w-6 h-6 mx-auto mb-3 text-accent animate-pulse" />
+              <p className="text-sm">Searching artists on YouTube Music...</p>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-text truncate">{track.title}</p>
-              <p className="text-xs text-text-muted truncate mt-0.5">{cleanArtistName(track.artist)}</p>
+          ) : categoryResults.candidates && categoryResults.candidates.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {categoryResults.candidates.map((artist: any, idx: number) => {
+                const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || '';
+                return (
+                  <button
+                    key={artist.browseId || artist.artistId || idx}
+                    onClick={() => onSearchChange?.(artist.name || artist.title || '')}
+                    className="group flex flex-col items-center text-center p-4 rounded-2xl border border-border-subtle bg-surface hover:bg-surface-hover hover:border-accent/30 transition-all duration-300"
+                  >
+                    <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-background mb-3 shadow-md border border-border-subtle group-hover:scale-105 transition-transform">
+                      {thumb ? (
+                        <img src={thumb} alt={artist.name || artist.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-xl font-bold text-accent bg-accent/10">
+                          {(artist.name || artist.title || 'A').charAt(0)}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-sm font-bold text-text truncate max-w-full group-hover:text-accent transition-colors">
+                      {artist.name || artist.title}
+                    </span>
+                    <span className="text-[11px] text-text-muted mt-0.5">Artist</span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="hidden lg:block min-w-0 w-56">
-              <p className="text-xs text-text-muted truncate">{track.playlistTitle}</p>
+          ) : (
+            <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+              No artists found for &ldquo;{query}&rdquo;
             </div>
-            <div className="hidden md:block w-16 text-right text-xs text-text-muted">
-              {track.duration ? formatDuration(track.duration) : '—'}
-            </div>
-            <div className="shrink-0 text-text-disabled">
-              <Play className="w-4 h-4" />
-            </div>
-          </button>
-        ))}
+          )}
+        </div>
+      )}
 
-        {/* Online results — shown only when the local library has no matches.
-            In 'auto' mode these are merged Spotify + YTMusic results (Spotify
-            priority, deduped). Tracks from Spotify carry a spotifyId but may
-            have no videoId; the player resolves them to a YouTube video
-            on-demand via /api/spotify/resolve. YTMusic tracks already have a
-            videoId. */}
-        {showOnline && onlineResults!.map((track) => (
-          <button
-            key={track.videoId || track.sourceTrackId || track.title}
-            onClick={() => onPlay(track)}
-            className="w-full flex items-center gap-4 rounded-3xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover transition-all duration-300 ease-out"
-          >
-            <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
-              <img
-                src={getTrackThumbnailUrl(track)}
-                alt={track.title}
-                className="w-full h-full object-cover"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
-              />
+      {/* Tab: Albums */}
+      {activeTab === 'albums' && (
+        <div className="space-y-4">
+          {categoryResults.loading ? (
+            <div className="py-16 text-center text-text-muted">
+              <Search className="w-6 h-6 mx-auto mb-3 text-accent animate-pulse" />
+              <p className="text-sm">Searching albums on YouTube Music...</p>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-text truncate">{track.title}</p>
-              <p className="text-xs text-text-muted truncate mt-0.5">{cleanArtistName(track.artist)}</p>
-              {track.album && <p className="text-xs text-text-disabled truncate mt-0.5">{track.album}</p>}
+          ) : categoryResults.candidates && categoryResults.candidates.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {categoryResults.candidates.map((album: any, idx: number) => {
+                const thumb = album.thumbnails?.[album.thumbnails.length - 1]?.url || album.thumbnails?.[0]?.url || '';
+                return (
+                  <button
+                    key={album.browseId || album.albumId || idx}
+                    onClick={() => onSearchChange?.(`${album.title} ${album.artists?.[0]?.name || album.artist || ''}`.trim())}
+                    className="group flex flex-col p-3.5 rounded-2xl border border-border-subtle bg-surface hover:bg-surface-hover hover:border-accent/30 transition-all duration-300 text-left"
+                  >
+                    <div className="aspect-square w-full rounded-xl overflow-hidden bg-background mb-3 shadow-md relative">
+                      {thumb ? (
+                        <img src={thumb} alt={album.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-text-muted bg-surface">
+                          <Music2 className="w-8 h-8 opacity-40" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-sm font-bold text-text truncate group-hover:text-accent transition-colors">
+                      {album.title}
+                    </span>
+                    <span className="text-xs text-text-muted truncate mt-0.5">
+                      {album.artists?.[0]?.name || album.artist || (album.year ? String(album.year) : 'Album')}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="hidden lg:block min-w-0 w-56">
-              <p className="text-xs text-text-muted truncate">YouTube Music</p>
+          ) : (
+            <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+              No albums found for &ldquo;{query}&rdquo;
             </div>
-            <div className="hidden md:block w-16 text-right text-xs text-text-muted">
-              {track.duration ? formatDuration(track.duration) : 'â€”'}
-            </div>
-            <div className="shrink-0 text-text-disabled">
-              <Play className="w-4 h-4" />
-            </div>
-          </button>
-        ))}
+          )}
+        </div>
+      )}
 
-        {showOnlineSearching && (
-          <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
-            <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled animate-pulse" />
-            Searching {modeLabel} for "{query}"...
+      {/* Tab: Playlists */}
+      {activeTab === 'playlists' && (
+        <div className="space-y-4">
+          {categoryResults.loading ? (
+            <div className="py-16 text-center text-text-muted">
+              <Search className="w-6 h-6 mx-auto mb-3 text-accent animate-pulse" />
+              <p className="text-sm">Searching playlists on YouTube Music...</p>
+            </div>
+          ) : categoryResults.candidates && categoryResults.candidates.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {categoryResults.candidates.map((playlist: any, idx: number) => {
+                const thumb = playlist.thumbnails?.[playlist.thumbnails.length - 1]?.url || playlist.thumbnails?.[0]?.url || '';
+                const playlistId = playlist.browseId?.replace(/^VL/, '') || playlist.playlistId || '';
+                const playlistUrl = playlistId ? `https://music.youtube.com/playlist?list=${playlistId}` : '';
+                const isImporting = importingUrl === playlistUrl;
+
+                return (
+                  <div
+                    key={playlist.browseId || idx}
+                    className="flex items-center gap-3.5 p-3.5 rounded-2xl border border-border-subtle bg-surface hover:bg-surface-hover transition-colors"
+                  >
+                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-background shrink-0 shadow-sm border border-border-subtle">
+                      {thumb ? (
+                        <img src={thumb} alt={playlist.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-text-muted">
+                          <Music2 className="w-6 h-6 opacity-40" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-text truncate">{playlist.title}</p>
+                      <p className="text-xs text-text-muted truncate mt-0.5">
+                        {playlist.author?.name || playlist.author || 'YouTube Music'}
+                        {playlist.itemCount ? ` • ${playlist.itemCount} songs` : ''}
+                      </p>
+                    </div>
+                    {playlistUrl && (
+                      <button
+                        onClick={() => handleImportPlaylistClick(playlistUrl)}
+                        disabled={isImporting}
+                        className="shrink-0 flex items-center gap-1 rounded-xl bg-accent/15 px-3 py-1.5 text-xs font-bold text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
+                      >
+                        {isImporting ? (
+                          <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Importing</>
+                        ) : (
+                          <><Download className="w-3.5 h-3.5" /> Import</>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+              No playlists found for &ldquo;{query}&rdquo;
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: All / Songs */}
+      {(activeTab === 'all' || activeTab === 'songs') && (
+        <div className="space-y-6">
+          {/* Local library matches */}
+          {hasLocal && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted px-1">In Your Library</h3>
+              {results.map((track) => (
+                <button
+                  key={track.videoId || track.sourceTrackId || track.title}
+                  onClick={() => onPlay(track)}
+                  className="w-full flex items-center gap-4 rounded-2xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover hover:border-accent/30 transition-all duration-200 group"
+                >
+                  <div className="w-12 h-12 rounded-xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
+                    <img
+                      src={getTrackThumbnailUrl(track)}
+                      alt={track.title}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-text truncate group-hover:text-accent transition-colors">{track.title}</p>
+                    <p className="text-xs text-text-muted truncate mt-0.5">{cleanArtistName(track.artist)}</p>
+                  </div>
+                  <div className="hidden lg:block min-w-0 w-48">
+                    <p className="text-xs text-text-muted truncate">{track.playlistTitle || 'Library'}</p>
+                  </div>
+                  <div className="hidden md:block w-16 text-right text-xs text-text-muted">
+                    {track.duration ? formatDuration(track.duration) : '—'}
+                  </div>
+                  <div className="shrink-0 text-text-disabled group-hover:text-accent transition-colors">
+                    <Play className="w-4 h-4" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* YouTube Music online tracks */}
+          <div className="space-y-2">
+            {hasLocal && songs.length > 0 && (
+              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted px-1 pt-2">YouTube Music Results</h3>
+            )}
+
+            {songs.map((track) => (
+              <button
+                key={track.videoId || track.sourceTrackId || track.title}
+                onClick={() => onPlay(track)}
+                className="w-full flex items-center gap-4 rounded-2xl border border-border-subtle bg-surface px-4 py-3 text-left hover:bg-surface-hover hover:border-accent/30 transition-all duration-200 group"
+              >
+                <div className="w-12 h-12 rounded-xl overflow-hidden bg-surface shrink-0 border border-border-subtle">
+                  <img
+                    src={getTrackThumbnailUrl(track)}
+                    alt={track.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-text truncate group-hover:text-accent transition-colors">{track.title}</p>
+                  <p className="text-xs text-text-muted truncate mt-0.5">{cleanArtistName(track.artist)}</p>
+                </div>
+                {track.album && (
+                  <div className="hidden lg:block min-w-0 w-48">
+                    <p className="text-xs text-text-muted truncate">{track.album}</p>
+                  </div>
+                )}
+                <div className="hidden md:block w-16 text-right text-xs text-text-muted">
+                  {track.duration ? formatDuration(track.duration) : '—'}
+                </div>
+                <div className="shrink-0 text-text-disabled group-hover:text-accent transition-colors">
+                  <Play className="w-4 h-4" />
+                </div>
+              </button>
+            ))}
+
+            {isOnlineSearching && songs.length === 0 && !hasLocal && (
+              <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+                <Search className="w-5 h-5 mx-auto mb-3 text-accent animate-pulse" />
+                Searching YouTube Music for &ldquo;{query}&rdquo;...
+              </div>
+            )}
+
+            {!isOnlineSearching && songs.length === 0 && !hasLocal && onlineSearchError && (
+              <div className="rounded-3xl border border-error/30 bg-error/5 p-8 text-center text-sm text-error">
+                {onlineSearchError}
+              </div>
+            )}
+
+            {!isOnlineSearching && songs.length === 0 && !hasLocal && !onlineSearchError && !isIndexing && (
+              <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+                <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled" />
+                No matching tracks found on YouTube Music.
+              </div>
+            )}
           </div>
-        )}
-
-        {!hasLocal && !showOnlineSearching && onlineSearchError && (
-          <div className="rounded-3xl border border-error/30 bg-error/5 p-8 text-center text-sm text-error">
-            {onlineSearchError}
-          </div>
-        )}
-
-        {showEmpty && !onlineSearchError && (
-          <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
-            <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled" />
-            No matching tracks found.
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -61,8 +61,8 @@ export function PlaylistContextMenu({
   const menuCloseTimeoutRef =
     useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isSpotify =
-    playlist.source === 'spotify' &&
+  const isSyncable =
+    (playlist.source === 'spotify' || playlist.source === 'youtube') &&
     Boolean(playlist.sourcePlaylistId);
 
   /*
@@ -361,7 +361,7 @@ export function PlaylistContextMenu({
         Download all songs
       </button>
 
-      {isSpotify && onSyncNow && (
+      {isSyncable && onSyncNow && (
         <>
           <div className="my-1 border-t border-border" />
 
@@ -369,7 +369,7 @@ export function PlaylistContextMenu({
             type="button"
             onClick={handleSyncNowClick}
             className={menuAction}
-            title="Sync this playlist with Spotify"
+            title={`Sync this playlist with ${playlist.source === 'spotify' ? 'Spotify' : 'YouTube Music'}`}
           >
             <RefreshCw className="h-5 w-5 text-accent" />
             Sync now

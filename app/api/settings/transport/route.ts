@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
+import { youtubeSidecar } from '@/lib/youtube/sidecar-client';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const status = await youtubeSidecar.getStatus();
+
   return NextResponse.json({
     mode: 'youtube',
     spotify: {
@@ -13,11 +16,14 @@ export async function GET() {
       capabilities: ['playlist-preview', 'playlist-import'],
     },
     youtube: {
-      provider: 'YouTubeGraphQlClient',
-      configured: Boolean(process.env.YOUTUBE_GRAPHQL_ENDPOINT && process.env.YOUTUBE_GRAPHQL_QUERY),
-      status: 'configured',
-      description: 'YouTube playback/search provider.',
-      capabilities: ['search', 'playback', 'playlists'],
+      provider: 'YTMusicPythonSidecar',
+      configured: true,
+      status: status.status,
+      authenticated: status.authenticated,
+      version: status.version,
+      authFile: status.authFile,
+      description: 'YouTube Music persistent Python sidecar using ytmusicapi.',
+      capabilities: ['search', 'playback', 'playlists', 'auth', 'matching'],
     },
   });
 }

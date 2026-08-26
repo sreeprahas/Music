@@ -21,6 +21,7 @@
       "components/**/*",
       "lib/**/*",
       "electron/**/*",
+      "services/**/*",
 
       "electron-main.js",
       "electron-next-server.js",
