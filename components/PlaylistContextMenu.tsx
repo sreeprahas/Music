@@ -1,8 +1,22 @@
 'use client';
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import type { Playlist } from '@/types';
-import { Download, Pin, PinOff, Play, RefreshCw, Shuffle, Trash2 } from 'lucide-react';
+import {
+  Download,
+  Pin,
+  PinOff,
+  Play,
+  RefreshCw,
+  Shuffle,
+  Trash2,
+} from 'lucide-react';
 
 interface Props {
   playlist: Playlist;
@@ -15,17 +29,12 @@ interface Props {
   onTogglePin: (playlistId: string) => void;
   onRemove: (playlistId: string) => void;
   onClose: () => void;
-  /** Starts an immediate Spotify sync. Spotify playlists only. */
   onSyncNow?: (playlistId: string) => void;
+
+  // Kept so existing callers don't need to be changed.
   boundaryRef?: React.RefObject<HTMLElement | null>;
 }
 
-/**
- * Right-click context menu for a playlist card/nav item.
- *
- * For Spotify-imported playlists it also exposes "Sync now",
- * which starts the existing background sync operation.
- */
 export function PlaylistContextMenu({
   playlist,
   isPinned,
@@ -38,74 +47,212 @@ export function PlaylistContextMenu({
   onRemove,
   onClose,
   onSyncNow,
-  boundaryRef,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const [mounted, setMounted] = useState(false);
+  const [position, setPosition] = useState({
+    left: x,
+    top: y,
+  });
+
   const [isMenuClosing, setIsMenuClosing] = useState(false);
-  const [menuTop, setMenuTop] = useState(y);
-  const menuWidth = 280;
-  const menuCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isSpotify = playlist.source === 'spotify' && Boolean(playlist.sourcePlaylistId);
+  const menuCloseTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const boundary = boundaryRef?.current?.getBoundingClientRect();
-  const playerBarTop = typeof document !== 'undefined'
-    ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
-    : undefined;
-  const boundaryLeft = boundary?.left ?? 0;
-  const boundaryRight = boundary?.right ?? window.innerWidth;
-  const boundaryTop = boundary?.top ?? 0;
-  const boundaryBottom = Math.min(boundary?.bottom ?? window.innerHeight, playerBarTop ?? window.innerHeight);
-  // Use viewport coordinates (position: fixed) so the menu can escape any
-  // `overflow: hidden` ancestor (e.g. the narrow sidebar) without being
-  // clipped at its edges.
-  //
-  // When the cursor is inside a narrow boundary (the sidebar), spawn the
-  // menu to the right of the cursor so it extends into the main content
-  // area instead of being squeezed against the sidebar's right edge.
-  const cursorInsideBoundary = boundary ? x >= boundaryLeft && x <= boundaryRight : false;
-  const boundaryTooNarrow = boundary ? boundaryRight - boundaryLeft < menuWidth + 16 : false;
-  const preferredLeft = cursorInsideBoundary && boundaryTooNarrow ? x + 4 : x;
-  const left = Math.min(
-    Math.max(8, preferredLeft),
-    Math.max(8, window.innerWidth - menuWidth - 8)
-  );
+  const isSpotify =
+    playlist.source === 'spotify' &&
+    Boolean(playlist.sourcePlaylistId);
 
+  /*
+   * Wait until client mount before using document.body.
+   */
   useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) onClose();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    const handleViewportChange = () => onClose();
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('resize', handleViewportChange);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('resize', handleViewportChange);
-    };
-  }, [onClose]);
+    setMounted(true);
 
+    return () => {
+      setMounted(false);
+    };
+  }, []);
+
+  /*
+   * Calculate position after the real menu dimensions are known.
+   *
+   * IMPORTANT:
+   * x/y are clientX/clientY -> viewport coordinates.
+   *
+   * The menu is:
+   *   1. portalled into document.body
+   *   2. position: fixed
+   *
+   * Therefore x/y can be used directly.
+   */
   useLayoutEffect(() => {
+    if (!mounted) return;
+
     const menu = menuRef.current;
     if (!menu) return;
-    const rect = menu.getBoundingClientRect();
-    const bounds = boundaryRef?.current?.getBoundingClientRect();
-    const topEdge = (bounds?.top ?? 0) + 8;
-    const playerTop = typeof document !== 'undefined'
-      ? document.querySelector<HTMLElement>('.music-player')?.getBoundingClientRect().top
-      : undefined;
-    const bottomEdge = Math.min(bounds?.bottom ?? window.innerHeight, playerTop ?? window.innerHeight) - 8;
-    const nextTop = Math.min(Math.max(topEdge, y), Math.max(topEdge, bottomEdge - rect.height));
-    if (Math.abs(nextTop - menuTop) > 1) setMenuTop(nextTop);
-  }, [boundaryRef, menuTop, y]);
 
+    const rect = menu.getBoundingClientRect();
+
+    const padding = 8;
+    const cursorGap = 4;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    /*
+     * Find the top of the bottom music player, if present.
+     * Otherwise use the full viewport height.
+     */
+    const player =
+      document.querySelector<HTMLElement>('.music-player');
+
+    const playerTop =
+      player?.getBoundingClientRect().top ?? viewportHeight;
+
+    const usableBottom = Math.min(
+      viewportHeight,
+      playerTop
+    );
+
+    /*
+     * Start slightly away from the cursor.
+     */
+    let left = x + cursorGap;
+    let top = y + cursorGap;
+
+    /*
+     * If menu would overflow right side,
+     * open it to the LEFT of the cursor.
+     */
+    if (left + rect.width > viewportWidth - padding) {
+      left = x - rect.width - cursorGap;
+    }
+
+    /*
+     * If menu would overflow bottom,
+     * open it ABOVE the cursor.
+     */
+    if (top + rect.height > usableBottom - padding) {
+      top = y - rect.height - cursorGap;
+    }
+
+    /*
+     * Final viewport safety clamp.
+     */
+    left = Math.max(
+      padding,
+      Math.min(
+        left,
+        viewportWidth - rect.width - padding
+      )
+    );
+
+    top = Math.max(
+      padding,
+      Math.min(
+        top,
+        usableBottom - rect.height - padding
+      )
+    );
+
+    setPosition({
+      left,
+      top,
+    });
+  }, [mounted, x, y, playlist.id]);
+
+  /*
+   * Close when clicking outside, pressing Escape,
+   * resizing, or scrolling.
+   */
+  useEffect(() => {
+    if (!mounted) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const menu = menuRef.current;
+
+      if (
+        menu &&
+        !menu.contains(event.target as Node)
+      ) {
+        onClose();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    const handleResize = () => {
+      onClose();
+    };
+
+    const handleScroll = () => {
+      onClose();
+    };
+
+    document.addEventListener(
+      'pointerdown',
+      handlePointerDown
+    );
+
+    document.addEventListener(
+      'keydown',
+      handleKeyDown
+    );
+
+    window.addEventListener(
+      'resize',
+      handleResize
+    );
+
+    /*
+     * capture=true catches scrolling from nested
+     * playlist containers too.
+     */
+    window.addEventListener(
+      'scroll',
+      handleScroll,
+      true
+    );
+
+    return () => {
+      document.removeEventListener(
+        'pointerdown',
+        handlePointerDown
+      );
+
+      document.removeEventListener(
+        'keydown',
+        handleKeyDown
+      );
+
+      window.removeEventListener(
+        'resize',
+        handleResize
+      );
+
+      window.removeEventListener(
+        'scroll',
+        handleScroll,
+        true
+      );
+    };
+  }, [mounted, onClose]);
+
+  /*
+   * Clean up delayed close timer.
+   */
   useEffect(() => {
     return () => {
-      if (menuCloseTimeoutRef.current) clearTimeout(menuCloseTimeoutRef.current);
+      if (menuCloseTimeoutRef.current) {
+        clearTimeout(menuCloseTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -114,12 +261,17 @@ export function PlaylistContextMenu({
       clearTimeout(menuCloseTimeoutRef.current);
       menuCloseTimeoutRef.current = null;
     }
+
     setIsMenuClosing(false);
   };
 
   const scheduleMenuClose = () => {
-    if (menuCloseTimeoutRef.current) clearTimeout(menuCloseTimeoutRef.current);
+    if (menuCloseTimeoutRef.current) {
+      clearTimeout(menuCloseTimeoutRef.current);
+    }
+
     setIsMenuClosing(true);
+
     menuCloseTimeoutRef.current = setTimeout(() => {
       menuCloseTimeoutRef.current = null;
       onClose();
@@ -133,67 +285,138 @@ export function PlaylistContextMenu({
 
   const handleSyncNowClick = () => {
     if (!onSyncNow) return;
+
     onClose();
     onSyncNow(playlist.id);
   };
 
-  const menuAction = 'menu-action h-10 w-full text-[15px]';
+  const menuAction =
+    'menu-action h-10 w-full text-[15px]';
 
-  return (
-    <div>
-      <div
-        ref={menuRef}
-        role="menu"
-        aria-label={`Actions for ${playlist.title}`}
-        onMouseEnter={cancelMenuClose}
-        onMouseLeave={scheduleMenuClose}
-        className={`fixed z-[100] w-[280px] overflow-visible rounded-xl border border-border bg-surface p-1.5 shadow-2xl shadow-shadow/70 backdrop-blur-sm ${isMenuClosing ? 'animate-context-menu-out' : ''}`}
-        style={{ left, top: menuTop }}
+  if (!mounted) {
+    return null;
+  }
+
+  const menu = (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label={`Actions for ${playlist.title}`}
+      onMouseEnter={cancelMenuClose}
+      onMouseLeave={scheduleMenuClose}
+      className={`
+        fixed
+        z-[99999]
+        w-[280px]
+        overflow-visible
+        rounded-xl
+        border
+        border-border
+        bg-surface
+        p-1.5
+        shadow-2xl
+        shadow-shadow/70
+        backdrop-blur-sm
+        ${
+          isMenuClosing
+            ? 'animate-context-menu-out'
+            : ''
+        }
+      `}
+      style={{
+        left: position.left,
+        top: position.top,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() =>
+          run(() => onPlay(playlist.id))
+        }
+        className={menuAction}
       >
-        <button onClick={() => run(() => onPlay(playlist.id))} className={menuAction}>
-          <Play className="h-5 w-5 text-accent" /> Play
-        </button>
+        <Play className="h-5 w-5 text-accent" />
+        Play
+      </button>
 
-        <button onClick={() => run(() => onShufflePlay(playlist.id))} className={menuAction}>
-          <Shuffle className="h-5 w-5 text-accent" /> Shuffle play
-        </button>
+      <button
+        type="button"
+        onClick={() =>
+          run(() => onShufflePlay(playlist.id))
+        }
+        className={menuAction}
+      >
+        <Shuffle className="h-5 w-5 text-accent" />
+        Shuffle play
+      </button>
 
-        <button onClick={() => run(() => onDownload(playlist.id))} className={menuAction}>
-          <Download className="h-5 w-5 text-accent" /> Download all songs
-        </button>
+      <button
+        type="button"
+        onClick={() =>
+          run(() => onDownload(playlist.id))
+        }
+        className={menuAction}
+      >
+        <Download className="h-5 w-5 text-accent" />
+        Download all songs
+      </button>
 
-        {/* Spotify-specific sync action */}
-        {isSpotify && onSyncNow && (
+      {isSpotify && onSyncNow && (
+        <>
+          <div className="my-1 border-t border-border" />
+
+          <button
+            type="button"
+            onClick={handleSyncNowClick}
+            className={menuAction}
+            title="Sync this playlist with Spotify"
+          >
+            <RefreshCw className="h-5 w-5 text-accent" />
+            Sync now
+          </button>
+        </>
+      )}
+
+      <div className="my-1 border-t border-border" />
+
+      <button
+        type="button"
+        onClick={() =>
+          run(() => onTogglePin(playlist.id))
+        }
+        className={menuAction}
+      >
+        {isPinned ? (
           <>
-            <div className="border-t border-border my-1" />
-            <button
-              onClick={handleSyncNowClick}
-              className={menuAction}
-              title="Sync this playlist with Spotify"
-            >
-              <RefreshCw className="h-5 w-5 text-accent" /> Sync now
-            </button>
+            <PinOff className="h-5 w-5" />
+            Unpin playlist
+          </>
+        ) : (
+          <>
+            <Pin className="h-5 w-5" />
+            Pin playlist
           </>
         )}
+      </button>
 
-        <div className="border-t border-border my-1" />
-
-        <button onClick={() => run(() => onTogglePin(playlist.id))} className={menuAction}>
-          {isPinned ? (
-            <>
-              <PinOff className="h-5 w-5" /> Unpin playlist
-            </>
-          ) : (
-            <>
-              <Pin className="h-5 w-5" /> Pin playlist
-            </>
-          )}
-        </button>
-
-        <button onClick={() => run(() => onRemove(playlist.id))} className={`${menuAction} hover:text-error`}>
-          <Trash2 className="h-5 w-5 text-error" /> Remove playlist
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() =>
+          run(() => onRemove(playlist.id))
+        }
+        className={`${menuAction} hover:text-error`}
+      >
+        <Trash2 className="h-5 w-5 text-error" />
+        Remove playlist
+      </button>
     </div>
   );
+
+  /*
+   * CRITICAL:
+   *
+   * Render outside PlaylistGrid and all of its transformed /
+   * scrolling / positioned ancestors.
+   */
+  return createPortal(menu, document.body);
 }
