@@ -32,17 +32,17 @@ const categories: Array<{
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }> = [
-  {
-    id: 'account',
-    label: 'Account',
-    icon: User,
-  },
-  {
-    id: 'appearance',
-    label: 'Appearance',
-    icon: Palette,
-  },
-];
+    {
+      id: 'account',
+      label: 'Account',
+      icon: User,
+    },
+    {
+      id: 'appearance',
+      label: 'Appearance',
+      icon: Palette,
+    },
+  ];
 
 export function SettingsPanel({
   user,
@@ -94,11 +94,10 @@ export function SettingsPanel({
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex flex-col bg-background ${
-        isClosing
-          ? 'animate-settings-out'
-          : 'animate-settings-in'
-      }`}
+      className={`fixed inset-0 z-[100] flex flex-col bg-background ${isClosing
+        ? 'animate-settings-out'
+        : 'animate-settings-in'
+        }`}
     >
       <header className="music-header relative flex h-[72px] shrink-0 items-center border-b border-border-subtle bg-background-secondary pl-1 pr-40 select-none">
         <button
@@ -142,11 +141,10 @@ export function SettingsPanel({
                   onClick={() =>
                     setCategory(id)
                   }
-                  className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 text-left text-xs font-semibold transition-colors sm:px-3 sm:text-sm ${
-                    category === id
-                      ? 'bg-accent/15 text-accent'
-                      : 'theme-muted hover:bg-surface hover:text-text'
-                  }`}
+                  className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 text-left text-xs font-semibold transition-colors sm:px-3 sm:text-sm ${category === id
+                    ? 'bg-accent/15 text-accent'
+                    : 'theme-muted hover:bg-surface hover:text-text'
+                    }`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   {label}
@@ -705,7 +703,7 @@ function YouTubeIntegrationRow({
       const res = await fetch('/api/auth/youtube/oauth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ device_code: oauthData?.device_code }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Authorization not completed yet');
@@ -745,7 +743,7 @@ function YouTubeIntegrationRow({
     try {
       await fetch('/api/auth/youtube/logout', { method: 'POST' });
       await fetchStatus();
-    } catch {} finally {
+    } catch { } finally {
       setLoading(false);
     }
   };
@@ -968,7 +966,7 @@ function SidecarDiagnosticsCard() {
     fetch('/api/settings/transport')
       .then((r) => r.json())
       .then(setTransportInfo)
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   if (!transportInfo?.youtube) return null;
@@ -1073,11 +1071,10 @@ function ThemePage({
               setTheme(preset.id)
             }
             aria-label={`Use ${preset.name} appearance`}
-            className={`group rounded-xl border p-2.5 text-left transition ${
-              theme === preset.id
-                ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
-                : 'border-border bg-surface hover:border-accent/60'
-            }`}
+            className={`group rounded-xl border p-2.5 text-left transition ${theme === preset.id
+              ? 'border-accent bg-accent/10 ring-1 ring-accent/50'
+              : 'border-border bg-surface hover:border-accent/60'
+              }`}
           >
             <span
               data-theme-preview={

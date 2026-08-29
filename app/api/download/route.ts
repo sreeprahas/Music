@@ -17,18 +17,22 @@ export async function GET(request: Request): Promise<Response> {
     return new Response('Missing playlistId', { status: 400 });
   }
 
+  // Optional: restrict to specific videoIds (used for retry-failed)
+  const videoIdsParam = searchParams.get('videoIds');
+  const filterVideoIds = videoIdsParam
+    ? new Set(videoIdsParam.split(',').map((s) => s.trim()).filter(Boolean))
+    : null;
+
   try {
     const encoder = new TextEncoder();
-    // Detect client disconnect — when browser closes the connection, request.signal aborts
     const abortSignal = request.signal;
 
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        const send = (data: DownloadProgressEvent) => {
+        const send = (data: DownloadProgressEvent & { trackTitle?: string; trackError?: string }) => {
           if (abortSignal.aborted) return;
           try {
-            const encoded = encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
-            controller.enqueue(encoded);
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
           } catch (e) {
             console.error('[download] Send error:', e);
           }
@@ -38,16 +42,19 @@ export async function GET(request: Request): Promise<Response> {
           console.log(`[download] Starting download for playlist ${playlistId}`);
           const allTracks = getCachedTracks(playlistId) || [];
           console.log(`[download] Found ${allTracks.length} total tracks`);
-          const toDownload = allTracks.filter((t) => !isDownloaded(t.videoId));
-          console.log(`[download] ${toDownload.length} tracks to download`);
 
+          let toDownload = allTracks.filter((t) => !isDownloaded(t.videoId));
+          if (filterVideoIds) {
+            toDownload = toDownload.filter((t) => filterVideoIds.has(t.videoId));
+          }
+
+          console.log(`[download] ${toDownload.length} tracks to download`);
           send({ type: 'start', total: allTracks.length, toDownload: toDownload.length });
 
           let processed = 0;
           let successful = 0;
 
           for (const track of toDownload) {
-            // Stop immediately if client disconnected
             if (abortSignal.aborted) {
               console.log('[download] Client disconnected — aborting loop');
               break;
@@ -88,6 +95,8 @@ export async function GET(request: Request): Promise<Response> {
                 total: toDownload.length,
                 videoId: track.videoId,
                 title: track.title,
+                trackTitle: track.title,
+                trackError: message,
                 status: 'error',
                 error: message,
               });
@@ -95,7 +104,7 @@ export async function GET(request: Request): Promise<Response> {
           }
 
           if (!abortSignal.aborted) {
-            console.log(`[download] Download complete. ${successful} successful, ${processed - successful} failed`);
+            console.log(`[download] Complete. ${successful} ok, ${processed - successful} failed`);
             send({ type: 'complete', downloaded: successful });
           }
         } catch (err: unknown) {
@@ -107,7 +116,6 @@ export async function GET(request: Request): Promise<Response> {
         }
       },
       cancel() {
-        // Called when client closes the connection — nothing extra needed since abortSignal handles it
         console.log('[download] Stream cancelled by client');
       },
     });

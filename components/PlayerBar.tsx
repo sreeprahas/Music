@@ -271,62 +271,13 @@ export function PlayerBar({
     }
   }, [sleepTimerRequest, startSleepTimer]);
 
-  // Web Audio pipeline: Source → Compressor → User Volume GainNode → Destination
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const userGainRef = useRef<GainNode | null>(null);  // user volume slider
-
+  // Direct HTML5 audio element volume synchronization
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) return;
-
-    const setupAudioPipeline = () => {
-      if (audioCtxRef.current) return;
-      try {
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        const ctx = new AudioCtx();
-
-        const source = ctx.createMediaElementSource(audio);
-
-        // DynamicsCompressor to tame peaks cleanly without pumping
-        const compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.setValueAtTime(-24, ctx.currentTime);
-        compressor.knee.setValueAtTime(12, ctx.currentTime);
-        compressor.ratio.setValueAtTime(6, ctx.currentTime);
-        compressor.attack.setValueAtTime(0.003, ctx.currentTime);
-        compressor.release.setValueAtTime(0.25, ctx.currentTime);
-
-        // User Volume GainNode: responds to slider, smoothly ramped
-        const userGain = ctx.createGain();
-        const initialVol = isMuted ? 0 : Math.pow(volume, 2);
-        userGain.gain.setValueAtTime(initialVol, ctx.currentTime);
-
-        // Keep audio element at full volume — all level control via GainNodes
-        audio.volume = 1;
-
-        source.connect(compressor);
-        compressor.connect(userGain);
-        userGain.connect(ctx.destination);
-
-        audioCtxRef.current = ctx;
-        userGainRef.current = userGain;
-
-      } catch { }
-    };
-
-    const handleUserGesture = () => {
-      setupAudioPipeline();
-      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume().catch(() => {});
-      }
-    };
-
-    window.addEventListener('click', handleUserGesture, { once: true });
-    window.addEventListener('keydown', handleUserGesture, { once: true });
-    return () => {
-      window.removeEventListener('click', handleUserGesture);
-      window.removeEventListener('keydown', handleUserGesture);
-    };
-  }, []);
+    if (audio) {
+      audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
+    }
+  }, [volume, isMuted]);
 
   // Destroy HLS + sessions on unmount
   useEffect(() => () => {}, []);
@@ -336,12 +287,18 @@ export function PlayerBar({
     const audio = audioRef.current;
     if (!audio) return;
 
+    // Increment the generation counter FIRST so any in-flight async work
+    // from a previous render detects it is stale and aborts.
     const loadGeneration = ++loadGenerationRef.current;
 
+    // Immediately stop old playback — synchronous, no await.
+    // This guarantees the old audio stops the moment the user clicks a new
+    // track, regardless of how long the new stream URL takes to resolve.
+    audio.pause();
+    audio.src = '';
+    setIsPlaying(false);
+
     if (!track) {
-      audio.pause();
-      audio.src = '';
-      setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
       return;
@@ -391,48 +348,67 @@ export function PlayerBar({
         }
 
         // Prefer the locally-downloaded MP3 (instant, offline-capable).
-        // The /api/mp3 route returns 404 if the file isn't downloaded yet.
         const mp3Url = `/api/mp3?v=${encodeURIComponent(videoId)}`;
-        const mp3Res = await fetch(mp3Url, { method: 'HEAD' }).catch(() => null);
-        if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-
-        if (mp3Res && mp3Res.ok) {
-          // Local MP3 exists — play it directly.
+        if (track.downloaded) {
+          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
           audio.src = mp3Url;
         } else {
-        // Not downloaded — resolve a live provider stream.
-          const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
+          const mp3Res = await fetch(mp3Url, { method: 'HEAD' }).catch(() => null);
           if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-          if (!streamRes || !streamRes.ok) {
-            console.error('[Track Load Error]: No local MP3 and stream extraction failed for', track.title);
-            setIsPlaying(false);
-            return;
+
+          if (mp3Res && mp3Res.ok) {
+            audio.src = mp3Url;
+          } else {
+            // Resolve a live provider stream
+            const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
+            if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+            if (!streamRes || !streamRes.ok) {
+              console.error('[Track Load Error]: No local MP3 and stream extraction failed for', track.title);
+              setIsPlaying(false);
+              return;
+            }
+            const streamData = await streamRes.json();
+            if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+            if (!streamData.streamUrl) {
+              console.error('[Track Load Error]: Stream URL missing for', track.title);
+              setIsPlaying(false);
+              return;
+            }
+            audio.src = streamData.streamUrl;
           }
-          const streamData = await streamRes.json();
-          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-          if (!streamData.streamUrl) {
-            console.error('[Track Load Error]: Stream URL missing for', track.title);
-            setIsPlaying(false);
-            return;
-          }
-          audio.src = streamData.streamUrl;
         }
 
-        audio.volume = 1;
+        // Restore user's volume — never reset to 1 (that wipes user preference).
+        audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
         audio.load();
+
+        // Warm the server-side stream URL cache for the next track so the
+        // subsequent /api/stream call returns in < 1 ms (cache hit) instead
+        // of 3–6 s (live yt-dlp invocation).
+        const currentIndex = queue.findIndex((t) => (t.videoId && t.videoId === videoId) || (t.sourceTrackId && t.sourceTrackId === track.sourceTrackId));
+        const nextTrack = currentIndex >= 0 ? queue[currentIndex + 1] : undefined;
+        if (nextTrack?.videoId && !nextTrack.downloaded) {
+          fetch(`/api/stream/prefetch?videoId=${encodeURIComponent(nextTrack.videoId)}`).catch(() => {});
+        }
         
         if (!hasRestoredInitialTime.current) {
           hasRestoredInitialTime.current = true;
           if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
         }
         
-        if (autoPlay) {
+        // Guard play() with BOTH the cancelled flag AND the generation counter.
+        // A bare autoPlay check is not enough — the effect may have re-run for
+        // a newer track between the last await and this point.
+        if (autoPlay && !cancelled && loadGeneration === loadGenerationRef.current) {
           audio.play()
             .then(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(true); })
             .catch(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(false); });
         }
       } catch (err) {
-        if (!cancelled) { console.error('[Track Load Error]:', err); setIsPlaying(false); }
+        if (!cancelled && loadGeneration === loadGenerationRef.current) {
+          console.error('[Track Load Error]:', err);
+          setIsPlaying(false);
+        }
       }
     };
 
@@ -496,18 +472,12 @@ export function PlayerBar({
     });
   }, [track, onNext, onPrev]);
 
-  // Sync user volume: write to userGainNode with a 15ms linear ramp (no creak/zipper noise)
+  // Sync user volume: directly set audio.volume on HTMLAudioElement
   useEffect(() => {
-    const ctx = audioCtxRef.current;
-    const userGain = userGainRef.current;
-    if (!ctx || !userGain) {
-      // Fallback: if pipeline not yet initialised, set audio.volume directly
-      if (audioRef.current) audioRef.current.volume = isMuted ? 0 : Math.pow(volume, 2);
-      return;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
     }
-    const targetGain = isMuted ? 0 : Math.pow(volume, 2);
-    // Linear ramp over 15ms — smooth, no zipper clicks
-    userGain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 0.015);
   }, [volume, isMuted, track?.videoId]);
 
   // Sync playing state and duration up to parent

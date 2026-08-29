@@ -21,7 +21,6 @@
       "components/**/*",
       "lib/**/*",
       "electron/**/*",
-      "services/**/*",
 
       "electron-main.js",
       "electron-next-server.js",
@@ -45,9 +44,6 @@
       "!dist/**/*",
       "!.next/cache/**/*",
       "!.next/standalone/**/*",
-      "!.venv/**/*",
-      "!.venv-legacy/**/*",
-      "!services/.build/**/*",
       "!node_modules/electron-builder/**/*",
       "!node_modules/app-builder-lib/**/*",
       "!node_modules/.cache/**/*"

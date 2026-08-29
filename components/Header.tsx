@@ -13,13 +13,14 @@ interface HeaderProps {
   onHomeClick?: () => void;
   onOpenSettings?: () => void;
   onCancelDownload?: (playlistId: string) => void;
+  onRetryDownload?: (playlistId: string, videoIds: string[]) => void;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onCommitSearch?: (query: string) => void;
   searchResults?: Track[];
   onResultClick?: (track: Track) => void;
-  searchMode?: 'auto' | 'spotify' | 'ytmusic' | 'local';
-  onSearchModeChange?: (mode: 'auto' | 'spotify' | 'ytmusic' | 'local') => void;
+  searchMode?: 'auto' | 'youtube' | 'local';
+  onSearchModeChange?: (mode: 'auto' | 'youtube' | 'local') => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -35,6 +36,7 @@ export function Header({
   onHomeClick,
   onOpenSettings,
   onCancelDownload,
+  onRetryDownload,
   searchQuery = '',
   onSearchChange,
   onCommitSearch,
@@ -212,7 +214,7 @@ export function Header({
   };
 
   const activeJobs = downloadJobs.filter((j) => j.status === 'running' || j.status === 'starting');
-  const finishedJobs = downloadJobs.filter((j) => j.status === 'done' || j.status === 'error');
+  const finishedJobs = downloadJobs.filter((j) => j.status === 'done' || j.status === 'error' || j.status === 'cancelled');
 
   return (
     <header className="music-header w-full h-[72px] bg-background-secondary border-b border-border-subtle pl-6 pr-40 flex items-center justify-between select-none shrink-0 z-30 relative">
@@ -316,20 +318,19 @@ export function Header({
 
             {/* Live search dropdown */}
             {searchDropdownOpen && visibleResults.length > 0 && (
-            <div
-              onMouseEnter={cancelSearchClose}
-              onMouseLeave={scheduleSearchClose}
-              className={`absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden z-50 ${isSearchClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
-            >
+              <div
+                onMouseEnter={cancelSearchClose}
+                onMouseLeave={scheduleSearchClose}
+                className={`absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden z-50 ${isSearchClosing ? 'animate-popover-out' : 'animate-fadeIn'}`}
+              >
                 <div className="py-1.5">
                   {visibleResults.map((track, idx) => (
                     <button
                       key={`${track.videoId}-${idx}`}
                       onMouseDown={(e) => { e.preventDefault(); commitResult(track); }}
                       onMouseEnter={() => setActiveResultIdx(idx)}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 ${
-                        idx === activeResultIdx ? 'bg-surface-hover text-text' : 'hover:bg-surface text-text-secondary'
-                      }`}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 ${idx === activeResultIdx ? 'bg-surface-hover text-text' : 'hover:bg-surface text-text-secondary'
+                        }`}
                     >
                       <img
                         src={getTrackThumbnailUrl(track)}
@@ -371,16 +372,15 @@ export function Header({
               aria-expanded={searchModeOpen}
               aria-haspopup="menu"
             >
-              {searchMode === 'ytmusic' ? <img src="/youtube-mark.svg" alt="" className="h-4 w-4 object-contain" /> : searchMode === 'spotify' ? <img src="/spotify-logo.png" alt="" className="h-4 w-4 rounded-full object-cover" /> : searchMode === 'local' ? <FolderOpen className="h-3.5 w-3.5 text-accent" /> : <Layers3 className="h-3.5 w-3.5 text-accent" />}
-              <span>{searchMode === 'ytmusic' ? 'YTMusic' : searchMode === 'spotify' ? 'Spotify' : searchMode === 'local' ? 'Local' : 'Auto'}</span>
+              {searchMode === 'youtube' ? <img src="/youtube-mark.svg" alt="" className="h-4 w-4 object-contain" /> : searchMode === 'local' ? <FolderOpen className="h-3.5 w-3.5 text-accent" /> : <Layers3 className="h-3.5 w-3.5 text-accent" />}
+              <span>{searchMode === 'youtube' ? 'YouTube' : searchMode === 'local' ? 'Local' : 'Auto'}</span>
               <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${searchModeOpen ? 'rotate-180' : ''}`} />
             </button>
             {searchModeOpen && (
               <div onMouseEnter={cancelSearchModeClose} onMouseLeave={closeSearchModeMenu} className={`absolute left-0 top-full mt-2 z-50 w-36 overflow-hidden rounded-2xl border border-border bg-surface p-1.5 shadow-2xl ${isSearchModeClosing ? 'animate-popover-out' : 'animate-fadeIn'}`} role="menu">
                 {([
                   ['auto', 'Auto', Layers3],
-                  ['ytmusic', 'YTMusic', '/youtube-mark.svg'],
-                  ['spotify', 'Spotify', '/spotify-logo.png'],
+                  ['youtube', 'YouTube', '/youtube-mark.svg'],
                   ['local', 'Local', FolderOpen],
                 ] as const).map(([id, label, Icon]) => (
                   <button
@@ -410,8 +410,8 @@ export function Header({
               setIsDownloadOpen((prev) => !prev);
             }}
             className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-500 ease-out border ${isDownloadOpen
-                ? 'bg-accent/14 text-text border-accent/45 shadow-accent-card-strong'
-                : 'bg-surface text-text border-transparent hover:bg-accent/10 hover:text-accent hover:border-accent/30 hover:shadow-accent-card'
+              ? 'bg-accent/14 text-text border-accent/45 shadow-accent-card-strong'
+              : 'bg-surface text-text border-transparent hover:bg-accent/10 hover:text-accent hover:border-accent/30 hover:shadow-accent-card'
               }`}
             title="Download Center"
           >
@@ -458,11 +458,11 @@ export function Header({
 
               {/* Dropdown Body */}
               <div className="p-4 max-h-[26rem] overflow-y-auto scrollbar-thin space-y-3">
-                {downloadJobs.length === 0 && (
+                {activeJobs.length === 0 && finishedJobs.length === 0 && (
                   <div className="py-8 text-center">
                     <Download className="w-8 h-8 text-text-disabled mx-auto mb-2" />
                     <p className="text-xs text-text font-medium">No downloads yet</p>
-                    <p className="text-[11px] text-text mt-0.5">
+                    <p className="text-[11px] text-text-muted mt-0.5">
                       Open a playlist and click "Download All"
                     </p>
                   </div>
@@ -483,6 +483,7 @@ export function Header({
                             onOpenPlaylist(job.playlistId);
                           }}
                           onCancel={onCancelDownload}
+                          onRetry={onRetryDownload}
                         />
                       ))}
                     </div>
@@ -504,6 +505,7 @@ export function Header({
                             onOpenPlaylist(job.playlistId);
                           }}
                           onCancel={onCancelDownload}
+                          onRetry={onRetryDownload}
                         />
                       ))}
                     </div>
@@ -524,7 +526,7 @@ export function Header({
             className={`flex items-center gap-2.5 p-1.5 pl-2 pr-3 rounded-2xl border transition-all duration-500 ease-out cursor-pointer ${isAccountMenuOpen
               ? 'bg-accent/14 border-accent/45 shadow-accent-card-strong'
               : 'bg-surface border-transparent hover:bg-accent/10 hover:border-accent/30 hover:shadow-accent-card'
-            }`}
+              }`}
           >
             {(cachedProfilePicture || user.picture || user.image) ? (
               <img
@@ -573,19 +575,35 @@ export function Header({
   );
 }
 
-function DropdownJobRow({ job, onSelect, onCancel }: { job: DownloadJob; onSelect: () => void; onCancel?: (playlistId: string) => void }) {
+function DropdownJobRow({
+  job,
+  onSelect,
+  onCancel,
+  onRetry,
+}: {
+  job: DownloadJob;
+  onSelect: () => void;
+  onCancel?: (playlistId: string) => void;
+  onRetry?: (playlistId: string, videoIds: string[]) => void;
+}) {
   const pct = job.toDownload > 0 ? Math.round((job.done / job.toDownload) * 100) : 0;
+  const hasFailed = (job.failedTracks?.length ?? 0) > 0;
 
   return (
     <div
       className="p-3 rounded-2xl bg-surface hover:bg-surface-hover border border-border-subtle transition-all cursor-default hover:shadow-accent-soft"
     >
-      <div className="flex items-center justify-between gap-2 mb-1.5">
+      <div className="flex items-center justify-between gap-2 mb-1.5 cursor-pointer" onClick={onSelect}>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold text-text truncate">{job.playlistTitle}</p>
           {job.status === 'running' && job.currentTitle && (
             <p className="text-[11px] text-text-muted truncate">
               {job.currentTitle}
+            </p>
+          )}
+          {job.status === 'done' && hasFailed && (
+            <p className="text-[10px] text-error truncate font-medium">
+              {job.failedTracks!.length} failed track{job.failedTracks!.length !== 1 ? 's' : ''}
             </p>
           )}
         </div>
@@ -594,8 +612,10 @@ function DropdownJobRow({ job, onSelect, onCancel }: { job: DownloadJob; onSelec
           {(job.status === 'running' || job.status === 'starting') && (
             <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />
           )}
-          {job.status === 'done' && <CheckCircle className="w-3.5 h-3.5 text-accent" />}
+          {job.status === 'done' && !hasFailed && <CheckCircle className="w-3.5 h-3.5 text-accent" />}
+          {job.status === 'done' && hasFailed && <AlertCircle className="w-3.5 h-3.5 text-amber-400" />}
           {job.status === 'error' && <AlertCircle className="w-3.5 h-3.5 text-error" />}
+          {job.status === 'cancelled' && <span className="text-[10px] text-text-disabled">Cancelled</span>}
         </div>
       </div>
 
@@ -603,7 +623,15 @@ function DropdownJobRow({ job, onSelect, onCancel }: { job: DownloadJob; onSelec
         <div className="space-y-1">
           <div className="h-1.5 w-full bg-surface-hover rounded-xl overflow-hidden">
             <div
-              className="h-full bg-accent rounded-xl transition-all duration-300"
+              className={`h-full rounded-xl transition-all duration-300 ${
+                job.status === 'done' && !hasFailed
+                  ? 'bg-accent'
+                  : job.status === 'done' && hasFailed
+                    ? 'bg-amber-400'
+                    : job.status === 'error'
+                      ? 'bg-error'
+                      : 'bg-accent'
+              }`}
               style={{ width: `${job.status === 'done' ? 100 : pct}%` }}
             />
           </div>
@@ -613,6 +641,17 @@ function DropdownJobRow({ job, onSelect, onCancel }: { job: DownloadJob; onSelec
           </div>
         </div>
       )}
+
+      {hasFailed && onRetry && (
+        <button
+          type="button"
+          onClick={() => onRetry(job.playlistId, job.failedTracks!.map((ft) => ft.videoId))}
+          className="mt-2 w-full rounded-lg border border-accent/30 bg-accent/10 px-2 py-1.5 text-[11px] font-semibold text-accent transition hover:bg-accent/20"
+        >
+          Retry {job.failedTracks!.length} failed track{job.failedTracks!.length !== 1 ? 's' : ''}
+        </button>
+      )}
+
       {(job.status === 'running' || job.status === 'starting') && onCancel && (
         <button type="button" onClick={() => onCancel(job.playlistId)} className="mt-2 w-full rounded-lg border border-border px-2 py-1.5 text-[11px] font-semibold text-text-secondary transition hover:border-error/40 hover:bg-error/10 hover:text-error">
           Cancel downloads

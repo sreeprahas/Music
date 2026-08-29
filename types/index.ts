@@ -80,6 +80,7 @@ export interface DownloadJob {
   currentThumbnail?: string;
   errorCount: number;
   startedAt: number;
+  failedTracks?: Array<{ videoId: string; title: string; error: string }>;
 }
 
 export interface DownloadProgressEvent {
@@ -150,4 +151,15 @@ export interface PlaylistSyncState {
     createdAt: number;
   }>;
   updatedAt: number;
+}
+
+export interface YouTubeCandidate {
+  videoId: string;
+  title: string;
+  channel?: string;
+  artist?: string;
+  duration?: number;
+  album?: string;
+  thumbnails?: string[];
+  playlistItemId?: string;
 }

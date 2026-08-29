@@ -161,10 +161,10 @@ export function VolumeControl({
             style={{ width: `${hoverPercent ?? 0}%` }}
           />
 
-          {/* Layer 2: Active Volume Fill (White default -> Spotify Green on hover/drag) */}
+          {/* Layer 2: Active Volume Fill (White by default, theme accent on hover/interaction) */}
           <div
             className={`pointer-events-none absolute inset-y-0 left-0 z-[2] rounded-full transition-colors duration-150 ${
-              'bg-accent'
+              isInteractive ? 'bg-accent' : 'bg-text'
             }`}
             style={{ width: `${actualPercent}%` }}
           />

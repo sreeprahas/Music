@@ -13,7 +13,7 @@ import { QueueDrawer } from './QueueDrawer';
 import { LyricsDrawer } from './LyricsDrawer';
 import { ExpandedPlayerModal } from './ExpandedPlayerModal';
 import { ResizeDivider } from './ResizeDivider';
-import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronRight, Music, Music2 } from 'lucide-react';
+import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronUp, ChevronRight, Music, Music2 } from 'lucide-react';
 import { cleanArtistName, formatDuration, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { getCachedPlaylistMemberships, primePlaylistMemberships, removePlaylistMembership } from './AddToPlaylistDropdown';
 
@@ -35,7 +35,7 @@ interface Props {
   onUserChange?: (user: UserProfile) => void;
 }
 
-type SearchMode = 'auto' | 'spotify' | 'ytmusic' | 'local';
+type SearchMode = 'auto' | 'youtube' | 'local';
 type CachedTrack = Track & { playlistId: string; playlistTitle: string };
 type RouteState =
   | { kind: 'home' }
@@ -508,8 +508,8 @@ export function Dashboard({ user, onUserChange }: Props) {
     setSelectedPlaylist(
       route.kind === 'playlist'
         ? playlistsRef.current.find(
-            (playlist) => playlist.id === route.playlistId
-          ) ?? null
+          (playlist) => playlist.id === route.playlistId
+        ) ?? null
         : null
     );
   }, []);
@@ -1172,14 +1172,16 @@ export function Dashboard({ user, onUserChange }: Props) {
           playlistTitle: track.title,
           total: 1,
           toDownload: 1,
-          done: 100,
+          done: 1,
           status: 'done',
           errorCount: 0,
           startedAt: Date.now(),
         });
         return next;
       });
-      // PlaylistView handles the optimistic track state update â€” no reload needed
+      if (track.videoId) {
+        setLastDownloadedTrack({ videoId: track.videoId, timestamp: Date.now() });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to download song';
       alert(msg);
@@ -1217,37 +1219,55 @@ export function Dashboard({ user, onUserChange }: Props) {
   }, []);
 
   const handleDownload = useCallback(
-    (playlistId: string) => {
+    (playlistId: string, retryVideoIds?: string[]) => {
       const pl = playlists.find((p) => p.id === playlistId);
       const title = pl ? pl.title : 'Playlist';
       if (downloadSources.current.has(playlistId)) downloadSources.current.get(playlistId)?.close();
       setDownloadJobs((prev) => {
         const next = new Map(prev);
-        next.set(playlistId, { playlistId, playlistTitle: title, total: 0, toDownload: 0, done: 0, status: 'starting', errorCount: 0, startedAt: Date.now() });
+        const existing = prev.get(playlistId);
+        next.set(playlistId, {
+          playlistId,
+          playlistTitle: title,
+          total: existing?.total ?? 0,
+          toDownload: 0,
+          done: existing?.done ?? 0,
+          status: 'starting',
+          errorCount: 0,
+          startedAt: Date.now(),
+          failedTracks: [],
+        });
         return next;
       });
-      const es = new EventSource(`/api/download?playlistId=${playlistId}`);
+      const url = retryVideoIds?.length
+        ? `/api/download?playlistId=${playlistId}&videoIds=${retryVideoIds.join(',')}`
+        : `/api/download?playlistId=${playlistId}`;
+      const es = new EventSource(url);
       downloadSources.current.set(playlistId, es);
       es.onmessage = (e) => {
         try {
-          const evt: DownloadProgressEvent = JSON.parse(e.data);
+          const evt: DownloadProgressEvent & { trackTitle?: string; trackError?: string } = JSON.parse(e.data);
           setDownloadJobs((prev) => {
             const next = new Map(prev);
             const current = next.get(playlistId);
             if (!current) return prev;
-            if (evt.type === 'start') next.set(playlistId, { ...current, status: 'running', total: evt.total || 0, toDownload: evt.toDownload || 0, errorCount: 0 });
-            else if (evt.type === 'progress') {
+            if (evt.type === 'start') {
+              next.set(playlistId, { ...current, status: 'running', total: evt.total || 0, toDownload: evt.toDownload || 0, errorCount: 0, failedTracks: [] });
+            } else if (evt.type === 'progress') {
               const isErr = evt.status === 'error';
               const errCount = isErr ? current.errorCount + 1 : current.errorCount;
+              const newFailed = isErr && evt.videoId && evt.trackTitle
+                ? [...(current.failedTracks || []), { videoId: evt.videoId, title: evt.trackTitle, error: evt.trackError || evt.error || 'Failed' }]
+                : current.failedTracks;
               next.set(playlistId, {
                 ...current,
-                done: evt.current || current.done,
+                done: isErr ? current.done : (evt.current || current.done),
                 toDownload: evt.total || current.toDownload,
                 currentTitle: evt.title,
                 currentArtist: evt.artist,
                 errorCount: errCount,
+                failedTracks: newFailed,
               });
-              // Dynamically notify UI when an individual song finishes downloading
               if (evt.status === 'done' && evt.videoId) {
                 setLastDownloadedTrack({ videoId: evt.videoId, timestamp: Date.now() });
               }
@@ -1278,6 +1298,10 @@ export function Dashboard({ user, onUserChange }: Props) {
     [playlists]
   );
 
+  const handleRetryFailed = useCallback((playlistId: string, videoIds: string[]) => {
+    handleDownload(playlistId, videoIds);
+  }, [handleDownload]);
+
   const handleCancelDownload = useCallback((playlistId: string) => {
     const source = downloadSources.current.get(playlistId);
     source?.close();
@@ -1286,7 +1310,7 @@ export function Dashboard({ user, onUserChange }: Props) {
       const current = prev.get(playlistId);
       if (!current || (current.status !== 'running' && current.status !== 'starting')) return prev;
       const next = new Map(prev);
-      next.delete(playlistId);
+      next.set(playlistId, { ...current, status: 'cancelled' });
       return next;
     });
   }, []);
@@ -1310,18 +1334,31 @@ export function Dashboard({ user, onUserChange }: Props) {
       .slice(0, 6);
   }, [allTracks, selectedPlaylist]);
 
+  const [searchFilter, setSearchFilter] = useState<'song' | 'artist'>(() => {
+    if (typeof window !== 'undefined') {
+      return (sessionStorage.getItem('music_search_filter') as 'song' | 'artist') || 'song';
+    }
+    return 'song';
+  });
+
+  const handleSearchFilterChange = useCallback((filter: 'song' | 'artist') => {
+    setSearchFilter(filter);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('music_search_filter', filter);
+    }
+  }, []);
+
   const globalSearchResults = useMemo(() => {
     const q = (typedSearchInput || searchQuery).trim().toLowerCase();
     if (!q) return [];
-    // Local library search â€” matches against both title and artist regardless
-    // of the online source mode (auto/spotify/ytmusic). The mode selector
-    // only affects the online search, not the local library filter.
     return Object.values(allTracks).filter((track) => {
-      const titleMatch = track.title.toLowerCase().includes(q);
-      const artistMatch = cleanArtistName(track.artist).toLowerCase().includes(q);
-      return titleMatch || artistMatch;
+      if (searchFilter === 'song') {
+        return track.title.toLowerCase().includes(q);
+      } else {
+        return cleanArtistName(track.artist).toLowerCase().includes(q);
+      }
     });
-  }, [allTracks, typedSearchInput, searchQuery]);
+  }, [allTracks, typedSearchInput, searchQuery, searchFilter]);
 
   const waitingForInitialPlaylist = initialRoute.kind === 'playlist' && !selectedPlaylist && playlists.length > 0;
 
@@ -1800,6 +1837,7 @@ export function Dashboard({ user, onUserChange }: Props) {
         }}
         onOpenSettings={() => setIsSettingsPage(true)}
         onCancelDownload={handleCancelDownload}
+        onRetryDownload={handleRetryFailed}
       />
 
       <div className="music-content flex-1 flex overflow-hidden min-h-0 relative">
@@ -1835,113 +1873,115 @@ export function Dashboard({ user, onUserChange }: Props) {
         <div className="flex-1 min-w-0 h-full flex overflow-hidden">
           <div className="flex-1 min-w-0 h-full relative overflow-hidden flex flex-col">
             <div key={pageTransitionKey} className="h-full min-h-0 animate-page-transition">
-            {showGlobalSearch ? (
-              <GlobalSearchResults
-                query={searchQuery}
-                mode={searchMode}
-                results={globalSearchResults}
-                isIndexing={isSearchIndexing}
-                onlineResults={onlineSearchResults}
-                isOnlineSearching={onlineSearching}
-                onlineSearchError={onlineSearchError}
-                onPlay={(track) => {
-                  const queue = globalSearchResults.length > 0
-                    ? (globalSearchResults as Track[])
-                    : onlineSearchResults;
-                  handlePlay(track, queue);
-                  navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId || track.sourceTrackId || '' });
-                }}
-                onSearchChange={(q) => {
-                  setTypedSearchInput(q);
-                  setSearchQuery(q);
-                  navigateRoute({ kind: 'search', query: q });
-                }}
-                onOpenPlaylist={(id) => navigateRoute({ kind: 'playlist', playlistId: id })}
-                onImportPlaylistUrl={async (url) => {
-                  const res = await fetch('/api/playlist', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'import', url }),
-                  });
-                  if (res.ok) {
-                    const data = await res.json();
-                    if (data.playlist) {
-                      setPlaylists((prev) => [data.playlist, ...prev.filter((p) => p.id !== data.playlist.id)]);
-                      if (Array.isArray(data.tracks)) {
-                        handleTracksLoaded(data.playlist.id, data.tracks);
+              {showGlobalSearch ? (
+                <GlobalSearchResults
+                  query={searchQuery}
+                  mode={searchMode}
+                  results={globalSearchResults}
+                  isIndexing={isSearchIndexing}
+                  onlineResults={onlineSearchResults}
+                  isOnlineSearching={onlineSearching}
+                  onlineSearchError={onlineSearchError}
+                  searchFilter={searchFilter}
+                  onSearchFilterChange={handleSearchFilterChange}
+                  onPlay={(track) => {
+                    const queue = globalSearchResults.length > 0
+                      ? (globalSearchResults as Track[])
+                      : onlineSearchResults;
+                    handlePlay(track, queue);
+                    navigateRoute({ kind: 'search', query: searchQuery, songId: track.videoId || track.sourceTrackId || '' });
+                  }}
+                  onSearchChange={(q) => {
+                    setTypedSearchInput(q);
+                    setSearchQuery(q);
+                    navigateRoute({ kind: 'search', query: q });
+                  }}
+                  onOpenPlaylist={(id) => navigateRoute({ kind: 'playlist', playlistId: id })}
+                  onImportPlaylistUrl={async (url) => {
+                    const res = await fetch('/api/playlist', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'import', url }),
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.playlist) {
+                        setPlaylists((prev) => [data.playlist, ...prev.filter((p) => p.id !== data.playlist.id)]);
+                        if (Array.isArray(data.tracks)) {
+                          handleTracksLoaded(data.playlist.id, data.tracks);
+                        }
+                        navigateRoute({ kind: 'playlist', playlistId: data.playlist.id });
                       }
-                      navigateRoute({ kind: 'playlist', playlistId: data.playlist.id });
                     }
-                  }
-                }}
-                allPlaylists={playlists}
-                onAddToPlaylist={handleAddToPlaylist}
-              />
-            ) : loadingPlaylists ? (
-              selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
-            ) : showPlaylistManagement ? (
-              // Playlist management temporarily on standby â€” render grid as fallback.
-              <PlaylistGrid
-                playlists={filteredPlaylists}
-                pinnedIds={pinnedIds}
-                hiddenIds={[]}
-                onSelect={handleSelectPlaylist}
-                onTogglePin={handleTogglePin}
-                onPlay={handlePlayPlaylist}
-                onShufflePlay={handleShufflePlayPlaylist}
-                onDownload={handleDownload}
-                onRemove={handleDeletePlaylist}
-                onSyncNow={handleSyncPlaylistNow}
-              />
-            ) : selectedPlaylist ? (
-              <PlaylistView
-                key={selectedPlaylist.id}
-                playlist={selectedPlaylist}
-                isPinned={pinnedIds.includes(selectedPlaylist.id)}
-                onPlay={(track, queue) => handlePlay(track, queue, selectedPlaylist.id)}
-                onAddToQueue={handleAddToQueue}
-                onPlayNext={handlePlayNext}
-                onAddToPlaylist={handleAddToPlaylist}
-                onRemoveFromPlaylist={handleRemoveFromPlaylist}
-                onSetSleepTimer={handleSetSleepTimer}
-                onOpenSleepTimer={handleOpenSleepTimer}
-                playlists={playlists}
-                onDownload={handleDownload}
-                onDownloadTrack={handleDownloadTrack}
-                onDeleteTrack={handleDeleteTrack}
-                onTrackDeleted={handleTrackDeleted}
-                onTogglePin={handleTogglePin}
-                onTracksLoaded={handleTracksLoaded}
-                lastDownloadedTrack={lastDownloadedTrack}
-                restoredTrack={restoredTrack}
-                currentVideoId={currentTrack?.videoId}
-                activePlaylistId={activePlaylistId}
-                isPlaying={isPlaying}
-                scrollToTrackRequest={playlistScrollRequest}
-                onEditOrderChange={setIsPlaylistEditOrder}
-                onSyncNow={handleSyncPlaylistNow}
-                isSyncingExternally={syncingPlaylistIds.has(selectedPlaylist.id)}
-                recommendations={playlistRecommendations}
-                playlistMutation={playlistMutation}
-              />
-            ) : (
-              <div className="h-full min-h-0 overflow-y-auto scrollbar-thin">
-                <div className="min-h-[520px]">
-                  <PlaylistGrid
-                    playlists={filteredPlaylists}
-                    pinnedIds={pinnedIds}
-                    hiddenIds={[]}
-                    onSelect={handleSelectPlaylist}
-                    onTogglePin={handleTogglePin}
-                    onPlay={handlePlayPlaylist}
-                    onShufflePlay={handleShufflePlayPlaylist}
-                    onDownload={handleDownload}
-                    onRemove={handleDeletePlaylist}
-                    onSyncNow={handleSyncPlaylistNow}
-                  />
+                  }}
+                  allPlaylists={playlists}
+                  onAddToPlaylist={handleAddToPlaylist}
+                />
+              ) : loadingPlaylists ? (
+                selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
+              ) : showPlaylistManagement ? (
+                // Playlist management temporarily on standby â€” render grid as fallback.
+                <PlaylistGrid
+                  playlists={filteredPlaylists}
+                  pinnedIds={pinnedIds}
+                  hiddenIds={[]}
+                  onSelect={handleSelectPlaylist}
+                  onTogglePin={handleTogglePin}
+                  onPlay={handlePlayPlaylist}
+                  onShufflePlay={handleShufflePlayPlaylist}
+                  onDownload={handleDownload}
+                  onRemove={handleDeletePlaylist}
+                  onSyncNow={handleSyncPlaylistNow}
+                />
+              ) : selectedPlaylist ? (
+                <PlaylistView
+                  key={selectedPlaylist.id}
+                  playlist={selectedPlaylist}
+                  isPinned={pinnedIds.includes(selectedPlaylist.id)}
+                  onPlay={(track, queue) => handlePlay(track, queue, selectedPlaylist.id)}
+                  onAddToQueue={handleAddToQueue}
+                  onPlayNext={handlePlayNext}
+                  onAddToPlaylist={handleAddToPlaylist}
+                  onRemoveFromPlaylist={handleRemoveFromPlaylist}
+                  onSetSleepTimer={handleSetSleepTimer}
+                  onOpenSleepTimer={handleOpenSleepTimer}
+                  playlists={playlists}
+                  onDownload={handleDownload}
+                  onDownloadTrack={handleDownloadTrack}
+                  onDeleteTrack={handleDeleteTrack}
+                  onTrackDeleted={handleTrackDeleted}
+                  onTogglePin={handleTogglePin}
+                  onTracksLoaded={handleTracksLoaded}
+                  lastDownloadedTrack={lastDownloadedTrack}
+                  restoredTrack={restoredTrack}
+                  currentVideoId={currentTrack?.videoId}
+                  activePlaylistId={activePlaylistId}
+                  isPlaying={isPlaying}
+                  scrollToTrackRequest={playlistScrollRequest}
+                  onEditOrderChange={setIsPlaylistEditOrder}
+                  onSyncNow={handleSyncPlaylistNow}
+                  isSyncingExternally={syncingPlaylistIds.has(selectedPlaylist.id)}
+                  recommendations={playlistRecommendations}
+                  playlistMutation={playlistMutation}
+                />
+              ) : (
+                <div className="h-full min-h-0 overflow-y-auto scrollbar-thin">
+                  <div className="min-h-[520px]">
+                    <PlaylistGrid
+                      playlists={filteredPlaylists}
+                      pinnedIds={pinnedIds}
+                      hiddenIds={[]}
+                      onSelect={handleSelectPlaylist}
+                      onTogglePin={handleTogglePin}
+                      onPlay={handlePlayPlaylist}
+                      onShufflePlay={handleShufflePlayPlaylist}
+                      onDownload={handleDownload}
+                      onRemove={handleDeletePlaylist}
+                      onSyncNow={handleSyncPlaylistNow}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             </div>
           </div>
 
@@ -2311,6 +2351,8 @@ function GlobalSearchResults({
   onlineResults,
   isOnlineSearching,
   onlineSearchError,
+  searchFilter = 'song',
+  onSearchFilterChange,
   onPlay,
   onSearchChange,
   onOpenPlaylist,
@@ -2325,6 +2367,8 @@ function GlobalSearchResults({
   onlineResults?: Track[];
   isOnlineSearching?: boolean;
   onlineSearchError?: string;
+  searchFilter?: 'song' | 'artist';
+  onSearchFilterChange?: (filter: 'song' | 'artist') => void;
   onPlay: (track: Track) => void;
   onSearchChange?: (q: string) => void;
   onOpenPlaylist?: (id: string) => void;
@@ -2332,68 +2376,25 @@ function GlobalSearchResults({
   allPlaylists?: Playlist[];
   onAddToPlaylist?: (track: Track, playlistId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'all' | 'songs' | 'artists' | 'albums' | 'playlists'>('all');
-  const [categoryResults, setCategoryResults] = useState<{
-    candidates?: any[];
-    tracks?: Track[];
-    loading?: boolean;
-    error?: string;
-  }>({});
-  const [importingUrl, setImportingUrl] = useState<string | null>(null);
+  const [showAllLocal, setShowAllLocal] = useState(false);
 
-  // Fetch category-specific search results when activeTab is artists, albums, or playlists
-  useEffect(() => {
-    if (!query.trim() || activeTab === 'all' || activeTab === 'songs') {
-      setCategoryResults({});
-      return;
-    }
-
-    let cancelled = false;
-    setCategoryResults({ loading: true });
-
-    fetch(`/api/search?q=${encodeURIComponent(query.trim())}&mode=${activeTab}&limit=24`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.error) {
-          setCategoryResults({ error: data.error, loading: false });
-        } else {
-          setCategoryResults({
-            candidates: data.candidates || [],
-            tracks: data.tracks || [],
-            loading: false,
-          });
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setCategoryResults({ error: err.message || 'Failed to search', loading: false });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [query, activeTab]);
-
-  const hasLocal = results.length > 0;
   const songs = onlineResults || [];
-  const modeLabel = mode === 'auto' ? 'YouTube Music + Local' : mode === 'spotify' ? 'Spotify' : mode === 'local' ? 'Local' : 'YouTube Music';
+  const hasLocal = results.length > 0;
 
-  const handleImportPlaylistClick = async (url: string) => {
-    if (importingUrl || !onImportPlaylistUrl) return;
-    setImportingUrl(url);
-    try {
-      await onImportPlaylistUrl(url);
-    } finally {
-      setImportingUrl(null);
-    }
-  };
+  const showLocalSection = mode === 'local' || (mode === 'auto' && hasLocal);
+  const showYouTubeSection = mode === 'youtube' || mode === 'auto';
+
+  const visibleLocalTracks = (mode === 'auto' && !showAllLocal) ? results.slice(0, 4) : results;
+  const hasMoreLocal = mode === 'auto' && results.length > 4;
+
+  const modeLabel = mode === 'auto' ? 'Auto (Local + YouTube)' : mode === 'local' ? 'Local Library' : 'YouTube';
 
   return (
     <div className="h-full min-h-0 overflow-y-auto px-8 py-8 scrollbar-thin animate-fadeIn">
       {/* Header & Query info */}
       <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-text-muted font-bold">Search</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-text-muted font-bold">Search ({modeLabel})</p>
           <h2 className="mt-1 text-2xl font-black text-text">
             Results for &ldquo;{query}&rdquo;
           </h2>
@@ -2401,187 +2402,60 @@ function GlobalSearchResults({
             {isIndexing
               ? 'Indexing playlist library...'
               : isOnlineSearching
-                ? `Searching ${modeLabel}...`
-                : `${hasLocal ? `${results.length} local • ` : ''}${songs.length} YouTube Music songs found`}
+                ? `Searching YouTube...`
+                : `${showLocalSection && hasLocal ? `${results.length} local • ` : ''}${showYouTubeSection ? `${songs.length} YouTube songs found` : ''}`}
           </p>
         </div>
 
-        {/* Category Tabs */}
+        {/* Filter (Song / Artist) */}
         <div className="flex items-center gap-1.5 bg-surface p-1 rounded-2xl border border-border shrink-0">
-          {(['all', 'songs', 'artists', 'albums', 'playlists'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`rounded-xl px-3.5 py-1.5 text-xs font-bold capitalize transition-all duration-200 ${
-                activeTab === tab
-                  ? 'bg-accent text-background shadow-sm'
-                  : 'text-text-muted hover:text-text hover:bg-surface-hover'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+          <button
+            type="button"
+            onClick={() => onSearchFilterChange?.('song')}
+            className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all duration-200 cursor-pointer ${
+              searchFilter === 'song'
+                ? 'bg-accent text-background shadow-sm'
+                : 'text-text-muted hover:text-text hover:bg-surface-hover'
+            }`}
+          >
+            Song
+          </button>
+          <button
+            type="button"
+            onClick={() => onSearchFilterChange?.('artist')}
+            className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all duration-200 cursor-pointer ${
+              searchFilter === 'artist'
+                ? 'bg-accent text-background shadow-sm'
+                : 'text-text-muted hover:text-text hover:bg-surface-hover'
+            }`}
+          >
+            Artist
+          </button>
         </div>
       </div>
 
-      {/* Tab: Artists */}
-      {activeTab === 'artists' && (
-        <div className="space-y-4">
-          {categoryResults.loading ? (
-            <div className="py-16 text-center text-text-muted">
-              <Search className="w-6 h-6 mx-auto mb-3 text-accent animate-pulse" />
-              <p className="text-sm">Searching artists on YouTube Music...</p>
-            </div>
-          ) : categoryResults.candidates && categoryResults.candidates.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {categoryResults.candidates.map((artist: any, idx: number) => {
-                const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || '';
-                return (
-                  <button
-                    key={artist.browseId || artist.artistId || idx}
-                    onClick={() => onSearchChange?.(artist.name || artist.title || '')}
-                    className="group flex flex-col items-center text-center p-4 rounded-2xl border border-border-subtle bg-surface hover:bg-surface-hover hover:border-accent/30 transition-all duration-300"
-                  >
-                    <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-background mb-3 shadow-md border border-border-subtle group-hover:scale-105 transition-transform">
-                      {thumb ? (
-                        <img src={thumb} alt={artist.name || artist.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xl font-bold text-accent bg-accent/10">
-                          {(artist.name || artist.title || 'A').charAt(0)}
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-sm font-bold text-text truncate max-w-full group-hover:text-accent transition-colors">
-                      {artist.name || artist.title}
-                    </span>
-                    <span className="text-[11px] text-text-muted mt-0.5">Artist</span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
-              No artists found for &ldquo;{query}&rdquo;
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tab: Albums */}
-      {activeTab === 'albums' && (
-        <div className="space-y-4">
-          {categoryResults.loading ? (
-            <div className="py-16 text-center text-text-muted">
-              <Search className="w-6 h-6 mx-auto mb-3 text-accent animate-pulse" />
-              <p className="text-sm">Searching albums on YouTube Music...</p>
-            </div>
-          ) : categoryResults.candidates && categoryResults.candidates.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {categoryResults.candidates.map((album: any, idx: number) => {
-                const thumb = album.thumbnails?.[album.thumbnails.length - 1]?.url || album.thumbnails?.[0]?.url || '';
-                return (
-                  <button
-                    key={album.browseId || album.albumId || idx}
-                    onClick={() => onSearchChange?.(`${album.title} ${album.artists?.[0]?.name || album.artist || ''}`.trim())}
-                    className="group flex flex-col p-3.5 rounded-2xl border border-border-subtle bg-surface hover:bg-surface-hover hover:border-accent/30 transition-all duration-300 text-left"
-                  >
-                    <div className="aspect-square w-full rounded-xl overflow-hidden bg-background mb-3 shadow-md relative">
-                      {thumb ? (
-                        <img src={thumb} alt={album.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-text-muted bg-surface">
-                          <Music2 className="w-8 h-8 opacity-40" />
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-sm font-bold text-text truncate group-hover:text-accent transition-colors">
-                      {album.title}
-                    </span>
-                    <span className="text-xs text-text-muted truncate mt-0.5">
-                      {album.artists?.[0]?.name || album.artist || (album.year ? String(album.year) : 'Album')}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
-              No albums found for &ldquo;{query}&rdquo;
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tab: Playlists */}
-      {activeTab === 'playlists' && (
-        <div className="space-y-4">
-          {categoryResults.loading ? (
-            <div className="py-16 text-center text-text-muted">
-              <Search className="w-6 h-6 mx-auto mb-3 text-accent animate-pulse" />
-              <p className="text-sm">Searching playlists on YouTube Music...</p>
-            </div>
-          ) : categoryResults.candidates && categoryResults.candidates.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {categoryResults.candidates.map((playlist: any, idx: number) => {
-                const thumb = playlist.thumbnails?.[playlist.thumbnails.length - 1]?.url || playlist.thumbnails?.[0]?.url || '';
-                const playlistId = playlist.browseId?.replace(/^VL/, '') || playlist.playlistId || '';
-                const playlistUrl = playlistId ? `https://music.youtube.com/playlist?list=${playlistId}` : '';
-                const isImporting = importingUrl === playlistUrl;
-
-                return (
-                  <div
-                    key={playlist.browseId || idx}
-                    className="flex items-center gap-3.5 p-3.5 rounded-2xl border border-border-subtle bg-surface hover:bg-surface-hover transition-colors"
-                  >
-                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-background shrink-0 shadow-sm border border-border-subtle">
-                      {thumb ? (
-                        <img src={thumb} alt={playlist.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-text-muted">
-                          <Music2 className="w-6 h-6 opacity-40" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-text truncate">{playlist.title}</p>
-                      <p className="text-xs text-text-muted truncate mt-0.5">
-                        {playlist.author?.name || playlist.author || 'YouTube Music'}
-                        {playlist.itemCount ? ` • ${playlist.itemCount} songs` : ''}
-                      </p>
-                    </div>
-                    {playlistUrl && (
-                      <button
-                        onClick={() => handleImportPlaylistClick(playlistUrl)}
-                        disabled={isImporting}
-                        className="shrink-0 flex items-center gap-1 rounded-xl bg-accent/15 px-3 py-1.5 text-xs font-bold text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
-                      >
-                        {isImporting ? (
-                          <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Importing</>
-                        ) : (
-                          <><Download className="w-3.5 h-3.5" /> Import</>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
-              No playlists found for &ldquo;{query}&rdquo;
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tab: All / Songs */}
-      {(activeTab === 'all' || activeTab === 'songs') && (
-        <div className="space-y-6">
-          {/* Local library matches */}
-          {hasLocal && (
+      <div className="space-y-6">
+        {/* Local library matches */}
+        {showLocalSection && (
+          hasLocal ? (
             <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted px-1">In Your Library</h3>
-              {results.map((track) => (
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
+                  In Your Library ({results.length})
+                </h3>
+                {hasMoreLocal && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllLocal((prev) => !prev)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold text-text-secondary transition-all duration-200 hover:border-accent/40 hover:bg-accent/10 hover:text-accent cursor-pointer shadow-sm"
+                  >
+                    <span>{showAllLocal ? 'Show less' : `Show all (${results.length})`}</span>
+                    {showAllLocal ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+
+              {visibleLocalTracks.map((track) => (
                 <button
                   key={track.videoId || track.sourceTrackId || track.title}
                   onClick={() => onPlay(track)}
@@ -2610,12 +2484,22 @@ function GlobalSearchResults({
                 </button>
               ))}
             </div>
-          )}
+          ) : (
+            mode === 'local' && (
+              <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
+                No local songs found in library for &ldquo;{query}&rdquo;
+              </div>
+            )
+          )
+        )}
 
-          {/* YouTube Music online tracks */}
+        {/* YouTube online tracks */}
+        {showYouTubeSection && (
           <div className="space-y-2">
-            {hasLocal && songs.length > 0 && (
-              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted px-1 pt-2">YouTube Music Results</h3>
+            {showLocalSection && hasLocal && songs.length > 0 && (
+              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted px-1 pt-2">
+                YouTube Results ({songs.length})
+              </h3>
             )}
 
             {songs.map((track) => (
@@ -2653,25 +2537,19 @@ function GlobalSearchResults({
             {isOnlineSearching && songs.length === 0 && !hasLocal && (
               <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
                 <Search className="w-5 h-5 mx-auto mb-3 text-accent animate-pulse" />
-                Searching YouTube Music for &ldquo;{query}&rdquo;...
+                Searching YouTube for &ldquo;{query}&rdquo;...
               </div>
             )}
 
-            {!isOnlineSearching && songs.length === 0 && !hasLocal && onlineSearchError && (
-              <div className="rounded-3xl border border-error/30 bg-error/5 p-8 text-center text-sm text-error">
-                {onlineSearchError}
-              </div>
-            )}
-
-            {!isOnlineSearching && songs.length === 0 && !hasLocal && !onlineSearchError && !isIndexing && (
+            {!isOnlineSearching && songs.length === 0 && !hasLocal && !isIndexing && (
               <div className="rounded-3xl border border-dashed border-border bg-background-secondary p-12 text-center text-text-muted">
                 <Search className="w-5 h-5 mx-auto mb-3 text-text-disabled" />
-                No matching tracks found on YouTube Music.
+                {onlineSearchError || `No matching tracks found on YouTube for "${query}".`}
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

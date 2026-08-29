@@ -7,7 +7,7 @@
 import { DEFAULT_SCORING_WEIGHTS, type ScoringWeights } from './config';
 import { normalizeTrack, stringSimilarity, tokenSimilarity, type NormalizedMetadata } from './normalization';
 import { detectVersion, type TrackVersion } from './version';
-import type { YouTubeCandidate } from '@/lib/youtube/types';
+import type { YouTubeCandidate } from '@/types';
 
 export interface SpotifyTrackTarget {
   id?: string;

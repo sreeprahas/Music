@@ -429,14 +429,27 @@ body {
   pointer-events: none;
 }
 
-/* Keep the context menu interactive while its pointer leaves so a quick
-   re-entry can cancel the exit animation. */
+/* Clean, crisp context menu animation */
+.animate-context-menu-in {
+  animation: contextMenuIn 0.1s ease-out both;
+}
+
 .animate-context-menu-out {
-  animation: dropdownOut 0.16s ease-in both;
+  animation: contextMenuOut 0.08s ease-in both;
 }
 
 .animate-popover-out {
-  animation: dropdownOut 0.16s ease-in both;
+  animation: contextMenuOut 0.08s ease-in both;
+}
+
+@keyframes contextMenuIn {
+  from { opacity: 0; transform: scale(0.99); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes contextMenuOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.99); }
 }
 
 @keyframes dropdownIn {

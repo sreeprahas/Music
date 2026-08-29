@@ -6,8 +6,8 @@
  * evaluates thresholds, and caches confident matches into SQLite.
  */
 
-import { searchYouTubeMusic } from '@/lib/youtube/search';
-import type { YouTubeCandidate } from '@/lib/youtube/types';
+import type { YouTubeCandidate } from '@/types';
+import { searchYouTube } from '@/lib/youtube/search';
 import { scoreTrackCandidate, rankAndBreakTieCandidates, type SpotifyTrackTarget, type ScoredMatchCandidate } from './scoring';
 import { getYoutubeMapping, setYoutubeMapping } from '@/lib/storage/mapping';
 import { normalizeTrack } from './normalization';
@@ -105,29 +105,16 @@ export async function matchSpotifyTrack(
 
   for (const query of queries.slice(0, 2)) {
     try {
-      const results = await searchYouTubeMusic(query, 15, options.signal, { filter: 'songs' });
-      for (const res of results) {
-        if (!candidatesMap.has(res.videoId)) {
-          candidatesMap.set(res.videoId, res);
+      const { candidates } = await searchYouTube(query, { limit: 10, signal: options.signal });
+      for (const cand of candidates) {
+        if (!candidatesMap.has(cand.videoId)) {
+          candidatesMap.set(cand.videoId, cand);
         }
       }
-      // If we already collected 10+ candidates from primary query, no need to over-fetch
       if (candidatesMap.size >= 10) break;
     } catch (err) {
       console.warn(`[matching] Query failed: '${query}'`, err);
     }
-  }
-
-  // Fallback: If 0 candidates found, try the remaining queries (e.g. title only or general search)
-  if (candidatesMap.size === 0 && queries.length > 2) {
-    try {
-      const fallbackResults = await searchYouTubeMusic(queries[2], 15, options.signal);
-      for (const res of fallbackResults) {
-        if (!candidatesMap.has(res.videoId)) {
-          candidatesMap.set(res.videoId, res);
-        }
-      }
-    } catch {}
   }
 
   const candidateList = Array.from(candidatesMap.values());
@@ -137,7 +124,7 @@ export async function matchSpotifyTrack(
       score: 0,
       confidence: 'reject',
       candidate: null,
-      rejectionReason: 'No YouTube Music candidates found for target queries',
+      rejectionReason: 'No match candidates available',
       source: 'none',
     };
   }

@@ -1,17 +1,13 @@
 /**
- * Playlist synchronization for YouTube and Spotify playlists.
+ * lib/sync/playlist-sync.ts
  *
- * For Spotify: compares current Spotify playlist against local SQLite snapshot,
- * reconciles track membership, updates metadata, and reconciles thumbnails.
- *
- * For YouTube: syncs remote playlist revisions.
+ * Playlist synchronization for Spotify playlists.
+ * Reconciles local SQLite state with live remote snapshot.
  */
 
-import type { PlaylistSyncState, Track } from '@/types';
+import type { PlaylistSyncState } from '@/types';
 import { getPersistent, setPersistent } from '@/lib/cache/persistent';
-import { getLocalPlaylists, getCachedTracks, setCachedTracks, upsertLocalPlaylist } from '@/lib/db';
-import { getAllYouTubePlaylistTracks } from '@/lib/youtube/playlists';
-import { canonicalRevision } from './conflicts';
+import { getLocalPlaylists, getCachedTracks } from '@/lib/db';
 
 const stateKey = (playlistId: string) => `sync:${playlistId}`;
 
@@ -19,44 +15,28 @@ export function getPlaylistSyncState(playlistId: string): PlaylistSyncState | un
   return getPersistent<PlaylistSyncState>(stateKey(playlistId));
 }
 
-/** Keep local edits queued and visible; never pretend that a provider write succeeded. */
+/** Keep local edits queued and visible. */
 export function enqueuePlaylistOperation(
   playlist: { id: string; source?: 'local' | 'spotify' | 'youtube'; sourcePlaylistId?: string },
-  type: PlaylistSyncState['pendingOperations'][number]['type'],
-  payload: Record<string, unknown>,
+  _type: PlaylistSyncState['pendingOperations'][number]['type'],
+  _payload: Record<string, unknown>,
 ): void {
-  if (!playlist.source || playlist.source === 'local' || playlist.source === 'spotify' || !playlist.sourcePlaylistId) return;
-  const existing = getPlaylistSyncState(playlist.id) || {
-    playlistId: playlist.id,
-    source: 'youtube' as const,
-    sourcePlaylistId: playlist.sourcePlaylistId,
-    pendingOperations: [],
-    status: 'idle' as const,
-    updatedAt: Date.now(),
-  };
-  existing.pendingOperations.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    type,
-    payload,
-    createdAt: Date.now(),
-    attempts: 0,
-  });
-  existing.status = 'readonly';
-  existing.error = 'Remote playlist mutations are not part of the local sync queue.';
-  existing.updatedAt = Date.now();
-  setPersistent(stateKey(playlist.id), existing, 0);
+  if (!playlist.source || playlist.source === 'local' || !playlist.sourcePlaylistId) return;
 }
 
 export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncState> {
   const playlist = getLocalPlaylists().find((item) => item.id === playlistId);
   if (!playlist || !playlist.source || playlist.source === 'local' || !playlist.sourcePlaylistId) {
-    throw new Error('Playlist is not linked to a remote YouTube or Spotify source.');
+    throw new Error('Playlist is not linked to a remote source.');
   }
 
-  const source = playlist.source as 'youtube' | 'spotify';
+  if (playlist.source !== 'spotify') {
+    throw new Error('Sync is only supported for Spotify playlists.');
+  }
+
   const state: PlaylistSyncState = getPlaylistSyncState(playlistId) || {
     playlistId,
-    source,
+    source: 'spotify',
     sourcePlaylistId: playlist.sourcePlaylistId,
     pendingOperations: [],
     status: 'idle',
@@ -68,103 +48,53 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
   state.updatedAt = Date.now();
   setPersistent(stateKey(playlistId), state, 0);
 
-  if (source === 'spotify') {
-    try {
-      const spotifyId = playlist.sourcePlaylistId;
-      console.log(`[Sync] started Spotify sync for playlist: ${playlistId} (${spotifyId})`);
-      const { fetchPlaylistWithHiddenWebContents } = await import('@/lib/spotify/webContentsProvider');
-      const { toAppTrack, toAppPlaylist } = await import('@/lib/spotify/normalize');
-      const { reconcilePlaylist } = await import('@/lib/storage/playlists');
-
-      console.log(`[Sync] fetching Spotify playlist: ${spotifyId}`);
-      // Fetch fresh Spotify data
-      const { playlist: meta, tracks: scrapedTracks } =
-        await fetchPlaylistWithHiddenWebContents(
-          playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
-        );
-
-      console.log(`[Sync] Spotify provider returned ${scrapedTracks.length} tracks`);
-      const localId = playlist.id;
-      const normalizedTracks = scrapedTracks.map((track) => ({
-        name: track.title,
-        artists: track.artist,
-        duration_ms: track.durationMs || 0,
-        image: track.image || '',
-        added_at: track.addedAt || new Date().toISOString(),
-        spotifyTrackId: track.id,
-        album: track.album,
-      }));
-      const remoteTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
-      const remoteKeys = new Set(remoteTracks.map((track) => track.sourceTrackId || track.videoId || track.title));
-      const localOnlyTracks = getCachedTracks(localId)
-        .filter((track) => !remoteKeys.has(track.sourceTrackId || track.videoId || track.title))
-        .map((track, index) => ({ ...track, playlistId: localId, position: remoteTracks.length + index }));
-      const appTracks = [...remoteTracks, ...localOnlyTracks];
-
-      // The hidden WebContents scraper is the only source for fresh Spotify
-      // metadata and artwork in import/sync flows.
-      const playlistName = meta.name?.trim() || playlist.title;
-      const newPlaylist = toAppPlaylist(
-        spotifyId,
-        playlistName || playlist.title,
-        meta.image || playlist.thumbnailUrl,
-        playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
-        appTracks,
-      );
-
-      const mergedPlaylist = {
-        ...newPlaylist,
-        id: playlist.id,
-        title: playlistName || playlist.title,
-        syncOnOpen: playlist.syncOnOpen,
-        createdAt: playlist.createdAt,
-        lastSyncedAt: new Date().toISOString(),
-      };
-
-      console.log(`[Sync] starting SQLite reconciliation for ${appTracks.length} tracks`);
-      // Reconcile with SQLite (instant persistence + background artwork)
-      await reconcilePlaylist(mergedPlaylist, appTracks, meta.image || undefined, true);
-      console.log(`[Sync] reconciliation completed, returning response`);
-
-      state.status = 'idle';
-      state.updatedAt = Date.now();
-      setPersistent(stateKey(playlistId), state, 0);
-      return state;
-    } catch (error) {
-      console.error(`[Sync] Spotify sync failed:`, error);
-      state.status = 'error';
-      state.error = error instanceof Error ? error.message : 'Spotify playlist synchronization failed';
-      state.updatedAt = Date.now();
-      setPersistent(stateKey(playlistId), state, 0);
-      throw error;
-    }
-  }
-
-  // YouTube flow unchanged
   try {
-    const remote = await readYouTubeRemote(playlist.sourcePlaylistId);
-    state.remoteRevision = remote.revision;
+    const spotifyId = playlist.sourcePlaylistId;
+    const { fetchPlaylistWithHiddenWebContents } = await import('@/lib/spotify/webContentsProvider');
+    const { toAppTrack, toAppPlaylist } = await import('@/lib/spotify/normalize');
+    const { reconcilePlaylist } = await import('@/lib/storage/playlists');
 
-    if (state.pendingOperations.length) {
-      state.status = 'readonly';
-      state.error = 'Remote playlist mutations are not part of the local sync queue.';
-      state.updatedAt = Date.now();
-      setPersistent(stateKey(playlistId), state, 0);
-      return state;
-    }
+    const { playlist: meta, tracks: scrapedTracks } = await fetchPlaylistWithHiddenWebContents(
+      playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
+    );
 
-    const localTracks = getCachedTracks(playlistId) || [];
-    const tracks = preserveResolvedIdentities(remote.tracks, localTracks);
-    setCachedTracks(playlistId, tracks);
-    upsertLocalPlaylist({
-      ...playlist,
-      title: remote.title || playlist.title,
-      sourceRevision: remote.revision,
-      syncStatus: 'idle',
-      syncError: undefined,
+    const localId = playlist.id;
+    const normalizedTracks = scrapedTracks.map((track) => ({
+      name: track.title,
+      artists: track.artist,
+      duration_ms: track.durationMs || 0,
+      image: track.image || '',
+      added_at: track.addedAt || new Date().toISOString(),
+      spotifyTrackId: track.id,
+      album: track.album,
+    }));
+    const remoteTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
+    const remoteKeys = new Set(remoteTracks.map((track) => track.sourceTrackId || track.videoId || track.title));
+    const localOnlyTracks = getCachedTracks(localId)
+      .filter((track) => !remoteKeys.has(track.sourceTrackId || track.videoId || track.title))
+      .map((track, index) => ({ ...track, playlistId: localId, position: remoteTracks.length + index }));
+    const appTracks = [...remoteTracks, ...localOnlyTracks];
+
+    const playlistName = meta.name?.trim() || playlist.title;
+    const newPlaylist = toAppPlaylist(
+      spotifyId,
+      playlistName || playlist.title,
+      meta.image || playlist.thumbnailUrl,
+      playlist.sourceUrl || `https://open.spotify.com/playlist/${spotifyId}`,
+      appTracks,
+    );
+
+    const mergedPlaylist = {
+      ...newPlaylist,
+      id: playlist.id,
+      title: playlistName || playlist.title,
+      syncOnOpen: playlist.syncOnOpen,
+      createdAt: playlist.createdAt,
       lastSyncedAt: new Date().toISOString(),
-    });
-    state.lastCommonRevision = remote.revision;
+    };
+
+    await reconcilePlaylist(mergedPlaylist, appTracks, meta.image || undefined, true);
+
     state.status = 'idle';
     state.updatedAt = Date.now();
     setPersistent(stateKey(playlistId), state, 0);
@@ -176,31 +106,4 @@ export async function syncPlaylist(playlistId: string): Promise<PlaylistSyncStat
     setPersistent(stateKey(playlistId), state, 0);
     throw error;
   }
-}
-
-async function readYouTubeRemote(sourcePlaylistId: string): Promise<{ title: string; tracks: Track[]; revision: string }> {
-  const result = await getAllYouTubePlaylistTracks(sourcePlaylistId);
-  const tracks = result.items.map((item, position) => ({
-    videoId: item.videoId,
-    playlistItemId: item.playlistItemId,
-    title: item.title,
-    artist: item.channel || 'Unknown artist',
-    duration: item.duration,
-    thumbnailUrl: item.thumbnails?.[0] || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
-    position,
-    source: 'youtube' as const,
-    sourceTrackId: item.videoId,
-  }));
-  return { title: result.title || '', tracks, revision: canonicalRevision(tracks) };
-}
-
-function preserveResolvedIdentities(remote: Track[], local: Track[]): Track[] {
-  const localBySource = new Map(local.map((track) => [track.sourceTrackId || track.videoId, track]));
-  return remote.map((track, position) => {
-    const key = track.sourceTrackId || track.videoId;
-    const previous = localBySource.get(key);
-    return previous?.videoId && previous.videoId !== track.videoId
-      ? { ...track, videoId: previous.videoId, thumbnailUrl: previous.thumbnailUrl, position }
-      : { ...track, position };
-  });
 }
