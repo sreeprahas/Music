@@ -306,6 +306,36 @@ export function PlayerBar({
 
     let cancelled = false;
 
+    // Start matching/stream warming immediately, before the player waits for
+    // anything. The server coalesces duplicate requests, so the actual load
+    // below can await the same in-flight work. Keep the window small to avoid
+    // unnecessary network traffic.
+    const currentIndex = queue.findIndex((item) =>
+      (track.videoId && item.videoId === track.videoId) ||
+      (track.sourceTrackId && item.sourceTrackId === track.sourceTrackId),
+    );
+    const prefetchWindow = [
+      ...(currentIndex < 0 ? [track] : []),
+      ...(currentIndex >= 0 ? queue.slice(currentIndex, currentIndex + 4) : queue.slice(0, 4)),
+    ]
+      .filter(Boolean)
+      .map((item) => ({
+        title: item.title,
+        artist: item.artist,
+        duration: item.duration,
+        spotifyId: item.sourceTrackId,
+        album: item.album,
+        thumbnailUrl: item.thumbnailUrl,
+        videoId: item.videoId,
+        downloaded: item.downloaded,
+      }));
+
+    void fetch('/api/spotify/prefetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracks: prefetchWindow }),
+    }).catch(() => {});
+
     const loadTrack = async () => {
       try {
         // ── Spotify track resolution ──────────────────────────────────────
@@ -347,50 +377,37 @@ export function PlayerBar({
           return;
         }
 
-        // Prefer the locally-downloaded MP3 (instant, offline-capable).
+        // Prefer a local download immediately. Otherwise go straight to the
+        // live stream endpoint. We intentionally removed the old HEAD /api/mp3
+        // probe because it added an unnecessary network round trip to every
+        // cold playback. The stream route already knows whether the file is
+        // local and returns /api/mp3 when appropriate.
         const mp3Url = `/api/mp3?v=${encodeURIComponent(videoId)}`;
         if (track.downloaded) {
           if (cancelled || loadGeneration !== loadGenerationRef.current) return;
           audio.src = mp3Url;
         } else {
-          const mp3Res = await fetch(mp3Url, { method: 'HEAD' }).catch(() => null);
+          const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
           if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-
-          if (mp3Res && mp3Res.ok) {
-            audio.src = mp3Url;
-          } else {
-            // Resolve a live provider stream
-            const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
-            if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-            if (!streamRes || !streamRes.ok) {
-              console.error('[Track Load Error]: No local MP3 and stream extraction failed for', track.title);
-              setIsPlaying(false);
-              return;
-            }
-            const streamData = await streamRes.json();
-            if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-            if (!streamData.streamUrl) {
-              console.error('[Track Load Error]: Stream URL missing for', track.title);
-              setIsPlaying(false);
-              return;
-            }
-            audio.src = streamData.streamUrl;
+          if (!streamRes || !streamRes.ok) {
+            console.error('[Track Load Error]: Stream extraction failed for', track.title);
+            setIsPlaying(false);
+            return;
           }
+          const streamData = await streamRes.json();
+          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+          if (!streamData.streamUrl) {
+            console.error('[Track Load Error]: Stream URL missing for', track.title);
+            setIsPlaying(false);
+            return;
+          }
+          audio.src = streamData.streamUrl;
         }
 
         // Restore user's volume — never reset to 1 (that wipes user preference).
         audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
         audio.load();
 
-        // Warm the server-side stream URL cache for the next track so the
-        // subsequent /api/stream call returns in < 1 ms (cache hit) instead
-        // of 3–6 s (live yt-dlp invocation).
-        const currentIndex = queue.findIndex((t) => (t.videoId && t.videoId === videoId) || (t.sourceTrackId && t.sourceTrackId === track.sourceTrackId));
-        const nextTrack = currentIndex >= 0 ? queue[currentIndex + 1] : undefined;
-        if (nextTrack?.videoId && !nextTrack.downloaded) {
-          fetch(`/api/stream/prefetch?videoId=${encodeURIComponent(nextTrack.videoId)}`).catch(() => {});
-        }
-        
         if (!hasRestoredInitialTime.current) {
           hasRestoredInitialTime.current = true;
           if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }

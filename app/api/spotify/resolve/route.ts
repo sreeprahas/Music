@@ -17,6 +17,7 @@ export async function POST(request: Request) {
       duration?: unknown;
       spotifyId?: unknown;
       album?: unknown;
+      thumbnailUrl?: unknown;
       force?: unknown;
     };
 
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
     const spotifyId = typeof body.spotifyId === 'string' ? body.spotifyId.trim() : '';
     const album = typeof body.album === 'string' ? body.album.trim() : undefined;
     const duration = typeof body.duration === 'number' ? body.duration : undefined;
+    const thumbnailUrl = typeof body.thumbnailUrl === 'string' ? body.thumbnailUrl.trim() : undefined;
     const forceSearch = Boolean(body.force);
 
     if (!title || !spotifyId) {
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
         artist,
         album,
         duration,
+        thumbnailUrl,
       },
       { forceSearch },
     );

@@ -1,80 +1,81 @@
 /**
- * lib/matching/config.ts
- *
- * Centralized configuration for the points-based Spotify → YouTube Music matching engine.
+ * Matching configuration for Spotify -> YouTube Music.
+ * Identity is title + artist + duration. Album is intentionally ignored.
  */
 
 export interface ScoringWeights {
   title: {
     max: number;
     exact: number;
-    veryStrong: [number, number]; // 34-39
-    strong: [number, number];     // 27-33
-    moderate: [number, number];   // 18-26
-    weak: [number, number];       // 1-17
+    veryStrong: [number, number];
+    strong: [number, number];
+    moderate: [number, number];
+    weak: [number, number];
     mismatch: number;
   };
   artist: {
     max: number;
     exact: number;
-    veryStrong: [number, number]; // 25-29
-    strong: [number, number];     // 20-24
-    featuredCompatible: [number, number]; // 10-19
-    weak: [number, number];       // 1-9
-    majorMismatchPenalty: number; // -40
+    veryStrong: [number, number];
+    strong: [number, number];
+    featuredCompatible: [number, number];
+    weak: [number, number];
+    majorMismatchPenalty: number;
   };
   duration: {
     max: number;
     tiers: Array<{ maxDiffSeconds: number; points: number }>;
   };
+  // Kept in the shape for compatibility with existing diagnostics/API responses.
+  // Album never contributes to the score.
   album: {
     max: number;
     exact: number;
-    strong: [number, number];     // 7-9
-    compatible: [number, number]; // 4-6
+    strong: [number, number];
+    compatible: [number, number];
     noInfo: number;
   };
   penalties: {
-    liveVsStudio: number;          // -30
-    acousticVsStudio: number;      // -30
-    remixVsOriginal: number;       // -30
-    instrumentalVsVocal: number;   // -40
-    karaokeVsOriginal: number;     // -45
-    coverVsOriginal: number;       // -45
-    mashupVsOriginal: number;      // -45
-    speedOrPitchMismatch: number;  // -35
-    majorEditMismatch: number;     // -25
-    remasteredVsOriginal: number;  // -8
-    cleanExplicitMismatch: number; // -8
+    liveVsStudio: number;
+    acousticVsStudio: number;
+    remixVsOriginal: number;
+    instrumentalVsVocal: number;
+    karaokeVsOriginal: number;
+    coverVsOriginal: number;
+    mashupVsOriginal: number;
+    speedOrPitchMismatch: number;
+    majorEditMismatch: number;
+    remasteredVsOriginal: number;
+    cleanExplicitMismatch: number;
   };
   thresholds: {
-    autoMatch: number;             // 75
-    excellent: number;             // 90
-    strong: number;                // 80
-    acceptable: number;            // 70
-    weak: number;                  // 60
-    reject: number;                // <60
+    autoMatch: number;
+    excellent: number;
+    strong: number;
+    acceptable: number;
+    weak: number;
+    reject: number;
   };
 }
 
 export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   title: {
-    max: 40,
-    exact: 40,
-    veryStrong: [34, 39],
-    strong: [27, 33],
-    moderate: [18, 26],
-    weak: [1, 17],
+    max: 45,
+    exact: 45,
+    veryStrong: [40, 44],
+    strong: [34, 39],
+    moderate: [24, 33],
+    weak: [1, 23],
     mismatch: 0,
   },
   artist: {
-    max: 30,
-    exact: 30,
-    veryStrong: [25, 29],
-    strong: [20, 24],
-    featuredCompatible: [10, 19],
-    weak: [1, 9],
-    majorMismatchPenalty: -40,
+    max: 35,
+    exact: 35,
+    veryStrong: [30, 34],
+    strong: [25, 29],
+    featuredCompatible: [16, 24],
+    weak: [1, 15],
+    majorMismatchPenalty: -45,
   },
   duration: {
     max: 20,
@@ -86,10 +87,10 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
     ],
   },
   album: {
-    max: 10,
-    exact: 10,
-    strong: [7, 9],
-    compatible: [4, 6],
+    max: 0,
+    exact: 0,
+    strong: [0, 0],
+    compatible: [0, 0],
     noInfo: 0,
   },
   penalties: {
@@ -107,10 +108,10 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   },
   thresholds: {
     autoMatch: 75,
-    excellent: 90,
-    strong: 80,
-    acceptable: 70,
-    weak: 60,
-    reject: 60,
+    excellent: 92,
+    strong: 84,
+    acceptable: 75,
+    weak: 65,
+    reject: 65,
   },
 };

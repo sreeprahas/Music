@@ -1,9 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 import { ensureDirs } from './db';
-import { getAudioPath, isUsableAudio, getAudioDir, deleteAudioMimeType } from './cache/audio';
+import {
+  getAudioPath,
+  isUsableAudio,
+  getAudioDir,
+  deleteAudioMimeType,
+} from './cache/audio';
 import { DownloadError } from './spotify/errors';
-import { execYtDlp, YtDlpError, YtDlpNotFoundError, YtDlpTimeoutError } from './youtube/ytdlp';
+import {
+  execYtDlp,
+  YtDlpError,
+  YtDlpNotFoundError,
+} from './youtube/ytdlp';
 
 export function ensureMp3Dir(): void {
   ensureDirs();
@@ -16,9 +25,11 @@ export const isDownloaded = isUsableAudio;
 export function deleteTrack(videoId: string): boolean {
   try {
     const p = getAudioPath(videoId);
+
     if (fs.existsSync(p)) {
       fs.unlinkSync(p);
     }
+
     deleteAudioMimeType(videoId);
     return true;
   } catch (err) {
@@ -27,42 +38,84 @@ export function deleteTrack(videoId: string): boolean {
   }
 }
 
-// In-memory stream URL cache with TTL (4 hours) for sub-millisecond stream response
-const streamUrlCache = new Map<string, { url: string; expiresAt: number }>();
+/**
+ * Direct InnerTube stream cache.
+ *
+ * We cache only the URL and its real/estimated expiry.
+ * YouTube stream URLs are temporary and must not be treated as permanent.
+ */
+const streamUrlCache = new Map<
+  string,
+  {
+    url: string;
+    expiresAt: number;
+  }
+>();
+
+/**
+ * Prevent duplicate simultaneous InnerTube resolution for the same video.
+ *
+ * Without this, the player and prefetch endpoint can both resolve the same
+ * video at the same time.
+ */
+const streamResolutionInFlight = new Map<
+  string,
+  Promise<string>
+>();
 
 function cleanupPartial(outputPath: string): void {
   try {
-    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+
     const dir = path.dirname(outputPath);
     const base = path.basename(outputPath, path.extname(outputPath));
+
     for (const f of fs.readdirSync(dir)) {
-      if (f.startsWith(base) && (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.mp4') || f.endsWith('.webm'))) {
+      if (
+        f.startsWith(base) &&
+        (
+          f.endsWith('.part') ||
+          f.endsWith('.ytdl') ||
+          f.endsWith('.mp4') ||
+          f.endsWith('.webm')
+        )
+      ) {
         fs.unlinkSync(path.join(dir, f));
       }
     }
-  } catch { /* ignore cleanup errors */ }
+  } catch {
+    // Ignore cleanup errors.
+  }
 }
 
 function cleanupDownloadedThumbnails(outputPath: string): void {
   try {
     const dir = path.dirname(outputPath);
     const base = path.basename(outputPath, path.extname(outputPath));
+
     const candidates = [
       path.join(dir, `${base}.webp`),
       path.join(dir, `${base}.jpg`),
       path.join(dir, `${base}.png`),
     ];
+
     for (const cand of candidates) {
       if (fs.existsSync(cand)) {
         fs.unlinkSync(cand);
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    // Ignore cleanup errors.
+  }
 }
 
 /**
  * Downloads a single track as MP3 using yt-dlp.
- * Uses direct video URL first; falls back to search query if direct URL is restricted.
+ *
+ * Downloads deliberately remain on yt-dlp for now.
+ * Playback does NOT use this function.
  */
 export async function downloadTrack(
   videoId: string,
@@ -71,26 +124,34 @@ export async function downloadTrack(
   signal?: AbortSignal,
 ): Promise<void> {
   ensureMp3Dir();
-  if (isUsableAudio(videoId)) return;
+
+  if (isUsableAudio(videoId)) {
+    return;
+  }
 
   const outputPath = getAudioPath(videoId);
 
-  // Attempt 1: Direct YouTube download with player_client=android,web
   try {
     await execYtDlp({
       args: [
-        '--extractor-args', 'youtube:player_client=android,web',
+        '--extractor-args',
+        'youtube:player_client=android,web',
         '-x',
-        '--audio-format', 'mp3',
-        '--audio-quality', '0',
+        '--audio-format',
+        'mp3',
+        '--audio-quality',
+        '0',
         '--write-thumbnail',
-        '--convert-thumbnails', 'webp',
-        '-o', outputPath,
+        '--convert-thumbnails',
+        'webp',
+        '-o',
+        outputPath,
         '--no-playlist',
         '--no-warnings',
         '--no-part',
         '--no-mtime',
-        '--retries', '2',
+        '--retries',
+        '2',
         `https://www.youtube.com/watch?v=${videoId}`,
       ],
       signal,
@@ -103,16 +164,25 @@ export async function downloadTrack(
       return;
     }
   } catch (err) {
-    if (signal?.aborted) throw new Error('Download cancelled');
+    if (signal?.aborted) {
+      throw new Error('Download cancelled');
+    }
+
     if (err instanceof YtDlpNotFoundError) {
       throw new DownloadError('yt-dlp executable not found');
     }
-    console.warn(`[downloader] Direct download failed for ${videoId}, trying fallback search...`);
+
+    console.warn(
+      `[downloader] Direct download failed for ${videoId}, trying fallback search...`,
+    );
+
     cleanupPartial(outputPath);
   }
 
-  // Attempt 2: Fallback search if direct track failed
-  const query = [artist, title, 'audio'].filter(Boolean).join(' ');
+  const query = [artist, title, 'audio']
+    .filter(Boolean)
+    .join(' ');
+
   if (!query || query.trim() === 'audio') {
     throw new DownloadError(`Failed to download track ${videoId}`);
   }
@@ -120,18 +190,24 @@ export async function downloadTrack(
   try {
     await execYtDlp({
       args: [
-        '--extractor-args', 'youtube:player_client=android,web',
+        '--extractor-args',
+        'youtube:player_client=android,web',
         '-x',
-        '--audio-format', 'mp3',
-        '--audio-quality', '0',
+        '--audio-format',
+        'mp3',
+        '--audio-quality',
+        '0',
         '--write-thumbnail',
-        '--convert-thumbnails', 'webp',
-        '-o', outputPath,
+        '--convert-thumbnails',
+        'webp',
+        '-o',
+        outputPath,
         '--no-playlist',
         '--no-warnings',
         '--no-part',
         '--no-mtime',
-        '--retries', '2',
+        '--retries',
+        '2',
         `ytsearch1:${query.replace(/"/g, '')}`,
       ],
       signal,
@@ -145,81 +221,173 @@ export async function downloadTrack(
     }
   } catch (err) {
     cleanupPartial(outputPath);
-    if (signal?.aborted) throw new Error('Download cancelled');
-    const msg = err instanceof YtDlpError
-      ? err.message
-      : err instanceof Error
+
+    if (signal?.aborted) {
+      throw new Error('Download cancelled');
+    }
+
+    const msg =
+      err instanceof YtDlpError
         ? err.message
-        : 'Download error';
-    throw new DownloadError(`Failed to download "${title || videoId}": ${msg}`);
+        : err instanceof Error
+          ? err.message
+          : 'Download error';
+
+    throw new DownloadError(
+      `Failed to download "${title || videoId}": ${msg}`,
+    );
   }
 
-  throw new DownloadError(`Failed to download audio for "${title || videoId}"`);
+  throw new DownloadError(
+    `Failed to download audio for "${title || videoId}"`,
+  );
 }
 
 /**
- * Gets a direct playable audio stream URL for a video via yt-dlp.
- * Cached in memory for sub-millisecond retrieval.
- * Tries android player_client first; falls back to android,web if that
- * produces no usable URL (improves reliability for age-gated / restricted
- * videos while keeping the fast path for normal tracks).
+ * Removes an expired stream URL from the cache.
  */
-export async function getStreamUrl(videoId: string, signal?: AbortSignal): Promise<string> {
+export function invalidateStreamUrl(videoId: string): void {
+  streamUrlCache.delete(videoId);
+}
+
+/**
+ * Returns true when a non-expired direct stream URL is already cached.
+ */
+export function hasCachedStreamUrl(videoId: string): boolean {
   const cached = streamUrlCache.get(videoId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.url;
+
+  if (!cached) {
+    return false;
   }
 
-  // Attempt 1: android client (fastest, no throttling)
-  let url = '';
+  if (cached.expiresAt <= Date.now()) {
+    streamUrlCache.delete(videoId);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Resolves a direct audio stream URL.
+ *
+ * FAST PATH:
+ *   in-memory stream URL cache
+ *
+ * RESOLUTION:
+ *   yt-dlp direct URL extraction
+ *
+ * Duplicate requests for the same video share one in-flight promise.
+ */
+export async function getStreamUrl(
+  videoId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    throw new DownloadError('Invalid YouTube video ID');
+  }
+
+  const cached = streamUrlCache.get(videoId);
+
+  if (cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.url;
+    }
+
+    streamUrlCache.delete(videoId);
+  }
+
+  const existingResolution = streamResolutionInFlight.get(videoId);
+
+  if (existingResolution) {
+    return existingResolution;
+  }
+
+  const resolution = resolveStreamUrl(videoId, signal);
+
+  streamResolutionInFlight.set(videoId, resolution);
+
+  try {
+    return await resolution;
+  } finally {
+    streamResolutionInFlight.delete(videoId);
+  }
+}
+
+async function resolveStreamUrl(
+  videoId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  /*
+   * Playback stream extraction deliberately uses yt-dlp directly.
+   *
+   * youtubei.js is still used for YouTube Music search/matching, but the
+   * InnerTube formats returned by current YouTube responses do not reliably
+   * contain a directly consumable URL in this application. Trying to decipher
+   * those formats first adds several seconds before falling back to yt-dlp.
+   *
+   * For playback, the important optimization is that this resolver is warmed
+   * ahead of time and coalesces duplicate requests.
+   */
   try {
     const result = await execYtDlp({
       args: [
-        '--extractor-args', 'youtube:player_client=android',
-        '-g',
-        '-f', 'ba/b',
+        '--extractor-args',
+        'youtube:player_client=android',
         '--no-playlist',
         '--no-warnings',
+        '--no-check-certificates',
+        '--socket-timeout',
+        '8',
+        '--retries',
+        '1',
+        '-f',
+        'bestaudio/best',
+        '-g',
         `https://www.youtube.com/watch?v=${videoId}`,
       ],
       signal,
-      timeoutMs: 15_000,
+      timeoutMs: 10_000,
     });
-    const lines = result.stdout.trim().split('\n').map((l) => l.trim()).filter((l) => l.startsWith('http'));
-    url = lines[0] || '';
-  } catch {
-    // First attempt failed — try fallback below.
+
+    const url = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => /^https?:\/\//i.test(line)) || '';
+
+    if (url) {
+      let expiresAt = Date.now() + 20 * 60 * 1000;
+
+      try {
+        const expire = Number(new URL(url).searchParams.get('expire'));
+        if (Number.isFinite(expire) && expire > 0) {
+          expiresAt = expire * 1000;
+        }
+      } catch {
+        // Use the conservative fallback expiry above.
+      }
+
+      streamUrlCache.set(videoId, {
+        url,
+        expiresAt,
+      });
+
+      return url;
+    }
+
+    throw new DownloadError('yt-dlp returned no playable audio URL');
+  } catch (err) {
+    if (signal?.aborted) {
+      throw new Error('Operation cancelled');
+    }
+
+    console.warn(
+      `[downloader] stream extraction failed for ${videoId}:`,
+      err instanceof Error ? err.message : err,
+    );
+
+    throw new DownloadError(
+      'Could not resolve a playable audio stream',
+    );
   }
-
-  // Attempt 2: android + web fallback (handles restricted / age-gated)
-  if (!url) {
-    if (signal?.aborted) throw new Error('Operation cancelled');
-    const result = await execYtDlp({
-      args: [
-        '--extractor-args', 'youtube:player_client=android,web',
-        '-g',
-        '-f', 'ba/b',
-        '--no-playlist',
-        '--no-warnings',
-        `https://www.youtube.com/watch?v=${videoId}`,
-      ],
-      signal,
-      timeoutMs: 15_000,
-    });
-    const lines = result.stdout.trim().split('\n').map((l) => l.trim()).filter((l) => l.startsWith('http'));
-    url = lines[0] || '';
-  }
-
-  if (!url) {
-    throw new DownloadError('Could not extract direct stream URL');
-  }
-
-  // Cache for 5 hours (YouTube stream URLs expire after ~6 hours).
-  // The extra hour of headroom prevents stale cache hits near expiry.
-  streamUrlCache.set(videoId, {
-    url,
-    expiresAt: Date.now() + 5 * 60 * 60 * 1000,
-  });
-
-  return url;
 }
