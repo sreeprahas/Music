@@ -17,6 +17,14 @@ import { Search, Play, Plus, X, Download, Loader2, ChevronDown, ChevronUp, Chevr
 import { cleanArtistName, formatDuration, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { getCachedPlaylistMemberships, primePlaylistMemberships, removePlaylistMembership } from './AddToPlaylistDropdown';
 
+/** Client-safe URL builder — mirrors lib/storage/thumbnails.ts. */
+function playlistCoverUrl(playlistId: string): string {
+  return `/api/playlist/${encodeURIComponent(playlistId)}/cover`;
+}
+import { CachedSongsView } from './CachedSongsView';
+import { MatchOverrideModal } from './MatchOverrideModal';
+import { useDelayedLoading } from './useDelayedLoading';
+
 const QUEUE_MIN = 16;
 const QUEUE_MAX = 28;
 const LYRICS_MIN = 18;
@@ -41,6 +49,7 @@ type RouteState =
   | { kind: 'home' }
   | { kind: 'playlist'; playlistId: string }
   | { kind: 'management' }
+  | { kind: 'cached-songs' }
   | { kind: 'search'; query: string; songId?: string };
 type PlaybackSession = {
   track: Track | null;
@@ -80,6 +89,7 @@ function readRoute(): RouteState {
   if (parts[0] === 'playlist' && parts[1]) return { kind: 'playlist', playlistId: parts[1] };
   // Playlist management temporarily on standby.
   // if (parts[0] === 'management' || parts[0] === 'hidden') return { kind: 'management' };
+  if (parts[0] === 'cached-songs') return { kind: 'cached-songs' };
   if (parts[0] === 'search' && parts[1]) {
     return { kind: 'search', query: parts[1], songId: parts[2] === 'song' && parts[3] ? parts[3] : undefined };
   }
@@ -90,6 +100,7 @@ function routeHref(route: RouteState) {
   if (route.kind === 'playlist') return `/playlist/${encodeURIComponent(route.playlistId)}`;
   // Playlist management temporarily on standby.
   // if (route.kind === 'management') return '/management';
+  if (route.kind === 'cached-songs') return '/cached-songs';
   if (route.kind === 'search') {
     const base = `/search/${encodeURIComponent(route.query)}`;
     return route.songId ? `${base}/song/${encodeURIComponent(route.songId)}` : base;
@@ -105,6 +116,7 @@ export function Dashboard({ user, onUserChange }: Props) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const playlistsRef = useRef<Playlist[]>([]);
   const [loadingPlaylists, setLoadingPlaylists] = useState(true);
+  const showPlaylistsSkeleton = useDelayedLoading(loadingPlaylists);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [playlistOrder, setPlaylistOrder] = useState<string[]>([]);
@@ -112,6 +124,7 @@ export function Dashboard({ user, onUserChange }: Props) {
   const [importedPlaylistIds, setImportedPlaylistIds] = useState<string[]>([]);
   const [pendingImportIds, setPendingImportIds] = useState<string[]>([]);
   const [showPlaylistManagement, setShowPlaylistManagement] = useState(false);
+  const [isCachedSongsRoute, setIsCachedSongsRoute] = useState(false);
   const [allTracks, setAllTracks] = useState<Record<string, CachedTrack>>({});
   const [lastDownloadedTrack, setLastDownloadedTrack] = useState<{ videoId: string; timestamp: number } | null>(null);
   const [restoredTrack, setRestoredTrack] = useState<{ track: Track; playlistId: string; timestamp: number } | null>(null);
@@ -192,6 +205,7 @@ export function Dashboard({ user, onUserChange }: Props) {
     typeof window === 'undefined' ? true : localStorage.getItem('yt_sidebar_expanded') !== 'false'
   );
   const [sleepTimerRequest, setSleepTimerRequest] = useState<{ type: 'open' | 'set'; minutes?: number; id: number } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
 
@@ -500,6 +514,7 @@ export function Dashboard({ user, onUserChange }: Props) {
     // Settings is a pure overlay and is intentionally not part of routing
     // or the undo/redo history.
     setShowPlaylistManagement(false);
+    setIsCachedSongsRoute(route.kind === 'cached-songs');
 
     const q = route.kind === 'search' ? route.query : '';
     setSearchQuery(q);
@@ -516,11 +531,20 @@ export function Dashboard({ user, onUserChange }: Props) {
 
   useEffect(() => {
     const initialPosition = Number(window.history.state?.musicNavigationIndex ?? 0);
-    window.history.replaceState({ ...window.history.state, musicNavigationIndex: initialPosition }, '', window.location.href);
+    const startRoute = readRoute();
+    // Always open on the home page. Replace whatever URL the user landed on
+    // (e.g. /cached-songs from a previous session, or /playlist/…) with `/`
+    // so the initial render is the home view and the address bar matches.
+    const homeHref = routeHref({ kind: 'home' });
+    if (window.location.pathname !== homeHref) {
+      window.history.replaceState({ musicNavigationIndex: initialPosition }, '', homeHref);
+    } else {
+      window.history.replaceState({ ...window.history.state, musicNavigationIndex: initialPosition }, '', window.location.href);
+    }
     historyPositionRef.current = initialPosition;
     setHistoryPosition(initialPosition);
     setHistoryLength(initialPosition);
-    applyRoute(readRoute());
+    applyRoute({ kind: 'home' });
 
     const handlePopState = (event: PopStateEvent) => {
       const pathname = window.location.pathname;
@@ -645,6 +669,57 @@ export function Dashboard({ user, onUserChange }: Props) {
     };
   }, []);
 
+  // Eagerly prefetch composite playlist covers as the first priority — inject
+  // <link rel="preload"> so the browser warms the HTTP cache before the user
+  // navigates to a playlist. The composite is generated in memory from the
+  // four cached track thumbnails; no cover.webp is written to disk.
+  const prefetchedCoversRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!playlists.length) return;
+    if (typeof document === 'undefined') return;
+    for (const pl of playlists) {
+      if (prefetchedCoversRef.current.has(pl.id)) continue;
+      prefetchedCoversRef.current.add(pl.id);
+      const href = playlistCoverUrl(pl.id);
+      const existing = document.querySelector(`link[href="${href}"]`);
+      if (!existing) {
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'image';
+        link.href = href;
+        link.fetchPriority = 'high';
+        document.head.appendChild(link);
+      }
+    }
+  }, [playlists]);
+
+  // Regenerate playlist cover artwork on every app open so covers always
+  // reflect the latest artwork renditions and playlist contents.
+  useEffect(() => {
+    let cancelled = false;
+    const refreshCovers = async () => {
+      try {
+        const res = await fetch('/api/playlists/refresh-covers', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && Array.isArray(data?.refreshedPlaylists) && data.refreshedPlaylists.length > 0) {
+          const refreshed = data.refreshedPlaylists as Playlist[];
+          setPlaylists((prev) => prev.map((playlist) => {
+            const updated = refreshed.find((item) => item.id === playlist.id);
+            return updated ? { ...playlist, thumbnailUrls: updated.thumbnailUrls, thumbnailVideoIds: updated.thumbnailVideoIds } : playlist;
+          }));
+        }
+      } catch {
+        // Cover refresh is best-effort; failures are non-fatal.
+      }
+    };
+    // Small delay so the initial library render is not blocked by artwork downloads.
+    const timer = window.setTimeout(refreshCovers, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   const handleOpenHiddenFolder = useCallback(() => {
     // Playlist management temporarily on standby â€” no-op.
   }, []);
@@ -759,12 +834,32 @@ export function Dashboard({ user, onUserChange }: Props) {
   }, [activePlaylistId, allTracks, currentTrack, handleOpenPlayingPlaylist, loadingPlaylists, playlists, selectedPlaylist]);
 
   const handlePlay = useCallback((track: Track, newQueue: Track[], sourcePlaylistId?: string) => {
-    const nextPlaylistId = sourcePlaylistId ?? track.sourcePlaylistId ?? track.playlistId ?? selectedPlaylist?.id ?? null;
-    const baseQueue = newQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined }));
+    // Always look up the freshest copy of every queued track from allTracks
+    // before doing anything. The caller (e.g. PlaylistView, CachedSongsView)
+    // may hold a stale snapshot of the track — particularly after a YouTube
+    // link override, which rewrites the videoId/thumbnail/title but only
+    // updates the global allTracks state. Without this lookup, playback
+    // would resolve the OLD videoId even though the override is "saved."
+    const freshFromAllTracks = (t: Track): Track => {
+      if (t.sourceTrackId) {
+        const match = Object.values(allTracks).find((x) => x.sourceTrackId === t.sourceTrackId);
+        if (match) return match;
+      }
+      if (t.videoId && allTracks[t.videoId]) {
+        return allTracks[t.videoId];
+      }
+      return t;
+    };
+
+    const freshTrack = freshFromAllTracks(track);
+    const freshQueue = newQueue.map(freshFromAllTracks);
+
+    const nextPlaylistId = sourcePlaylistId ?? freshTrack.sourcePlaylistId ?? freshTrack.playlistId ?? selectedPlaylist?.id ?? null;
+    const baseQueue = freshQueue.map((t) => ({ ...t, sourcePlaylistId: nextPlaylistId || undefined }));
     unshuffledQueueRef.current = baseQueue;
     let queuedTracks = baseQueue;
     if (isShuffle && baseQueue.length > 1) {
-      const selected = baseQueue.find((item) => item.videoId === track.videoId) || baseQueue[0];
+      const selected = baseQueue.find((item) => item.videoId === freshTrack.videoId) || baseQueue[0];
       const upcoming = baseQueue.filter((item) => item.videoId !== selected.videoId);
       for (let index = upcoming.length - 1; index > 0; index -= 1) {
         const swapIndex = Math.floor(Math.random() * (index + 1));
@@ -774,11 +869,11 @@ export function Dashboard({ user, onUserChange }: Props) {
     }
 
     const trackWithSource = {
-      ...track,
+      ...freshTrack,
       sourcePlaylistId: nextPlaylistId || undefined,
-      playlistId: track.playlistId ?? (nextPlaylistId || undefined),
+      playlistId: freshTrack.playlistId ?? (nextPlaylistId || undefined),
     };
-    const requestedIndex = isShuffle ? 0 : Math.max(0, newQueue.indexOf(track), newQueue.findIndex((item) => item.videoId === track.videoId));
+    const requestedIndex = isShuffle ? 0 : Math.max(0, freshQueue.indexOf(freshTrack), freshQueue.findIndex((item) => item.videoId === freshTrack.videoId));
     const queueWithCurrent = queuedTracks.length > 0 ? queuedTracks : [trackWithSource];
     const position = Math.min(requestedIndex, queueWithCurrent.length - 1);
     queueWithCurrent[position] = trackWithSource;
@@ -794,7 +889,7 @@ export function Dashboard({ user, onUserChange }: Props) {
       else localStorage.removeItem('yt_active_playlist_id');
     } catch { }
     setShouldAutoplay(true);
-  }, [isShuffle, selectedPlaylist?.id]);
+  }, [allTracks, isShuffle, selectedPlaylist?.id]);
 
   const handlePlayPlaylist = useCallback(async (playlistId: string) => {
     let tracks = Object.values(allTracks).filter((track) => track.playlistId === playlistId);
@@ -1142,7 +1237,19 @@ export function Dashboard({ user, onUserChange }: Props) {
       const res = await apiFetch('/api/download/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId: track.videoId, title: track.title, artist: track.artist }),
+        // Single-song payload ONLY: the endpoint downloads exactly this song
+        // and deliberately never receives playlist identifiers. For Spotify
+        // songs without a matched video yet, the backend resolves the song
+        // via sourceTrackId using the shared matching engine.
+        body: JSON.stringify({
+          videoId: track.videoId || '',
+          sourceTrackId: track.sourceTrackId || '',
+          title: track.title,
+          artist: track.artist,
+          album: track.album || '',
+          duration: track.duration,
+          thumbnailUrl: track.thumbnailUrl || '',
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
@@ -1200,6 +1307,23 @@ export function Dashboard({ user, onUserChange }: Props) {
       // PlaylistView handles the optimistic track state update â€” no reload needed
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete download';
+      alert(msg);
+    }
+  }, [apiFetch]);
+
+  // Cached Songs view: removes the AUTOMATIC cache copy — never the user's
+  // explicit downloads, which live in a separate store.
+  const handleDeleteCachedTrack = useCallback(async (track: Track) => {
+    try {
+      const res = await apiFetch('/api/download/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: track.videoId, action: 'delete', store: 'cache' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to remove cached song');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to remove cached song';
       alert(msg);
     }
   }, [apiFetch]);
@@ -1302,6 +1426,147 @@ export function Dashboard({ user, onUserChange }: Props) {
     handleDownload(playlistId, videoIds);
   }, [handleDownload]);
 
+  /**
+   * Stable identity match for a track. Prefers `sourceTrackId` (Spotify ID is
+   * never reassigned) and falls back to `videoId`. Used by overrides so
+   * a YouTube link change never leaks into other tracks that happen to
+   * share the same videoId.
+   */
+  const isSameTrackIdentity = useCallback((a: Track, b: Track): boolean => {
+    if (a.sourceTrackId && b.sourceTrackId) {
+      return a.sourceTrackId === b.sourceTrackId;
+    }
+    return a.videoId === b.videoId;
+  }, []);
+
+  // Manual YouTube link override (right-click -> "Set YouTube link...")
+  const [overrideTrack, setOverrideTrack] = useState<Track | null>(null);
+  // Bumped whenever the player bar's artwork should re-fetch (override,
+  // Spotify→YouTube auto-resolution). Forwarded to <PlayerBar playerBarArtworkKey={…}>
+  // so the cover <img> and OS media session re-mount with a fresh URL.
+  const [playerBarArtworkKey, setPlayerBarArtworkKey] = useState(0);
+  const handleOpenMatchOverride = useCallback((track: Track) => {
+    setOverrideTrack(track);
+  }, []);
+  const handleMatchOverrideSaved = useCallback((
+    originalTrack: Track,
+    result: { videoId: string; title?: string; artist?: string; duration?: number; thumbnailUrl?: string; localThumbnailUrl?: string },
+  ) => {
+    // Build the fully updated track with new YouTube metadata.
+    // Preserve the cached `playlistId` / `playlistTitle` from the existing
+    // allTracks entry if we can find it — they're set per-playlist on load
+    // and would otherwise be dropped.
+    const existingCached = originalTrack.sourceTrackId
+      ? Object.values(allTracks).find((t) => t.sourceTrackId === originalTrack.sourceTrackId)
+      : allTracks[originalTrack.videoId];
+    const cachedBase: CachedTrack = existingCached
+      ? existingCached
+      : ({ ...originalTrack, playlistId: originalTrack.playlistId || '', playlistTitle: '' } as CachedTrack);
+
+    // Prefer the local API URL the override route now returns. Only fall
+    // back to the YouTube CDN URL when the server didn't send one (e.g.
+    // direct videoId override on a non-Spotify track).
+    const newThumbnailUrl = result.localThumbnailUrl || result.thumbnailUrl || originalTrack.thumbnailUrl;
+
+    const updatedTrack: CachedTrack = {
+      ...cachedBase,
+      videoId: result.videoId,
+      title: result.title || originalTrack.title,
+      artist: result.artist || originalTrack.artist,
+      duration: result.duration ?? originalTrack.duration,
+      thumbnailUrl: newThumbnailUrl,
+    };
+
+    // Find the specific allTracks entry to update. Prefer sourceTrackId (stable
+    // identity for Spotify tracks) over videoId to avoid accidentally matching
+    // other tracks that happened to share the old videoId.
+    const oldKey = originalTrack.sourceTrackId || originalTrack.videoId;
+
+    setAllTracks((prev) => {
+      const next = { ...prev };
+      // Delete the old key so a videoId change moves the entry correctly.
+      if (oldKey in next) delete next[oldKey];
+      // Re-add with the new videoId as the key.
+      next[result.videoId] = updatedTrack;
+      return next;
+    });
+
+    setQueue((prev) => prev.map((t) => isSameTrackIdentity(t, originalTrack) ? updatedTrack : t));
+
+    setCurrentTrack((prev) => {
+      if (!prev) return prev;
+      return isSameTrackIdentity(prev, originalTrack) ? updatedTrack : prev;
+    });
+
+    // KEY FIX: After all state updates, trigger a fresh playback using the
+    // updated track from allTracks. Calling handlePlay with the closed-over
+    // originalTrack (which still has the old videoId) causes playback to
+    // resolve the stale YouTube source. By looking up the fresh track from
+    // allTracks via the stable sourceTrackId identity, playback uses the
+    // correct new videoId immediately.
+    if (originalTrack.sourceTrackId) {
+      const freshFromAllTracks = Object.values(allTracks).find(
+        (t) => t.sourceTrackId === originalTrack.sourceTrackId,
+      );
+      if (freshFromAllTracks) {
+        setTimeout(() => handlePlay(freshFromAllTracks, [freshFromAllTracks]), 0);
+      }
+    }
+
+    setFeedbackToast('YouTube link updated for "' + originalTrack.title + '"');
+    setTimeout(() => setFeedbackToast(null), 3000);
+
+    // Bump the artwork key so PlayerBar and the OS media session re-fetch
+    // even when the cover URL string is otherwise identical (e.g. global
+    // thumbnail just landed on disk for the new videoId).
+    setPlayerBarArtworkKey((k) => k + 1);
+
+    // Delete the old videoId's automatically cached audio (NOT explicit
+    // downloads). The override route already removes the global thumbnail
+    // and saved lyrics server-side; this finalizes the audio cleanup so
+    // the cache store doesn't accumulate orphan files.
+    const oldVideoId = originalTrack.videoId;
+    if (oldVideoId && oldVideoId !== result.videoId) {
+      void fetch('/api/download/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: oldVideoId, action: 'delete', store: 'cache' }),
+      }).catch(() => { /* best-effort cleanup */ });
+    }
+  }, [allTracks, isSameTrackIdentity]);
+
+  // Cached Songs view routing
+  const handleSelectCachedSongs = useCallback(() => {
+    navigateRoute({ kind: 'cached-songs' });
+  }, [navigateRoute]);
+
+  /**
+   * The player resolves Spotify tracks to a YouTube video on demand. Reporting
+   * the resolved id back keeps the currently-playing song highlighted in the
+   * playlist view (and every other surface keyed by videoId) regardless of
+   * where the track came from — Spotify, YouTube, search, cache or download.
+   */
+  const handleVideoIdResolved = useCallback((sourceTrackId: string, videoId: string) => {
+    if (!sourceTrackId || !videoId) return;
+    const matches = (t: Track) =>
+      (Boolean(t.sourceTrackId) && t.sourceTrackId === sourceTrackId) || t.videoId === videoId;
+    const applyResolved = (t: Track): Track => (matches(t) ? { ...t, videoId } : t);
+    setCurrentTrack((prev) => (prev && matches(prev) ? { ...prev, videoId } : prev));
+    setQueue((prev) => prev.map(applyResolved));
+    setAllTracks((prev) => {
+      const next: Record<string, CachedTrack> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        next[key] = applyResolved(value) as CachedTrack;
+      }
+      return next;
+    });
+    // Re-render the player bar cover / OS media session with the freshly
+    // resolved videoId. The URL is built from track.videoId, so a new
+    // videoId alone remounts the cover, but bumping the key also covers
+    // the case where the auto-resolver re-confirms an already-known id.
+    setPlayerBarArtworkKey((k) => k + 1);
+  }, []);
+
   const handleCancelDownload = useCallback((playlistId: string) => {
     const source = downloadSources.current.get(playlistId);
     source?.close();
@@ -1326,13 +1591,6 @@ export function Dashboard({ user, onUserChange }: Props) {
   const filteredPlaylists = searchQuery.trim()
     ? orderedImportedPlaylists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase().trim()))
     : orderedImportedPlaylists;
-
-  const playlistRecommendations = useMemo(() => {
-    if (!selectedPlaylist) return [];
-    return Object.values(allTracks)
-      .filter((track) => track.playlistId !== selectedPlaylist.id && track.videoId)
-      .slice(0, 6);
-  }, [allTracks, selectedPlaylist]);
 
   const [searchFilter, setSearchFilter] = useState<'song' | 'artist'>(() => {
     if (typeof window !== 'undefined') {
@@ -1359,6 +1617,21 @@ export function Dashboard({ user, onUserChange }: Props) {
       }
     });
   }, [allTracks, typedSearchInput, searchQuery, searchFilter]);
+
+  // First-N tracks per playlist — used to render the dynamic 2×2 cover
+  // (the first 4 tracks' thumbnails) inside every <PlaylistArtwork> instance.
+  const tracksByPlaylist = useMemo(() => {
+    const map: Record<string, Track[]> = {};
+    for (const track of Object.values(allTracks)) {
+      if (!track.playlistId) continue;
+      if (!map[track.playlistId]) map[track.playlistId] = [];
+      map[track.playlistId].push(track);
+    }
+    for (const list of Object.values(map)) {
+      list.sort((a, b) => a.position - b.position);
+    }
+    return map;
+  }, [allTracks]);
 
   const waitingForInitialPlaylist = initialRoute.kind === 'playlist' && !selectedPlaylist && playlists.length > 0;
 
@@ -1477,7 +1750,7 @@ export function Dashboard({ user, onUserChange }: Props) {
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/search?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(searchMode)}&limit=25`,
+          `/api/search?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(searchMode)}&limit=25&filter=${encodeURIComponent(searchFilter)}`,
           { cache: 'no-store' },
         );
         if (cancelled) return;
@@ -1502,7 +1775,7 @@ export function Dashboard({ user, onUserChange }: Props) {
 
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typedSearchInput, searchQuery, searchMode]);
+  }, [typedSearchInput, searchQuery, searchMode, searchFilter]);
 
   const headerSearchResults = useMemo(() => {
     if (searchMode === 'local') return globalSearchResults;
@@ -1657,6 +1930,13 @@ export function Dashboard({ user, onUserChange }: Props) {
         return;
       }
 
+      // F5 â†’ reload sidebar, main content, lyrics, queue (soft refresh)
+      if (e.code === 'F5' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        setRefreshKey((k) => k + 1);
+        return;
+      }
+
       // Cmd/Ctrl + Right â†’ next track
       if (mod && e.code === 'ArrowRight' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
@@ -1778,9 +2058,11 @@ export function Dashboard({ user, onUserChange }: Props) {
     ? `search:${searchQuery}`
     : showPlaylistManagement
       ? 'playlist-management'
-      : selectedPlaylist
-        ? `playlist:${selectedPlaylist.id}`
-        : 'home';
+      : isCachedSongsRoute
+        ? 'cached-songs'
+        : selectedPlaylist
+          ? `playlist:${selectedPlaylist.id}`
+          : 'home';
 
   return (
     <div className="music-shell h-screen w-screen flex flex-col overflow-hidden">
@@ -1846,6 +2128,7 @@ export function Dashboard({ user, onUserChange }: Props) {
           style={{ width: sidebarExpanded ? `${sidebarWidth}px` : '72px' }}
         >
           <Sidebar
+            key={'sidebar-' + refreshKey}
             playlists={orderedImportedPlaylists}
             selectedId={selectedPlaylist ? selectedPlaylist.id : showPlaylistManagement ? '__management__' : null}
             pinnedIds={pinnedIds}
@@ -1864,15 +2147,18 @@ export function Dashboard({ user, onUserChange }: Props) {
             onDownloadPlaylist={handleDownload}
             onRemovePlaylist={handleDeletePlaylist}
             onSyncNow={handleSyncPlaylistNow}
+            onSelectCachedSongs={handleSelectCachedSongs}
+            cachedSongsSelected={isCachedSongsRoute}
             expanded={sidebarExpanded}
             onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
             onAddPlaylist={handleOpenImportModal}
+            tracksByPlaylist={tracksByPlaylist}
           />
         </aside>
 
         <div className="flex-1 min-w-0 h-full flex overflow-hidden">
           <div className="flex-1 min-w-0 h-full relative overflow-hidden flex flex-col">
-            <div key={pageTransitionKey} className="h-full min-h-0 animate-page-transition">
+            <div key={`${pageTransitionKey}-${refreshKey}`} className="h-full min-h-0 animate-page-transition">
               {showGlobalSearch ? (
                 <GlobalSearchResults
                   query={searchQuery}
@@ -1917,7 +2203,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                   allPlaylists={playlists}
                   onAddToPlaylist={handleAddToPlaylist}
                 />
-              ) : loadingPlaylists ? (
+              ) : showPlaylistsSkeleton ? (
                 selectedPlaylist ? <PlaylistViewSkeleton /> : <PlaylistGridSkeleton />
               ) : showPlaylistManagement ? (
                 // Playlist management temporarily on standby â€” render grid as fallback.
@@ -1932,6 +2218,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                   onDownload={handleDownload}
                   onRemove={handleDeletePlaylist}
                   onSyncNow={handleSyncPlaylistNow}
+                  tracksByPlaylist={tracksByPlaylist}
                 />
               ) : selectedPlaylist ? (
                 <PlaylistView
@@ -1950,6 +2237,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                   onDownloadTrack={handleDownloadTrack}
                   onDeleteTrack={handleDeleteTrack}
                   onTrackDeleted={handleTrackDeleted}
+                  onSetMatchOverride={handleOpenMatchOverride}
                   onTogglePin={handleTogglePin}
                   onTracksLoaded={handleTracksLoaded}
                   lastDownloadedTrack={lastDownloadedTrack}
@@ -1961,8 +2249,12 @@ export function Dashboard({ user, onUserChange }: Props) {
                   onEditOrderChange={setIsPlaylistEditOrder}
                   onSyncNow={handleSyncPlaylistNow}
                   isSyncingExternally={syncingPlaylistIds.has(selectedPlaylist.id)}
-                  recommendations={playlistRecommendations}
                   playlistMutation={playlistMutation}
+                />
+              ) : isCachedSongsRoute ? (
+                <CachedSongsView
+                  onPlay={(track, songs) => handlePlay(track, songs)}
+                  onDeleteTrack={handleDeleteCachedTrack}
                 />
               ) : (
                 <div className="h-full min-h-0 overflow-y-auto scrollbar-thin">
@@ -1978,6 +2270,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                       onDownload={handleDownload}
                       onRemove={handleDeletePlaylist}
                       onSyncNow={handleSyncPlaylistNow}
+                      tracksByPlaylist={tracksByPlaylist}
                     />
                   </div>
                 </div>
@@ -1994,6 +2287,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                 style={{ width: `${queueWidth}%` }}
               >
                 <QueueDrawer
+                  key={'queue-' + refreshKey}
                   currentTrack={currentTrack}
                   queue={queue}
                   queuePosition={queuePosition}
@@ -2022,6 +2316,7 @@ export function Dashboard({ user, onUserChange }: Props) {
                 style={{ width: `${lyricsWidth}%` }}
               >
                 <LyricsDrawer
+                  key={`lyrics-${refreshKey}`}
                   track={currentTrack}
                   currentTime={currentTime}
                   onClose={handleCloseLyrics}
@@ -2065,11 +2360,18 @@ export function Dashboard({ user, onUserChange }: Props) {
         onToggleFullscreen={() => setIsFullscreenOpen(true)}
         playlistMutation={playlistMutation}
         onTimeUpdate={(t) => setCurrentTime(t)}
-        resumeTime={savedSession?.track?.videoId === currentTrack?.videoId ? savedSession?.time ?? 0 : 0}
+        onVideoIdResolved={handleVideoIdResolved}
+        resumeTime={
+          savedSession?.track?.videoId
+            ? savedSession.track.videoId === currentTrack?.videoId
+              ? savedSession.time ?? 0
+              : 0
+            : savedSession?.time ?? 0
+        }
+        playerBarArtworkKey={playerBarArtworkKey}
         autoPlay={shouldAutoplay}
         onStateChange={(state) => {
           setIsPlaying(state.isPlaying);
-          setShouldAutoplay(state.isPlaying);
           setDuration(state.duration);
         }}
         volume={volume}
@@ -2106,6 +2408,14 @@ export function Dashboard({ user, onUserChange }: Props) {
           user={user}
           onUserChange={onUserChange}
           onClose={() => setIsSettingsPage(false)}
+        />
+      )}
+
+      {overrideTrack && (
+        <MatchOverrideModal
+          track={overrideTrack}
+          onClose={() => setOverrideTrack(null)}
+          onSaved={handleMatchOverrideSaved}
         />
       )}
 

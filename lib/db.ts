@@ -27,6 +27,7 @@ export {
   getPlaylistWithArtwork,
   setPlaylistSyncOnOpen,
   allocateUniquePlaylistTitle,
+  refreshPlaylistCoverArt,
 } from './storage/playlists';
 
 // Backwards-compat alias: findLocalPlaylistBySourceUrl
@@ -57,12 +58,9 @@ export {
 
 export {
   getPlaylistThumbnailDir,
-  getPlaylistCoverPath,
   getTrackThumbnailPath,
-  hasPlaylistCover,
   hasTrackThumbnail,
   trackThumbnailApiUrl,
-  playlistCoverApiUrl,
   downloadAllTrackThumbnails,
   downloadAllMetadataImages,
   deletePlaylistThumbnailDir,
@@ -109,13 +107,33 @@ import { getTrackThumbnailPath as _scopedPath } from './storage/thumbnails';
  * Find the thumbnail path for a trackKey (videoId or sourceTrackId)
  * by scanning all playlists. Used by the thumbnail API as a fallback.
  */
+// In-memory cache for findThumbnailInAnyPlaylist. The thumbnail API hits
+// this on every track image load, and without caching it scans the
+// filesystem once per playlist per request. Keyed by trackKey, invalidated
+// whenever a new track thumbnail lands on disk.
+const thumbnailScanCache = new Map<string, string | null>();
+
+export function invalidateThumbnailScanCache(trackKey?: string): void {
+  if (trackKey !== undefined) {
+    thumbnailScanCache.delete(trackKey);
+  } else {
+    thumbnailScanCache.clear();
+  }
+}
+
 export function findThumbnailInAnyPlaylist(trackKey: string): string | null {
   if (!trackKey) return null;
+  const cached = thumbnailScanCache.get(trackKey);
+  if (cached !== undefined) return cached;
   const playlists = getLocalPlaylists();
   for (const pl of playlists) {
     const p = _scopedPath(pl.id, trackKey);
-    if (fs.existsSync(p)) return p;
+    if (fs.existsSync(p)) {
+      thumbnailScanCache.set(trackKey, p);
+      return p;
+    }
   }
+  thumbnailScanCache.set(trackKey, null);
   return null;
 }
 

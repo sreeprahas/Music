@@ -7,20 +7,7 @@ import { Pin, Eye, EyeOff, Play, Download, Music, Search, X, MoreVertical, GripV
 import { SongContextMenu } from './SongContextMenu';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
-
-function formatRelativeDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  const diffWeeks = Math.floor(diffDays / 7);
-  if (diffWeeks <= 4) return diffWeeks === 1 ? '1 week ago' : `${diffWeeks} weeks ago`;
-  return date.toLocaleDateString();
-}
+import { useDelayedLoading } from './useDelayedLoading';
 
 const trackIdentity = (track: Track) => track.videoId || track.sourceTrackId || `${track.title}\u0000${track.artist}`;
 
@@ -92,7 +79,6 @@ interface Props {
   onEditOrderChange?: (isEditing: boolean) => void;
   onSyncNow?: (playlistId: string) => Promise<void> | void;
   isSyncingExternally?: boolean;
-  recommendations?: Track[];
   playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
 }
 
@@ -123,12 +109,12 @@ export function PlaylistView({
   onEditOrderChange,
   onSyncNow,
   isSyncingExternally = false,
-  recommendations = [],
   playlistMutation,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const tracksRef = useRef<Track[]>([]);
   const [loading, setLoading] = useState(playlist.trackCount > 0);
+  const showSkeleton = useDelayedLoading(loading);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreTracks, setHasMoreTracks] = useState(true);
   const prefetchNextPageRef = useRef(false);
@@ -140,7 +126,6 @@ export function PlaylistView({
   const playlistViewRef = useRef<HTMLDivElement>(null);
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const lastSelectedIndexRef = useRef<number | null>(null);
-  const [visibleRecommendations, setVisibleRecommendations] = useState<Track[]>(recommendations);
   // Cache-bust local artwork whenever this playlist view mounts/changes.
   const [artworkRefreshKey, setArtworkRefreshKey] = useState(() => Date.now());
   // Track which videoIds are currently being downloaded (spinner shown)
@@ -150,7 +135,6 @@ export function PlaylistView({
   callbackRef.current = onTracksLoaded;
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
 
-  useEffect(() => setVisibleRecommendations(recommendations), [recommendations]);
   useEffect(() => {
     setArtworkRefreshKey(Date.now());
   }, [playlist.id]);
@@ -523,7 +507,7 @@ export function PlaylistView({
   const downloadedCount = tracks.filter((t) => t.downloaded).length;
   const downloadedTracks = filteredTracks.filter((t) => t.downloaded);
 
-  if (loading) {
+  if (showSkeleton) {
     return <PlaylistViewSkeleton />;
   }
 
@@ -539,7 +523,7 @@ export function PlaylistView({
       >
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 border border-border">
-            <PlaylistArtwork playlist={playlist} />
+            <PlaylistArtwork playlist={playlist} tracks={tracks} />
           </div>
           <div className="min-w-0 flex items-baseline gap-2.5">
             <h2 className="font-bold text-text text-base truncate">{playlist.title}</h2>
@@ -570,7 +554,7 @@ export function PlaylistView({
       <div ref={trackListRef} className="pb-36 flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
         <div className="px-6 select-none shrink-0 pt-6 pb-4 flex items-center gap-4 overflow-hidden">
           <div className="w-28 h-28 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 shadow-2xl relative border border-border">
-            <PlaylistArtwork playlist={playlist} />
+            <PlaylistArtwork playlist={playlist} tracks={tracks} />
           </div>
 
           <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
@@ -691,9 +675,7 @@ export function PlaylistView({
                   isEditOrder ? 'transition-all' : ''
                 }`}>
                   <th className="text-left py-3 px-3 w-10">{isEditOrder ? '' : '#'}</th>
-                  <th className="text-left py-3 px-3 w-[42%]">Title</th>
-                  <th className="text-left py-3 px-3 w-[22%]">Artist</th>
-                  <th className="playlist-date-column text-right py-3 px-3 w-32">Date added</th>
+                  <th className="text-left py-3 px-3">Title</th>
                   <th className="playlist-time-column text-right py-3 px-3 w-20">Time</th>
                   <th className="text-center py-3 px-3 w-12"></th>
                 </tr>
@@ -803,14 +785,6 @@ export function PlaylistView({
                           </div>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 max-w-0 overflow-hidden">
-                        <span className="block text-sm text-text-muted whitespace-normal break-words">{artist}</span>
-                      </td>
-                      <td className="playlist-date-column py-2.5 px-3 text-right max-w-0 overflow-hidden">
-                        <span className="block text-sm text-text-disabled whitespace-nowrap">
-                          {track.dateAdded || playlist.importedAt || playlist.createdAt ? formatRelativeDate(track.dateAdded || playlist.importedAt || playlist.createdAt!) : '—'}
-                        </span>
-                      </td>
                       <td className="playlist-time-column py-2.5 px-3 text-right">
                         <span className="text-sm text-text-disabled">
                           {track.duration ? formatDuration(track.duration) : '–'}
@@ -845,39 +819,6 @@ export function PlaylistView({
             </table>
           )}
 
-          {!loading && !error && visibleRecommendations.length > 0 && !trackSearchQuery && (
-            <section className="mt-8 border-t border-border pt-6 pb-8">
-              <h2 className="mb-4 text-xl font-bold tracking-tight text-text">Suggestions</h2>
-              <div className="space-y-1">
-                {visibleRecommendations.map((track) => (
-                  <div key={track.videoId} className="group flex min-h-16 items-center gap-4 rounded-xl px-3 py-2 hover:bg-surface-hover transition-colors">
-                    <img
-                      src={getThumbnailUrl(track.videoId, track.title)}
-                      alt={track.title}
-                      className="h-12 w-12 aspect-square rounded-lg object-cover shadow-lg"
-                      loading="lazy"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-text">{track.title}</p>
-                      <p className="mt-0.5 truncate text-xs text-text-muted">{cleanArtistName(track.artist)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setVisibleRecommendations((prev) => prev.filter((item) => item.videoId !== track.videoId));
-                        void handleAddTrackLocal(track, playlist.id);
-                      }}
-                      aria-label={`Add ${track.title} to playlist`}
-                      title="Add to playlist"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-secondary transition-all hover:bg-surface-hover hover:text-text"
-                    >
-                      <ListPlus className="h-6 w-6" strokeWidth={2} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </div>
       </div>
       {contextMenu && onPlayNext && onAddToPlaylist && onRemoveFromPlaylist && onSetSleepTimer && onOpenSleepTimer && (

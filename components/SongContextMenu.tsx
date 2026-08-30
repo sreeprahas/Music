@@ -3,7 +3,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Playlist, Track } from '@/types';
-import { CirclePlus, ListPlus, SkipForward, Timer, Download, Trash2 } from 'lucide-react';
+import { CirclePlus, ListPlus, SkipForward, Timer, Download, Trash2, Link2 } from 'lucide-react';
 import { AddToPlaylistDropdown } from './AddToPlaylistDropdown';
 import { calculateContextMenuPosition } from '@/lib/contextMenuPosition';
 
@@ -382,6 +382,15 @@ export function SongContextMenu({
       <button onClick={() => run(() => onPlayNext(track))} className={menuAction}>
         <SkipForward className="h-5 w-5" /> Play next
       </button>
+
+      {onSetMatchOverride && (
+        <>
+          <div className="my-1 border-t border-border" />
+          <button onClick={() => run(() => onSetMatchOverride(track))} className={menuAction}>
+            <Link2 className="h-5 w-5 text-accent" /> Set YouTube link…
+          </button>
+        </>
+      )}
     </div>
   );
 

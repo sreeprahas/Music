@@ -82,7 +82,22 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  Menu.setApplicationMenu(null);
+  // Register Ctrl+F5 as a global accelerator that forces a full reload
+  // (bypassing the HTTP cache). Plain F5 is handled by the renderer as a
+  // soft refresh of the sidebar / main view / lyrics / queue.
+  const reloadMenu = Menu.buildFromTemplate([
+    {
+      label: 'Reload',
+      accelerator: 'CmdOrCtrl+F5',
+      visible: false,
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.reloadIgnoringCache();
+        }
+      },
+    },
+  ]);
+  Menu.setApplicationMenu(reloadMenu);
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
     { urls: [`http://127.0.0.1:${ELECTRON_SERVER_PORT}/*`] },
     (details, callback) => {

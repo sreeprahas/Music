@@ -21,3 +21,5 @@ scripts/
 .claude/
 AGENTS.md
 CLAUDE.md
+.idea/
+.cursor/

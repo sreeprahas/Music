@@ -36,6 +36,8 @@ interface Props {
   /** Fixed position override (for context-menu usage) */
   style?: React.CSSProperties;
   className?: string;
+  /** Optional map of playlistId → first-N tracks used to build the dynamic 2×2 cover. */
+  tracksByPlaylist?: Record<string, Track[]>;
 }
 
 export function AddToPlaylistDropdown({
@@ -43,6 +45,7 @@ export function AddToPlaylistDropdown({
   playlists,
   checkedIds,
   onAdd,
+  tracksByPlaylist,
   onRemove,
   onClose,
   anchorRef,
@@ -175,7 +178,7 @@ export function AddToPlaylistDropdown({
               >
                 {/* Thumbnail */}
                 <div className="w-9 h-9 rounded-lg overflow-hidden bg-surface shrink-0 border border-border-subtle">
-                  <PlaylistArtwork playlist={pl} />
+                  <PlaylistArtwork playlist={pl} tracks={tracksByPlaylist?.[pl.id]} />
                 </div>
 
                 {/* Title */}

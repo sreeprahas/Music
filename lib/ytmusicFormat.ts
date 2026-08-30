@@ -14,6 +14,27 @@ export function formatDuration(seconds: number): string {
     : `${m}:${String(s).padStart(2, '0')}`;
 }
 
+/**
+ * Player-safe time formatting.
+ *
+ * The player UI must NEVER render an empty string, "NaN" or "undefined" for a
+ * time value. Whenever the value is missing, not a finite number or negative
+ * (no progress loaded, track not loaded yet, invalid metadata, …) this returns
+ * the safe "0:00" fallback instead.
+ */
+export function formatPlayerTime(seconds: unknown, fallback = '0:00'): string {
+  const value = typeof seconds === 'number' ? seconds : Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return fallback;
+  // Floor sub-second precision and guard against float rounding (0.999 → 0).
+  const total = Math.floor(value + 1e-6);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export function getThumbnailUrl(videoId: string, title?: string): string {
   if (!videoId) return '';
 

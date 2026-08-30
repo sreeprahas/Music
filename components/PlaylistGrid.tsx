@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import type { Playlist } from '@/types';
+import type { Playlist, Track } from '@/types';
 import { Pin, Play } from 'lucide-react';
 import { Skeleton } from './Skeleton';
 import { PlaylistArtwork } from './PlaylistArtwork';
@@ -18,6 +18,8 @@ interface Props {
   onDownload?: (id: string) => void;
   onRemove?: (id: string) => void;
   onSyncNow?: (id: string) => void;
+  /** Optional map of playlistId → first-N tracks used to build the dynamic 2×2 cover. */
+  tracksByPlaylist?: Record<string, Track[]>;
 }
 
 export function PlaylistGridSkeleton() {
@@ -47,6 +49,7 @@ export function PlaylistGrid({
   playlists = [],
   pinnedIds = [],
   hiddenIds = [],
+  tracksByPlaylist,
   onSelect,
   onTogglePin,
   onPlay,
@@ -67,6 +70,19 @@ export function PlaylistGrid({
     .map((id) => safePlaylists.find((p) => p && p.id === id))
     .filter((p): p is Playlist => Boolean(p));
   const unpinnedPlaylists = safePlaylists.filter((p) => p && !pinnedSet.has(p.id) && !hiddenSet.has(p.id));
+
+  // Unpinned playlists are grouped into separate source sections. They never
+  // merge with each other — only pinned playlists mix sources.
+  const sourceSections: Array<{ key: 'youtube' | 'spotify' | 'local'; label: string; playlists: Playlist[] }> = ([
+    { key: 'youtube' as const, label: 'YouTube Playlists' },
+    { key: 'spotify' as const, label: 'Spotify Playlists' },
+    { key: 'local' as const, label: 'Playlists' },
+  ])
+    .map((section) => ({
+      ...section,
+      playlists: unpinnedPlaylists.filter((p) => (p.source === section.key ? true : section.key === 'local' ? p.source !== 'youtube' && p.source !== 'spotify' : false)),
+    }))
+    .filter((section) => section.playlists.length > 0);
 
   return (
       <div ref={gridRef} className="h-full flex flex-col min-h-0 relative">
@@ -94,6 +110,7 @@ export function PlaylistGrid({
                     isPinned={true}
                     onSelect={() => onSelect(pl.id)}
                     onPlay={() => onPlay(pl.id)}
+                    tracks={tracksByPlaylist?.[pl.id]}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -105,20 +122,21 @@ export function PlaylistGrid({
             </div>
           )}
 
-          {/* Main Library Grid */}
-          {unpinnedPlaylists.length > 0 && (
-            <div>
+          {/* Source-grouped library sections */}
+          {sourceSections.map((section) => (
+            <div key={section.key}>
               <h2 className="text-3xl font-bold text-text mb-6 tracking-tight">
-                {pinnedPlaylists.length > 0 ? 'Playlists' : 'From your library'}
+                {pinnedPlaylists.length > 0 ? section.label : section.key === 'local' ? 'From your library' : section.label}
               </h2>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,180px))] gap-x-5 gap-y-7">
-                {unpinnedPlaylists.map((pl) => (
+                {section.playlists.map((pl) => (
                   <PlaylistCard
                     key={pl.id}
                     playlist={pl}
                     isPinned={false}
                     onSelect={() => onSelect(pl.id)}
                     onPlay={() => onPlay(pl.id)}
+                    tracks={tracksByPlaylist?.[pl.id]}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -128,7 +146,7 @@ export function PlaylistGrid({
                 ))}
               </div>
             </div>
-          )}
+          ))}
         </div>
 
       {contextMenu && onShufflePlay && onDownload && onRemove && (
@@ -157,12 +175,14 @@ function PlaylistCard({
   onSelect,
   onPlay,
   onContextMenu,
+  tracks,
 }: {
   playlist: Playlist;
   isPinned: boolean;
   onSelect: () => void;
   onPlay: () => void;
   onContextMenu?: (event: React.MouseEvent) => void;
+  tracks?: Track[];
 }) {
   const [isPlayPressed, setIsPlayPressed] = useState(false);
 
@@ -174,7 +194,7 @@ function PlaylistCard({
       className="group text-left cursor-pointer relative flex w-[180px] min-w-[180px] flex-col rounded-xl bg-transparent p-0"
     >
       <div className="h-[180px] w-[180px] rounded-[10px] overflow-hidden bg-surface mb-4 relative shadow-lg border border-border-subtle transition-all duration-300 group-hover:bg-accent/15 group-hover:shadow-accent-card-strong">
-        <PlaylistArtwork playlist={playlist} />
+        <PlaylistArtwork playlist={playlist} tracks={tracks} />
 
         {/* Restrained cover tint/depth overlay on hover. */}
         <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-br from-white/5 via-transparent to-black/45 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />

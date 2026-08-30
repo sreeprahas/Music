@@ -291,24 +291,11 @@ body {
   animation: music-bar 0.7s ease-in-out infinite alternate;
 }
 
-/* Preserve title/artist space while the less important metadata columns
-   smoothly leave the table as the window narrows. */
-.playlist-date-column,
+/* Preserve title space while the time column smoothly leaves the table
+   as the window narrows. */
 .playlist-time-column {
   opacity: 1;
   transition: opacity 220ms ease, width 260ms ease, padding 260ms ease;
-}
-
-@media (max-width: 1120px) {
-  .playlist-date-column {
-    width: 0 !important;
-    max-width: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    opacity: 0;
-    overflow: hidden;
-    white-space: nowrap;
-  }
 }
 
 @media (max-width: 900px) {

@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Playlist, Track, RepeatMode, SleepTimer } from '@/types';
-import { formatDuration, cleanArtistName, getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
+import { formatPlayerTime, cleanArtistName, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import {
   Play,
   Pause,
@@ -46,6 +46,8 @@ interface Props {
   onRemoveFromPlaylist?: (track: Track, playlistId: string) => void;
   onToggleFullscreen: () => void;
   onTimeUpdate?: (currentTime: number) => void;
+  /** Reported when the player resolved a Spotify song to its YouTube video. */
+  onVideoIdResolved?: (sourceTrackId: string, videoId: string) => void;
   resumeTime?: number;
   autoPlay?: boolean;
   onStateChange?: (state: { isPlaying: boolean; duration: number; volume: number; isMuted: boolean }) => void;
@@ -63,6 +65,8 @@ interface Props {
   onVolumeChange?: (volume: number) => void;
   onMuteChange?: (isMuted: boolean) => void;
   playlistMutation?: { type: 'add' | 'remove'; track: Track; playlistId: string; timestamp: number } | null;
+  /** Bumped from outside (e.g. after a YouTube override) so the cover <img> and OS media session re-fetch. */
+  playerBarArtworkKey?: number;
 }
 
 export function PlayerBar({
@@ -87,6 +91,7 @@ export function PlayerBar({
   onRemoveFromPlaylist,
   onToggleFullscreen,
   onTimeUpdate,
+  onVideoIdResolved,
   resumeTime = 0,
   autoPlay = true,
   onStateChange,
@@ -104,12 +109,22 @@ export function PlayerBar({
   onVolumeChange,
   onMuteChange,
   playlistMutation,
+  playerBarArtworkKey,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const loadGenerationRef = useRef(0);
+
+  // Cover: use the same helper as PlaylistView — getTrackThumbnailUrl returns
+  // track.thumbnailUrl (a local /api/thumbnail URL set at import time) with a
+  // refresh query param that forces the browser to re-fetch the current file.
+  const coverSrc = track ? getTrackThumbnailUrl(track, playerBarArtworkKey) : '';
+  // Latest onVideoIdResolved callback without retriggering the load effect.
+  const onVideoIdResolvedRef = useRef(onVideoIdResolved);
+  onVideoIdResolvedRef.current = onVideoIdResolved;
   const [isPlaying, setIsPlayingState] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [buffered, setBuffered] = useState(0);
   const [progressHover, setProgressHover] = useState<number | null>(null);
   const volume = volumeProp;
   const isMuted = isMutedProp;
@@ -297,6 +312,7 @@ export function PlayerBar({
     audio.pause();
     audio.src = '';
     setIsPlaying(false);
+    setBuffered(0);
 
     if (!track) {
       setCurrentTime(0);
@@ -330,11 +346,22 @@ export function PlayerBar({
         downloaded: item.downloaded,
       }));
 
+    // Warm Spotify tracks via the match+stream resolver (handles Spotify→YT mapping).
     void fetch('/api/spotify/prefetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks: prefetchWindow }),
     }).catch(() => {});
+
+    // Also warm pure YouTube tracks (no Spotify ID) — these skip the Spotify
+    // resolver entirely, so without this call the yt-dlp extraction runs cold
+    // on first play. /api/stream/prefetch calls getStreamUrl directly, which
+    // coalesces duplicate requests and caches the URL in memory.
+    for (const item of prefetchWindow) {
+      if (item.videoId && !item.spotifyId) {
+        void fetch(`/api/stream/prefetch?videoId=${encodeURIComponent(item.videoId)}`).catch(() => {});
+      }
+    }
 
     const loadTrack = async () => {
       try {
@@ -362,7 +389,13 @@ export function PlayerBar({
             if (cancelled || loadGeneration !== loadGenerationRef.current) return;
             if (res.ok) {
               const data = await res.json();
-              if (data.videoId) videoId = data.videoId;
+              if (data.videoId) {
+                videoId = data.videoId;
+                // Keep the parent state in sync so the currently-playing song
+                // stays highlighted in the playlist view and the resolved id
+                // is reused for cache/download lookups.
+                onVideoIdResolvedRef.current?.(track.sourceTrackId, data.videoId);
+              }
             }
           } catch {
             // Resolution failed — fall through; the mp3/stream load will fail
@@ -377,32 +410,17 @@ export function PlayerBar({
           return;
         }
 
-        // Prefer a local download immediately. Otherwise go straight to the
-        // live stream endpoint. We intentionally removed the old HEAD /api/mp3
-        // probe because it added an unnecessary network round trip to every
-        // cold playback. The stream route already knows whether the file is
-        // local and returns /api/mp3 when appropriate.
-        const mp3Url = `/api/mp3?v=${encodeURIComponent(videoId)}`;
-        if (track.downloaded) {
-          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-          audio.src = mp3Url;
-        } else {
-          const streamRes = await fetch(`/api/stream?videoId=${encodeURIComponent(videoId)}`).catch(() => null);
-          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-          if (!streamRes || !streamRes.ok) {
-            console.error('[Track Load Error]: Stream extraction failed for', track.title);
-            setIsPlaying(false);
-            return;
-          }
-          const streamData = await streamRes.json();
-          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-          if (!streamData.streamUrl) {
-            console.error('[Track Load Error]: Stream URL missing for', track.title);
-            setIsPlaying(false);
-            return;
-          }
-          audio.src = streamData.streamUrl;
-        }
+        // Set audio.src directly to the live streaming endpoint — one HTTP request
+        // instead of two (JSON round-trip to /api/stream + then to /api/stream/live).
+        // /api/stream/live checks the local store itself, resolves the upstream URL
+        // (coalesced via the same in-memory cache that prefetch warms), and
+        // tees the stream to disk for future plays.
+        const streamParams = new URLSearchParams({ videoId });
+        if (track.title) streamParams.set('title', track.title);
+        if (track.artist) streamParams.set('artist', track.artist);
+        if (track.thumbnailUrl) streamParams.set('thumbnailUrl', track.thumbnailUrl);
+
+        audio.src = `/api/stream/live?${streamParams.toString()}`;
 
         // Restore user's volume — never reset to 1 (that wipes user preference).
         audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
@@ -439,18 +457,31 @@ export function PlayerBar({
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator) || !track) return;
 
-    // Use the local thumbnail route for Windows media controls. The route
-    // serves the cached file from the data directory (and caches it on the
-    // first request), avoiding a direct dependency on the remote image URL.
-    const thumb = getTrackThumbnailUrl(track);
-    const localArtwork = thumb
-      ? (thumb.startsWith('http') ? thumb : `${window.location.origin}${thumb}`)
+    // Build the hi-res (1280x1280) artwork URL from the same track thumbnail.
+    // Adding ?size=hi to the existing thumbnail URL switches the thumbnail route
+    // to serve the .hi.webp rendition. If the OS needs a size smaller than 1280,
+    // it scales the sharp source rather than upscaling a small image.
+    const localArtworkSrc = coverSrc
+      ? coverSrc.startsWith('http')
+        ? coverSrc
+        : `${window.location.origin}${coverSrc}`
       : '';
+    const hiArtworkSrc = localArtworkSrc
+      ? `${localArtworkSrc}${localArtworkSrc.includes('?') ? '&' : '?'}size=hi`
+      : '';
+
+    // Declare multiple sizes so the OS picks the closest rendition for its
+    // surface (lock screen tile, taskbar, hardware display, media overlay).
+    const artworkSizes = ['96x96', '128x128', '192x192', '256x256', '512x512', '1024x1024'] as const;
+    const artwork: MediaImage[] = hiArtworkSrc
+      ? artworkSizes.map((sizes) => ({ src: hiArtworkSrc, sizes, type: 'image/webp' }))
+      : [];
+
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.artist,
       album: 'YouTube Music',
-      artwork: localArtwork ? [{ src: localArtwork, sizes: '512x512', type: 'image/webp' }] : [],
+      artwork,
     });
 
     navigator.mediaSession.setActionHandler('play', () => {
@@ -487,7 +518,7 @@ export function PlayerBar({
         setCurrentTime(details.seekTime);
       }
     });
-  }, [track, onNext, onPrev]);
+  }, [track, onNext, onPrev, coverSrc, playerBarArtworkKey]);
 
   // Sync user volume: directly set audio.volume on HTMLAudioElement
   useEffect(() => {
@@ -558,22 +589,35 @@ export function PlayerBar({
           }
         }}
         onLoadedMetadata={() => {
-          if (audioRef.current) setDuration(audioRef.current.duration);
+          if (audioRef.current) {
+            const d = audioRef.current.duration;
+            // NaN/Infinity (metadata not really loaded) must never reach the UI.
+            setDuration(Number.isFinite(d) && d > 0 ? d : 0);
+          }
         }}
         onEnded={handleEnded}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onProgress={() => {
+          const audio = audioRef.current;
+          if (!audio || !duration) return;
+          const bufferedRanges = audio.buffered;
+          if (bufferedRanges.length > 0) {
+            setBuffered(bufferedRanges.end(bufferedRanges.length - 1));
+          }
+        }}
       />
 
       <div className="music-player relative w-full h-[88px] min-h-[88px] bg-background-secondary border-t border-border flex items-center gap-2 px-3 lg:px-5 justify-between z-30 select-none shrink-0">
         {/* Left Section: Track Info & Heart */}
         <div key={navigationTick} className={`flex items-center gap-2 w-56 lg:w-64 min-w-0 shrink-0 ${navigationDirection === 'next' ? 'animate-track-next' : navigationDirection === 'prev' ? 'animate-track-prev' : ''}`}>
           <div
+            key={`cover-${track.videoId}-${playerBarArtworkKey ?? 0}`}
             onClick={onToggleFullscreen}
               className="w-14 h-14 aspect-square rounded-[4px] overflow-hidden bg-surface shrink-0 cursor-pointer group relative shadow-md"
           >
             <img
-              src={getTrackThumbnailUrl(track)}
+              src={coverSrc}
               alt={track.title}
               className="w-full h-full aspect-square object-cover group-hover:opacity-75 transition-opacity"
             />
@@ -731,7 +775,7 @@ export function PlayerBar({
           {/* Bottom Progress Bar */}
           <div className="flex items-center gap-2 w-full">
             <span className="text-[11px] font-medium text-text w-9 text-right shrink-0">
-              {formatDuration(Math.floor(currentTime))}
+              {formatPlayerTime(currentTime)}
             </span>
             <div
               className="relative flex-1 h-1 group flex items-center"
@@ -755,38 +799,44 @@ export function PlayerBar({
                 aria-label="Seek"
               />
               <div className="relative h-1 w-full min-w-0 bg-surface-active rounded-full overflow-visible">
-                {progressHover !== null && (
-                  <div
-                    className="absolute inset-y-0 z-[1] rounded-full bg-surface-active"
-                    style={{
-                      left: `${Math.min(progressHover, duration > 0 ? (currentTime / duration) * 100 : 0)}%`,
-                      width: `${Math.abs(progressHover - (duration > 0 ? (currentTime / duration) * 100 : 0))}%`,
-                    }}
-                  />
-                )}
+                {/* Buffer: how much has loaded (always visible, darker gray) */}
                 <div
-                  className={`relative z-[2] h-full rounded-full transition-colors duration-150 ${progressHover !== null ? 'bg-accent shadow-accent-strong' : 'bg-text'}`}
+                  className="absolute inset-y-0 left-0 z-[1] rounded-full bg-border"
+                  style={{ width: duration > 0 ? `${(buffered / duration) * 100}%` : '0%' }}
+                />
+                {/* Hover fill: accent fill from 0% to cursor (guide line that follows cursor) */}
+                <div
+                  className={`pointer-events-none absolute inset-y-0 left-0 z-[2] rounded-full bg-accent/30 transition-opacity duration-150 ${
+                    progressHover !== null ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ width: `${progressHover ?? 0}%` }}
+                />
+                {/* Current position: playhead fill */}
+                <div
+                  className={`relative z-[3] h-full rounded-full transition-colors duration-150 ${
+                    progressHover !== null ? 'bg-accent shadow-accent-strong' : 'bg-text'
+                  }`}
                   style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
                 />
+                {/* Hover: tooltip + playhead thumb */}
                 {progressHover !== null && duration > 0 && (
                   <>
                     <span
-                      className="absolute z-[3] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface"
+                      className="absolute z-[4] top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text shadow-surface"
                       style={{ left: `${(currentTime / duration) * 100}%` }}
                     />
                     <span
-                      className="absolute bottom-3 z-[4] -translate-x-1/2 rounded bg-text px-1.5 py-0.5 text-[11px] font-semibold leading-none text-background whitespace-nowrap"
+                      className="absolute bottom-3 z-[5] -translate-x-1/2 rounded bg-text px-1.5 py-0.5 text-[11px] font-semibold leading-none text-background whitespace-nowrap"
                       style={{ left: `${progressHover}%` }}
                     >
-                      {formatDuration(Math.floor((progressHover / 100) * duration))}
+                      {formatPlayerTime((progressHover / 100) * duration)}
                     </span>
-                    <span className="absolute inset-y-0 z-[2] w-px bg-surface-active" style={{ left: `${progressHover}%` }} />
                   </>
                 )}
               </div>
             </div>
             <span className="text-[11px] font-medium text-text w-9 shrink-0">
-              {formatDuration(Math.floor(duration))}
+              {formatPlayerTime(duration)}
             </span>
           </div>
         </div>
@@ -840,7 +890,7 @@ export function PlayerBar({
                       <p className="text-sm font-bold text-text">Sleep timer</p>
                     </div>
                     <p className="text-xs text-text-muted mt-1">
-                      {sleepTimer.isActive ? `Playback stops in ${formatDuration(sleepTimer.remainingTime)}` : 'Choose when playback should stop'}
+                      {sleepTimer.isActive ? `Playback stops in ${formatPlayerTime(sleepTimer.remainingTime)}` : 'Choose when playback should stop'}
                     </p>
                   </div>
                   {sleepTimer.isActive && (

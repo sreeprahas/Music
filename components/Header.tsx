@@ -360,6 +360,30 @@ export function Header({
             )}
           </div>
 
+          {/* Search results dropdown toggle — down arrow when closed, up arrow
+              when open, mirroring the source selector's arrow behavior. */}
+          <button
+            type="button"
+            onClick={() => {
+              if (searchDropdownOpen) {
+                setSearchDropdownOpen(false);
+              } else {
+                inputRef.current?.focus();
+                setSearchDropdownOpen(true);
+              }
+            }}
+            className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-2xl border transition-all duration-300 ${searchDropdownOpen
+              ? 'border-accent/45 bg-accent/14 text-accent shadow-accent-card-strong'
+              : 'border-border bg-surface text-text hover:border-accent/30 hover:bg-accent/10 hover:text-accent'
+              }`}
+            aria-expanded={searchDropdownOpen}
+            aria-haspopup="menu"
+            aria-label="Toggle search results"
+            title="Toggle search results"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${searchDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
           {/* Search source dropdown */}
           <div className="relative w-[104px] flex-none">
             <button

@@ -6,6 +6,9 @@ import {
   isUsableAudio,
   getAudioDir,
   deleteAudioMimeType,
+  writeAudioStream,
+  setAudioMimeType,
+  type AudioStore,
 } from './cache/audio';
 import { DownloadError } from './spotify/errors';
 import {
@@ -14,23 +17,37 @@ import {
   YtDlpNotFoundError,
 } from './youtube/ytdlp';
 
+/**
+ * The downloader writes ONLY into the downloads store â€” songs the user
+ * explicitly asked to keep offline. Automatically cached songs live in a
+ * separate directory managed by lib/cache/streamCache.ts.
+ */
+const DOWNLOAD_STORE: AudioStore = 'downloads';
+
 export function ensureMp3Dir(): void {
   ensureDirs();
-  fs.mkdirSync(getAudioDir(), { recursive: true });
+  fs.mkdirSync(getAudioDir(DOWNLOAD_STORE), { recursive: true });
 }
 
-export const getMp3Path = getAudioPath;
-export const isDownloaded = isUsableAudio;
+/** Legacy alias â€” always points at the downloads store. */
+export function getMp3Path(videoId: string): string {
+  return getAudioPath(videoId, DOWNLOAD_STORE);
+}
+
+/** True when the song exists as an explicit user download. */
+export function isDownloaded(videoId: string): boolean {
+  return isUsableAudio(videoId, DOWNLOAD_STORE);
+}
 
 export function deleteTrack(videoId: string): boolean {
   try {
-    const p = getAudioPath(videoId);
+    const p = getAudioPath(videoId, DOWNLOAD_STORE);
 
     if (fs.existsSync(p)) {
       fs.unlinkSync(p);
     }
 
-    deleteAudioMimeType(videoId);
+    deleteAudioMimeType(videoId, DOWNLOAD_STORE);
     return true;
   } catch (err) {
     console.error(`[downloader] Failed to delete track ${videoId}:`, err);
@@ -51,6 +68,15 @@ const streamUrlCache = new Map<
     expiresAt: number;
   }
 >();
+
+/**
+ * Clears the in-memory stream URL cache. Call this when a YouTube override
+ * has been saved so the next playback fetches a fresh stream URL for the
+ * new videoId instead of reusing a stale cached URL.
+ */
+export function clearStreamUrlCache(): void {
+  streamUrlCache.clear();
+}
 
 /**
  * Prevent duplicate simultaneous InnerTube resolution for the same video.
@@ -112,10 +138,14 @@ function cleanupDownloadedThumbnails(outputPath: string): void {
 }
 
 /**
- * Downloads a single track as MP3 using yt-dlp.
+ * Downloads a single track into the local audio cache.
  *
- * Downloads deliberately remain on yt-dlp for now.
- * Playback does NOT use this function.
+ * PRIMARY PATH â€” the exact same pipeline used for playback:
+ *   getStreamUrl() â†’ fetch() â†’ writeAudioStream()
+ * This skips yt-dlp's slow ffmpeg post-processing entirely and guarantees
+ * that anything the app can stream, it can also cache offline.
+ *
+ * yt-dlp remains only as a fallback when the direct stream download fails.
  */
 export async function downloadTrack(
   videoId: string,
@@ -125,11 +155,41 @@ export async function downloadTrack(
 ): Promise<void> {
   ensureMp3Dir();
 
-  if (isUsableAudio(videoId)) {
+  if (isUsableAudio(videoId, DOWNLOAD_STORE)) {
     return;
   }
 
-  const outputPath = getAudioPath(videoId);
+  // â”€â”€ Primary: stream pipeline (identical to playback) â”€â”€
+  try {
+    const streamUrl = await getStreamUrl(videoId, signal);
+    const res = await fetch(streamUrl, { signal });
+
+    if (res.ok && res.body) {
+      const rawMime = (res.headers.get('content-type') || '').split(';')[0].trim();
+      await writeAudioStream(videoId, res.body, signal, DOWNLOAD_STORE);
+      setAudioMimeType(videoId, rawMime || 'audio/mpeg', DOWNLOAD_STORE);
+
+      if (isUsableAudio(videoId, DOWNLOAD_STORE)) {
+        return;
+      }
+    }
+  } catch (err) {
+    if (signal?.aborted) {
+      throw new Error('Download cancelled');
+    }
+
+    // The resolved URL may have expired mid-flight â€” drop it so the next
+    // attempt re-resolves a fresh stream URL.
+    invalidateStreamUrl(videoId);
+
+    console.warn(
+      `[downloader] Stream download failed for ${videoId}, falling back to yt-dlp:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // â”€â”€ Fallback: yt-dlp extraction + transcode â”€â”€
+  const outputPath = getAudioPath(videoId, DOWNLOAD_STORE);
 
   try {
     await execYtDlp({
@@ -160,7 +220,7 @@ export async function downloadTrack(
 
     cleanupDownloadedThumbnails(outputPath);
 
-    if (isUsableAudio(videoId)) {
+    if (isUsableAudio(videoId, DOWNLOAD_STORE)) {
       return;
     }
   } catch (err) {
@@ -216,7 +276,7 @@ export async function downloadTrack(
 
     cleanupDownloadedThumbnails(outputPath);
 
-    if (isUsableAudio(videoId)) {
+    if (isUsableAudio(videoId, DOWNLOAD_STORE)) {
       return;
     }
   } catch (err) {

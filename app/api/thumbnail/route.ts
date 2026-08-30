@@ -1,16 +1,19 @@
 /**
  * GET /api/thumbnail
  *
- * Serves track/playlist artwork. Looks in the playlist-scoped directory first,
- * then falls back to YouTube CDN for 11-char video IDs.
+ * Serves track/playlist artwork. Lookup order:
+ *   1. Global dir (DATA_DIR/thumbnails/global/{v}.webp) — override/YouTube tracks
+ *   2. Playlist-scoped (DATA_DIR/thumbnails/{playlistId}/{v}.webp)
+ *   3. Scan all playlists
+ *   4. Placeholder SVG
  *
  * Query params:
  *   v          = trackKey (videoId or sourceTrackId) required
- *   playlistId = playlist ID for scoped lookup optional but preferred
+ *   playlistId = playlist ID for scoped lookup (optional)
  */
 
 import fs from 'fs';
-import { getTrackThumbnailPath } from '@/lib/storage/thumbnails';
+import { getTrackThumbnailPath, getGlobalThumbnailPath, hasGlobalThumbnail } from '@/lib/storage/thumbnails';
 import { findThumbnailInAnyPlaylist } from '@/lib/db';
 import { NextRequest } from 'next/server';
 
@@ -33,7 +36,20 @@ export async function GET(request: NextRequest) {
     return new Response('Invalid v', { status: 400 });
   }
 
-  // 1. Playlist-scoped thumbnail (preferred)
+  // 1. Global thumbnail (override/YouTube tracks) — checked first
+  if (/^[A-Za-z0-9_-]{11}$/.test(trackKey) && hasGlobalThumbnail(trackKey)) {
+    const globalPath = getGlobalThumbnailPath(trackKey);
+    return new Response(fs.readFileSync(globalPath), {
+      headers: {
+        'Content-Type': 'image/webp',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
+  }
+
+  // 2. Playlist-scoped thumbnail
   if (playlistId && /^[A-Za-z0-9_.:\-]{1,120}$/.test(playlistId)) {
     const scopedPath = getTrackThumbnailPath(playlistId, trackKey);
 
@@ -49,7 +65,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 2. Search all playlists for this track key
+  // 3. Search all playlists for this track key
   const anyPath = findThumbnailInAnyPlaylist(trackKey);
 
   if (anyPath && fs.existsSync(anyPath)) {
@@ -63,34 +79,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 3. YouTube CDN fallback for 11-char video IDs
-  if (/^[A-Za-z0-9_-]{11}$/.test(trackKey)) {
-    for (const remoteUrl of [
-      `https://i.ytimg.com/vi/${trackKey}/maxresdefault.jpg`,
-      `https://i.ytimg.com/vi/${trackKey}/hqdefault.jpg`,
-    ]) {
-      try {
-        const res = await fetch(remoteUrl, {
-          signal: AbortSignal.timeout(10_000),
-        });
-
-        if (res.ok) {
-          const buffer = Buffer.from(await res.arrayBuffer());
-
-          return new Response(buffer, {
-            headers: {
-              'Content-Type':
-                res.headers.get('content-type') || 'image/jpeg',
-              'Cache-Control': 'no-store',
-            },
-          });
-        }
-      } catch {
-        // try next
-      }
-    }
-  }
-
+  // 4. Placeholder SVG (no YouTube CDN fallback — local-only artwork)
   return new Response(SVG_PLACEHOLDER, {
     headers: {
       'Content-Type': 'image/svg+xml',

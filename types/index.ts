@@ -98,16 +98,6 @@ export interface DownloadProgressEvent {
   error?: string;
 }
 
-export interface SessionData {
-  email: string;
-  name: string;
-  picture: string;
-  image?: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-}
-
 export interface MatchDiagnostic {
   code: string;
   message?: string;

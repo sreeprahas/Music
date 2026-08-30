@@ -12,8 +12,8 @@ import {
   reconcilePlaylistThumbnails,
   deletePlaylistThumbnailDir,
   trackThumbnailApiUrl,
-  getPlaylistCoverPath,
-  playlistCoverApiUrl,
+  playlistCompositeApiUrl,
+  downloadTrackThumbnail,
 } from './thumbnails';
 import type { Playlist, Track } from '@/types';
 import fs from 'fs';
@@ -112,13 +112,28 @@ export function setPlaylistSyncOnOpen(playlistId: string, syncOnOpen: boolean): 
 // ─── Artwork aggregation ──────────────────────────────────────────────────────
 
 function withPlaylistArtwork(playlist: Playlist, tracks: Track[]): Playlist {
-  // Playlist cards use a four-track mosaic. Keep playlist.thumbnailUrl as the
-  // dedicated cover for metadata/refresh workflows, but do not let it replace
-  // the track artwork grid.
+  // Playlist cards use a single 2x2 composite cover image (1280x1280 lossless WebP)
+  // generated from the first four cached track thumbnails. Always route through the
+  // local composite endpoint — the raw track thumbnailUrl is the YouTube CDN
+  // (hqdefault.jpg, 120x90) and looks blurry when upscaled; the composite is
+  // crisp at any card size.
   const artTracks = tracks.slice(0, 4).filter((t) => t.videoId || t.sourceTrackId || t.thumbnailUrl);
+  if (artTracks.length >= 4) {
+    // All four tiles available — serve the composite cover.
+    const thumbnailUrls = [playlistCompositeApiUrl(playlist.id)];
+    const thumbnailVideoIds = artTracks.map((t) => t.videoId || t.sourceTrackId || '');
+
+    return {
+      ...playlist,
+      thumbnailUrls,
+      thumbnailVideoIds,
+    };
+  }
+
+  // Fewer than 4 tiles — fall back to individual thumbnails so the card still
+  // shows something meaningful.
   if (artTracks.length > 0) {
     const thumbnailUrls = artTracks.map((t) => {
-      if (t.thumbnailUrl) return t.thumbnailUrl;
       const key = t.sourceTrackId || t.videoId;
       return key ? trackThumbnailApiUrl(playlist.id, key, t.title) : '';
     }).filter(Boolean);
@@ -129,11 +144,6 @@ function withPlaylistArtwork(playlist: Playlist, tracks: Track[]): Playlist {
       thumbnailUrls,
       thumbnailVideoIds,
     };
-  }
-
-  if (fs.existsSync(getPlaylistCoverPath(playlist.id))) {
-    const coverUrl = playlistCoverApiUrl(playlist.id);
-    return { ...playlist, thumbnailUrls: [coverUrl], thumbnailVideoIds: [] };
   }
 
   return { ...playlist, thumbnailUrls: [], thumbnailVideoIds: [] };
@@ -337,4 +347,31 @@ export function getPlaylistWithArtwork(playlistId: string): Playlist | undefined
   if (!playlist) return undefined;
   const tracks = getPlaylistTracks(playlistId);
   return withPlaylistArtwork(playlist, tracks);
+}
+
+/**
+ * Regenerate a playlist's cover artwork from its current tracks.
+ *
+ * Called on every app open: re-downloads the artwork for the tracks that
+ * form the 4-tile mosaic (fresh renditions for Spotify tracks) and returns
+ * the playlist with a freshly derived thumbnailUrls/thumbnailVideoIds set.
+ */
+export async function refreshPlaylistCoverArt(
+  playlistId: string,
+  tracks?: Track[],
+): Promise<Playlist | undefined> {
+  const currentTracks = tracks ?? getPlaylistTracks(playlistId);
+  const artTracks = currentTracks.slice(0, 4);
+
+  await Promise.all(artTracks.map(async (track) => {
+    const key = track.sourceTrackId || track.videoId;
+    if (!key) return;
+    try {
+      await downloadTrackThumbnail(playlistId, key, track.thumbnailUrl);
+    } catch {
+      // A single failed tile must not abort the whole refresh.
+    }
+  }));
+
+  return getPlaylistWithArtwork(playlistId);
 }

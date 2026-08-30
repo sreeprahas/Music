@@ -1,5 +1,6 @@
 import {
   searchYouTubeMusic,
+  searchYouTubeArtists,
 } from './innertube';
 
 import type {
@@ -17,15 +18,21 @@ const searchCache =
     candidates: YouTubeCandidate[];
   }>(100);
 
+export type SearchFilter = 'song' | 'artist';
+
 export interface SearchYouTubeOptions {
   limit?: number;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** 'song' (default) treats the query as a title/keyword search. 'artist' ranks by artist match. */
+  filter?: SearchFilter;
 }
 
 export interface YouTubeSearchResult {
   tracks: Track[];
   candidates: YouTubeCandidate[];
+  /** Canonical artist name resolved by an artist search (null otherwise). */
+  artistName?: string | null;
 }
 
 const LONG_DURATION_KEYWORDS = [
@@ -160,6 +167,59 @@ function score(
   return result;
 }
 
+/**
+ * Artist-first relevance used when the user explicitly searches by artist.
+ *
+ * The generic scorer above favours title matches, which buries an artist's
+ * real songs under unrelated tracks that merely mention the artist name in
+ * their title. This scorer flips the priorities: the artist string is the
+ * primary signal, the title is a tie-breaker.
+ */
+export function artistScore(
+  query: string,
+  track: Track,
+): number {
+  const q = query.toLowerCase().replace(/\s+/g, ' ').trim();
+  const artist = track.artist.toLowerCase();
+  const title = track.title.toLowerCase();
+
+  let result = 0;
+
+  if (artist === q) {
+    result += 260;
+  } else if (artist.includes(q) || q.includes(artist)) {
+    result += 150;
+  }
+
+  // Partial artist names: every query token found in the artist string.
+  const tokens = q.split(/\s+/).filter((token) => token.length > 1);
+  if (tokens.length > 0) {
+    let matchedTokens = 0;
+    for (const token of tokens) {
+      if (artist.includes(token)) matchedTokens += 1;
+    }
+    result += Math.round((matchedTokens / tokens.length) * 140);
+    // All tokens matched → strongly prefer these over partial matches.
+    if (matchedTokens === tokens.length) result += 60;
+  }
+
+  // Songs that literally carry the query in the title still surface.
+  if (title.includes(q)) result += 25;
+
+  const duration = track.duration ?? 0;
+  if (duration >= 100 && duration <= 420) {
+    result += 15;
+  } else if (duration > 600 && !allowsLongDuration(query, track.title)) {
+    result -= 200;
+  }
+
+  for (const keyword of JUNK_KEYWORDS) {
+    if (title.includes(keyword)) result -= 150;
+  }
+
+  return result;
+}
+
 export async function searchYouTube(
   query: string,
   options: SearchYouTubeOptions = {},
@@ -183,8 +243,9 @@ export async function searchYouTube(
       ),
     );
 
+  const filter: SearchFilter = options.filter === 'artist' ? 'artist' : 'song';
   const cacheKey =
-    `youtubei:${limit}:${trimmed.toLowerCase()}`;
+    `youtubei:${filter}:${limit}:${trimmed.toLowerCase()}`;
 
   const cached =
     searchCache.get(cacheKey);
@@ -193,11 +254,27 @@ export async function searchYouTube(
     return cached;
   }
 
-  const items =
-    await searchYouTubeMusic(
-      trimmed,
-      options.signal,
-    );
+  const items: Awaited<ReturnType<typeof searchYouTubeMusic>> = [];
+  let resolvedArtistName: string | null = null;
+
+  if (filter === 'artist') {
+    // Resolve the canonical artist (partial names included) and pull its
+    // songs. When no artist matches, the plain song search below keeps the
+    // behaviour predictable instead of returning nothing.
+    try {
+      const artistResult = await searchYouTubeArtists(trimmed, options.signal);
+      resolvedArtistName = artistResult.artistName;
+      items.push(...artistResult.items);
+    } catch (err) {
+      if (options.signal?.aborted) throw err;
+      console.warn('[youtube/search] artist resolution failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const songItems = await searchYouTubeMusic(trimmed, options.signal);
+  items.push(...songItems);
+
+  const ranking = filter === 'artist' ? artistScore : score;
 
   const entries: Array<{
     track: Track;
@@ -205,9 +282,14 @@ export async function searchYouTube(
     score: number;
   }> = [];
 
+  const seenVideoIds = new Set<string>();
+
   for (
     const item of items
   ) {
+    if (seenVideoIds.has(item.videoId)) continue;
+    seenVideoIds.add(item.videoId);
+
     if (
       item.duration &&
       item.duration > 600 &&
@@ -255,7 +337,7 @@ export async function searchYouTube(
       track,
       candidate,
       score:
-        score(
+        ranking(
           trimmed,
           track,
         ),
@@ -289,6 +371,7 @@ export async function searchYouTube(
   const result = {
     tracks,
     candidates,
+    ...(filter === 'artist' ? { artistName: resolvedArtistName } : {}),
   };
 
   searchCache.set(

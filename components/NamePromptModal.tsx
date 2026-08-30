@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Disc3, Trash2, Upload } from 'lucide-react';
+import { Trash2, Upload } from 'lucide-react';
 
 interface NamePromptModalProps {
   onSubmit: (name: string) => Promise<void>;
@@ -15,8 +15,6 @@ export function NamePromptModal({
   const [profilePhotoPreview, setProfilePhotoPreview] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
-  const [integrationMessage, setIntegrationMessage] =
-    useState('');
 
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,14 +244,6 @@ export function NamePromptModal({
     }
 
     setIsSaving(false);
-  };
-
-  const showPlaceholder = (
-    service: string,
-  ) => {
-    setIntegrationMessage(
-      `${service} connection is coming soon. You can continue without it.`,
-    );
   };
 
   const profileInitial = name.trim()
@@ -495,94 +485,6 @@ export function NamePromptModal({
                   </button>
                 </form>
 
-                {/* Divider */}
-                <div className="my-7 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-border" />
-
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-disabled">
-                    Integrations
-                  </span>
-
-                  <div className="h-px flex-1 bg-border" />
-                </div>
-
-                {/* Integrations */}
-                <div>
-                  <div className="flex items-end justify-between gap-4">
-                    <div>
-                      <h2 className="text-base font-extrabold text-text">
-                        Integrations
-                      </h2>
-
-                      <p className="mt-1 text-xs leading-5 text-text-muted">
-                        Connect your music services whenever you’re ready.
-                      </p>
-                    </div>
-
-                    <Disc3
-                      size={21}
-                      className="mb-1 text-text-disabled"
-                    />
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {/* YouTube Music */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        showPlaceholder(
-                          'YouTube Music',
-                        )
-                      }
-                      className="group flex h-12 items-center gap-3 rounded-2xl border border-border bg-surface/40 px-4 text-left transition hover:border-[var(--music-accent)] hover:bg-surface-hover"
-                    >
-                      <img
-                        src="/youtube-mark.svg"
-                        alt=""
-                        className="h-[19px] w-[19px] object-contain"
-                      />
-
-                      <span className="min-w-0 flex-1 text-xs font-bold text-text-secondary group-hover:text-text">
-                        YouTube Music
-                      </span>
-
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-text-disabled">
-                        Soon
-                      </span>
-                    </button>
-
-                    {/* Spotify */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        showPlaceholder(
-                          'Spotify',
-                        )
-                      }
-                      className="group flex h-12 items-center gap-3 rounded-2xl border border-border bg-surface/40 px-4 text-left transition hover:border-[var(--music-accent)] hover:bg-surface-hover"
-                    >
-                      <img
-                        src="/spotify-logo.png"
-                        alt=""
-                        className="h-[19px] w-[19px] rounded-full object-contain"
-                      />
-
-                      <span className="min-w-0 flex-1 text-xs font-bold text-text-secondary group-hover:text-text">
-                        Spotify
-                      </span>
-
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-text-disabled">
-                        Soon
-                      </span>
-                    </button>
-                  </div>
-
-                  {integrationMessage && (
-                    <p className="mt-3 text-center text-[11px] font-medium text-[var(--music-accent)]">
-                      {integrationMessage}
-                    </p>
-                  )}
-                </div>
               </div>
             </section>
           </div>

@@ -1,10 +1,17 @@
 import fs from 'fs';
 import { getMp3Path, isDownloaded } from '@/lib/downloader';
-import { getAudioMimeType } from '@/lib/cache/audio';
+import { getAudioMimeType, isUsableAudio, resolveAudioStore, getAudioPath } from '@/lib/cache/audio';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/**
+ * GET /api/mp3?v=<videoId>&store=downloads|cache
+ *
+ * Streams a locally stored audio file with full Range support.
+ *  - store=downloads (default) → explicit user downloads
+ *  - store=cache               → automatically cached streamed songs
+ */
 export async function GET(request: Request): Promise<Response> {
   if (process.env.IS_NATIVE_BUILD === 'true') {
     return new Response('Static stub');
@@ -12,22 +19,24 @@ export async function GET(request: Request): Promise<Response> {
 
   const { searchParams } = new URL(request.url);
   const videoId = searchParams.get('v') || searchParams.get('videoId');
+  const store = resolveAudioStore(searchParams.get('store'));
 
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     return new Response('Invalid videoId', { status: 400 });
   }
 
-  if (!isDownloaded(videoId)) {
+  const isLocal = store === 'cache' ? isUsableAudio(videoId, 'cache') : isDownloaded(videoId);
+  if (!isLocal) {
     return new Response('Track not found', { status: 404 });
   }
 
-  const filePath = getMp3Path(videoId);
+  const filePath = store === 'cache' ? getAudioPath(videoId, 'cache') : getMp3Path(videoId);
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
   const rangeHeader = request.headers.get('range');
 
   const headers: Record<string, string> = {
-    'Content-Type': getAudioMimeType(videoId),
+    'Content-Type': getAudioMimeType(videoId, store),
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store, no-cache, must-revalidate, private',
     'Pragma': 'no-cache',

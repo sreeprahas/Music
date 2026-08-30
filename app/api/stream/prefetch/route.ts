@@ -5,21 +5,16 @@
  * blocking the caller. Returns immediately so the client never waits.
  *
  * Response:
+ *   { status: 'local' }    – a downloaded/cached copy exists, no prefetch needed
  *   { status: 'hit' }      – URL already cached, next /api/stream is instant
  *   { status: 'warming' }  – yt-dlp started in background
- *   { status: 'local' }    – track is downloaded locally, no prefetch needed
  */
 import { NextResponse } from 'next/server';
-import { isUsableAudio } from '@/lib/cache/audio';
+import { resolveLocalAudioStore } from '@/lib/cache/streamCache';
 import { getStreamUrl, hasCachedStreamUrl } from '@/lib/downloader';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-// Mirror the same in-memory cache key used in downloader.ts so we can detect
-// hits without duplicating the logic. The cache lives in the same Node.js
-// module instance as the stream route.
-// We re-export a small helper from downloader.ts to check the cache.
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -29,8 +24,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing or invalid videoId' }, { status: 400 });
   }
 
-  // If the track is already downloaded locally, no prefetch needed.
-  if (isUsableAudio(videoId)) {
+  // If a local copy (download or cache) exists, no prefetch is needed.
+  if (resolveLocalAudioStore(videoId)) {
     return NextResponse.json({ status: 'local' });
   }
 

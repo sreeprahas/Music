@@ -112,9 +112,27 @@ async function matchSpotifyTrackInternal(
   if (spotifyId && !options.forceSearch) {
     const cached = getYoutubeMapping(spotifyId);
     if (cached?.youtubeVideoId) {
-      // Never blindly trust an old mapping. Re-score the cached metadata with
-      // the current title + artist + duration rules so old bad mappings can
-      // automatically fall through to a fresh YouTube Music search.
+      // Manual overrides are authoritative — they represent an explicit user
+      // choice and must NEVER be replaced by a fresh search's match result.
+      if (cached.matchMethod === 'manual_override') {
+        const manualCandidate: YouTubeCandidate = {
+          videoId: cached.youtubeVideoId,
+          title: cached.matchedTitle || target.title,
+          channel: cached.matchedArtist || target.artist,
+          artist: cached.matchedArtist || target.artist,
+          duration: cached.duration || target.duration,
+        };
+        return {
+          matched: true,
+          score: 100,
+          confidence: 'excellent',
+          candidate: manualCandidate,
+          source: 'cache',
+        };
+      }
+
+      // For auto-matched mappings, re-score with current metadata so old bad
+      // mappings can automatically fall through to a fresh YouTube Music search.
       const cachedCandidate: YouTubeCandidate = {
         videoId: cached.youtubeVideoId,
         title: cached.matchedTitle || target.title,

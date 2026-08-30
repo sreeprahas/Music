@@ -4,10 +4,17 @@
  * Playlist-scoped thumbnail storage.
  *
  * Layout:
- *   DATA_DIR/thumbnails/{playlist_id}/cover.webp     — playlist cover
  *   DATA_DIR/thumbnails/{playlist_id}/{trackKey}.webp — per-track artwork
  *
+ * No cover.webp is written. Playlist cards always use the four-track mosaic.
+ *
  * `trackKey` = sourceTrackId (Spotify 22-char ID) or videoId (YT 11-char ID).
+ *
+ * A composite 2x2 mosaic (1280x1280 lossless WebP) is generated on demand
+ * from the four cached track thumbnails and served via the
+ * /api/playlist/[playlistId]/cover endpoint. The composite is cached in
+ * memory by playlistId; invalidated when any of the four source thumbnails
+ * is re-downloaded.
  *
  * The global DATA_DIR/thumbnails/*.webp flat layout is no longer used.
  */
@@ -17,6 +24,35 @@ import path from 'path';
 import sharp from 'sharp';
 import { getDataDir } from '@/lib/nativeData';
 import type { Track } from '@/types';
+
+// ─── Global thumbnail directory (override/YouTube tracks) ─────────────────────
+
+export function getGlobalThumbnailDir(): string {
+  return path.join(getThumbnailsRoot(), 'global');
+}
+
+export function getGlobalThumbnailPath(videoId: string): string {
+  return path.join(getGlobalThumbnailDir(), `${safeFileName(videoId)}.webp`);
+}
+
+export function getGlobalThumbnailHiPath(videoId: string): string {
+  return path.join(getGlobalThumbnailDir(), `${safeFileName(videoId)}.hi.webp`);
+}
+
+export function hasGlobalThumbnail(videoId: string): boolean {
+  return fs.existsSync(getGlobalThumbnailPath(videoId));
+}
+
+export function deleteGlobalThumbnail(videoId: string): void {
+  try {
+    const p = getGlobalThumbnailPath(videoId);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+    const hiP = getGlobalThumbnailHiPath(videoId);
+    if (fs.existsSync(hiP)) fs.unlinkSync(hiP);
+    const mimeP = `${p}.mime`;
+    if (fs.existsSync(mimeP)) fs.unlinkSync(mimeP);
+  } catch { /* best-effort */ }
+}
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -38,20 +74,21 @@ export function getPlaylistThumbnailDir(playlistId: string): string {
   return path.join(getThumbnailsRoot(), safeDirName(playlistId));
 }
 
-export function getPlaylistCoverPath(playlistId: string): string {
-  return path.join(getPlaylistThumbnailDir(playlistId), 'cover.webp');
-}
-
 export function getTrackThumbnailPath(playlistId: string, trackKey: string): string {
   return path.join(getPlaylistThumbnailDir(playlistId), `${safeFileName(trackKey)}.webp`);
 }
 
-export function hasPlaylistCover(playlistId: string): boolean {
-  return fs.existsSync(getPlaylistCoverPath(playlistId));
+/** 1280×1280 lossless WebP rendition, used for OS media controls. */
+export function getTrackThumbnailHiPath(playlistId: string, trackKey: string): string {
+  return path.join(getPlaylistThumbnailDir(playlistId), `${safeFileName(trackKey)}.hi.webp`);
 }
 
 export function hasTrackThumbnail(playlistId: string, trackKey: string): boolean {
   return fs.existsSync(getTrackThumbnailPath(playlistId, trackKey));
+}
+
+export function hasTrackThumbnailHi(playlistId: string, trackKey: string): boolean {
+  return fs.existsSync(getTrackThumbnailHiPath(playlistId, trackKey));
 }
 
 /** The local API URL for a track thumbnail. */
@@ -60,11 +97,6 @@ export function trackThumbnailApiUrl(playlistId: string, trackKey: string, title
     ? title.trim().replace(/[/\\?%*:|"<>]/g, '').replace(/\s+/g, '-').slice(0, 40) || 'track'
     : 'track';
   return `/api/thumbnail/${encodeURIComponent(slug)}?playlistId=${encodeURIComponent(playlistId)}&v=${encodeURIComponent(trackKey)}`;
-}
-
-/** The local API URL for a playlist cover. */
-export function playlistCoverApiUrl(playlistId: string): string {
-  return `/api/thumbnail/cover?playlistId=${encodeURIComponent(playlistId)}`;
 }
 
 // ─── Image processing ─────────────────────────────────────────────────────────
@@ -128,7 +160,7 @@ function getThumbnailFallbackUrls(url: string): string[] {
   return [normalized];
 }
 
-async function toLosslessWebp(source: Buffer): Promise<Buffer> {
+async function processTrackThumbnail(source: Buffer): Promise<Buffer> {
   const image = sharp(source);
   const metadata = await image.metadata();
   const width = metadata.width || 0;
@@ -147,6 +179,30 @@ async function toLosslessWebp(source: Buffer): Promise<Buffer> {
   return pipeline.resize(640, 640, { fit: 'cover', position: 'center' }).webp({ lossless: true }).toBuffer();
 }
 
+/**
+ * 1280×1280 lossless WebP rendition used by OS media controls. Same source
+ * crop as the 640×640 tile, but rendered at OS-resolution so the lock screen
+ * / taskbar / hardware display is never upscaling a 640px source.
+ */
+async function processTrackThumbnailHi(source: Buffer): Promise<Buffer> {
+  const image = sharp(source);
+  const metadata = await image.metadata();
+  const width = metadata.width || 0;
+  const height = metadata.height || 0;
+  let pipeline = sharp(source);
+  if (width >= 1280 && height >= 720) {
+    const left = 280;
+    const top = Math.max(0, Math.floor((height - 720) / 2));
+    pipeline = pipeline.extract({ left, top, width: 720, height: 720 });
+  } else if (width && height && width > height && (width / height) > 1.25) {
+    const cropSize = Math.floor(height / 1.35);
+    const left = Math.floor((width - cropSize) / 2);
+    const top = Math.floor((height - cropSize) / 2);
+    pipeline = pipeline.extract({ left, top, width: cropSize, height: cropSize });
+  }
+  return pipeline.resize(1280, 1280, { fit: 'cover', position: 'center' }).webp({ lossless: true }).toBuffer();
+}
+
 /** Check if existing image file is already exactly 640x640. If smaller or different, upgrades it. */
 async function ensureExact640Image(destPath: string): Promise<boolean> {
   if (!fs.existsSync(destPath)) return false;
@@ -156,9 +212,21 @@ async function ensureExact640Image(destPath: string): Promise<boolean> {
     if (meta.width === 640 && meta.height === 640) {
       return true;
     }
-    const upgraded = await toLosslessWebp(raw);
+    const upgraded = await processTrackThumbnail(raw);
     fs.writeFileSync(destPath, upgraded);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Check if the 1280x1280 OS-artwork rendition exists. */
+async function ensureExact1280Image(destPath: string): Promise<boolean> {
+  if (!fs.existsSync(destPath)) return false;
+  try {
+    const raw = fs.readFileSync(destPath);
+    const meta = await sharp(raw).metadata();
+    return meta.width === 1280 && meta.height === 1280;
   } catch {
     return false;
   }
@@ -183,8 +251,15 @@ export async function downloadImageToPath(
       if (!res.ok) continue;
       const source = Buffer.from(await res.arrayBuffer());
       fs.mkdirSync(path.dirname(destPath), { recursive: true });
-      const buffer = await toLosslessWebp(source);
+      const buffer = await processTrackThumbnail(source);
       fs.writeFileSync(destPath, buffer);
+      // Also write the 1280x1280 OS-artwork rendition.
+      const hiPath = destPath.replace(/\.webp$/, '.hi.webp');
+      const hiBuffer = await processTrackThumbnailHi(source);
+      fs.writeFileSync(hiPath, hiBuffer);
+      // The composite for this playlist is now stale — invalidate so the
+      // next request rebuilds it with the new source tile.
+      invalidatePlaylistComposite(path.basename(path.dirname(destPath)));
       return true;
     } catch {
       // try next
@@ -193,11 +268,65 @@ export async function downloadImageToPath(
   return false;
 }
 
-/** Download playlist cover artwork into playlist-scoped dir. */
-export async function downloadPlaylistCover(playlistId: string, remoteUrl: string): Promise<void> {
-  if (!remoteUrl) return;
-  const dest = getPlaylistCoverPath(playlistId);
-  await downloadImageToPath(remoteUrl, dest, { forceRefresh: true });
+/**
+ * Download a YouTube video thumbnail to the global dir.
+ * Used for override tracks that don't belong to any playlist.
+ * Returns the local path on success, null on failure.
+ */
+export async function downloadYouTubeThumbnailToGlobal(videoId: string): Promise<string | null> {
+  if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+  const dest = getGlobalThumbnailPath(videoId);
+  const hiDest = getGlobalThumbnailHiPath(videoId);
+
+  // Already have a 640x640 lossless copy — ensure hi-res exists.
+  if (await ensureExact640Image(dest)) {
+    if (!fs.existsSync(hiDest)) {
+      const source = fs.readFileSync(dest);
+      const hiBuffer = await processTrackThumbnailHi(source);
+      fs.writeFileSync(hiDest, hiBuffer);
+    }
+    return dest;
+  }
+
+  const fallbackUrls = [
+    `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+    `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+    `https://i.ytimg.com/vi/${videoId}/default.jpg`,
+  ];
+
+  for (const url of fallbackUrls) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) continue;
+      const source = Buffer.from(await res.arrayBuffer());
+      fs.mkdirSync(getGlobalThumbnailDir(), { recursive: true });
+      const buffer = await processTrackThumbnail(source);
+      fs.writeFileSync(dest, buffer);
+      const hiBuffer = await processTrackThumbnailHi(source);
+      fs.writeFileSync(hiDest, hiBuffer);
+      return dest;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+/**
+ * Delete all cached assets for the old videoId after a YouTube override.
+ * Cleans up: global thumbnail, cached audio (not explicit downloads).
+ * Does NOT delete: explicit downloads, playlist-scoped thumbnails.
+ */
+export function deleteOldOverrideAssets(oldVideoId: string, sourceTrackId?: string): void {
+  deleteGlobalThumbnail(oldVideoId);
+  if (sourceTrackId) deleteGlobalThumbnail(sourceTrackId);
+
+  // Delete cached audio (not explicit downloads — only the 'cache' store).
+  try {
+    const { deleteCachedAudio } = require('@/lib/cache/streamCache');
+    deleteCachedAudio(oldVideoId);
+  } catch { /* module not available in all contexts */ }
 }
 
 /** Download a single track thumbnail into the playlist-scoped dir. */
@@ -337,8 +466,8 @@ export async function reconcilePlaylistThumbnails(
   const dir = getPlaylistThumbnailDir(playlistId);
   fs.mkdirSync(dir, { recursive: true });
 
-  // Download cover
-  if (coverUrl) await downloadPlaylistCover(playlistId, coverUrl);
+  // (cover.webp is no longer written — playlist cards always use the
+  //  four-track mosaic.)
 
   // Download all track images
   const updatedTracks = await downloadAllTrackThumbnails(playlistId, currentTracks);
@@ -347,7 +476,6 @@ export async function reconcilePlaylistThumbnails(
   const currentKeys = new Set(
     currentTracks.map((t) => safeFileName(t.sourceTrackId || t.videoId)).filter(Boolean),
   );
-  currentKeys.add('cover'); // preserve cover
   try {
     for (const file of fs.readdirSync(dir)) {
       const stem = file.replace(/\.webp$/, '');
@@ -374,11 +502,6 @@ export async function downloadAllMetadataImages(
   allTracks: Array<{ playlistId: string; tracks: Track[] }>,
 ): Promise<{ playlists: number; tracks: number }> {
   let trackCount = 0;
-  for (const { id, thumbnailUrl } of playlists) {
-    if (thumbnailUrl && thumbnailUrl.startsWith('http')) {
-      await downloadPlaylistCover(id, thumbnailUrl);
-    }
-  }
   for (const { playlistId, tracks } of allTracks) {
     // Do not filter out local `/api/thumbnail/...` references. Those are cache
     // URLs and still need to trigger a real source download during refresh.
@@ -393,4 +516,84 @@ export async function downloadAllMetadataImages(
     trackCount += toDownload.length;
   }
   return { playlists: playlists.length, tracks: trackCount };
+}
+
+// ─── Composite 2x2 playlist cover ─────────────────────────────────────────────
+
+/**
+ * Per-playlist in-memory cache for the composite WebP. Maps playlistId
+ * → { buffer, mtime } where mtime is the latest mtime of any of the four
+ * source thumbnails. When a source thumbnail is rewritten, the cache entry
+ * becomes stale and is regenerated on the next request.
+ */
+type CompositeEntry = { buffer: Buffer; sourceMtimes: number[] };
+const compositeCache = new Map<string, CompositeEntry>();
+
+/** API URL for a playlist's composite 2x2 cover. */
+export function playlistCompositeApiUrl(playlistId: string): string {
+  return `/api/playlist/${encodeURIComponent(playlistId)}/cover`;
+}
+
+/** Drop the composite cache for one playlist (or all). */
+export function invalidatePlaylistComposite(playlistId?: string): void {
+  if (playlistId !== undefined) compositeCache.delete(playlistId);
+  else compositeCache.clear();
+}
+
+/**
+ * Build a 1280x1280 lossless WebP composite from the first four cached
+ * track thumbnails for `playlistId`. Returns null when fewer than four
+ * cached thumbnails are available. The result is cached in memory.
+ */
+export async function generatePlaylistComposite(
+  playlistId: string,
+  tracks: Array<{ sourceTrackId?: string; videoId?: string }>,
+): Promise<Buffer | null> {
+  const tiles: Buffer[] = [];
+  const sourceMtimes: number[] = [];
+
+  for (const track of tracks.slice(0, 4)) {
+    const key = track.sourceTrackId || track.videoId;
+    if (!key) break;
+    const tilePath = getTrackThumbnailPath(playlistId, key);
+    if (!fs.existsSync(tilePath)) break;
+    try {
+      tiles.push(fs.readFileSync(tilePath));
+      sourceMtimes.push(fs.statSync(tilePath).mtimeMs);
+    } catch {
+      break;
+    }
+  }
+
+  if (tiles.length < 4) return null;
+
+  // Cache hit if the four source mtimes match.
+  const cached = compositeCache.get(playlistId);
+  if (
+    cached &&
+    cached.sourceMtimes.length === sourceMtimes.length &&
+    cached.sourceMtimes.every((m, i) => m === sourceMtimes[i])
+  ) {
+    return cached.buffer;
+  }
+
+  const composite = await sharp({
+    create: {
+      width: 1280,
+      height: 1280,
+      channels: 4,
+      background: { r: 18, g: 18, b: 18, alpha: 1 },
+    },
+  })
+    .composite([
+      { input: tiles[0], top: 0, left: 0 },
+      { input: tiles[1], top: 0, left: 640 },
+      { input: tiles[2], top: 640, left: 0 },
+      { input: tiles[3], top: 640, left: 640 },
+    ])
+    .webp({ lossless: true })
+    .toBuffer();
+
+  compositeCache.set(playlistId, { buffer: composite, sourceMtimes });
+  return composite;
 }

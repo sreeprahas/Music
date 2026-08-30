@@ -55,7 +55,7 @@ export default function Home() {
       <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-text">
         <div className="flex items-center gap-3 rounded-2xl border border-border bg-sidebar/80 px-5 py-4 shadow-xl">
           <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-          <span className="text-sm font-medium text-text-secondary">Starting Music…</span>
+          <span className="text-sm font-medium text-text-secondary">Loading Music…</span>
         </div>
       </main>
     ) : profileError ? (

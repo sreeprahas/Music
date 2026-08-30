@@ -4,9 +4,10 @@
  * Unified search endpoint using yt-dlp metadata search.
  *
  * Query params:
- *   - q:     the search query (required)
- *   - mode:  'auto' (default) | 'youtube' | 'spotify' | 'local'
- *   - limit: max results (default 20, capped at 50)
+ *   - q:      the search query (required)
+ *   - mode:   'auto' (default) | 'youtube' | 'spotify' | 'local'
+ *   - filter: 'song' (default) | 'artist' — artist queries rank by artist match
+ *   - limit:  max results (default 20, capped at 50)
  */
 
 import { NextResponse } from 'next/server';
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
   const q = searchParams.get('q') || '';
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') || 20)));
   const mode = searchParams.get('mode') || 'auto';
+  const filter = searchParams.get('filter') === 'artist' ? 'artist' as const : 'song' as const;
 
   if (q.length > 200) {
     return NextResponse.json({ error: 'Search query is too long.', mode }, { status: 400 });
@@ -29,11 +31,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { tracks, candidates } = await searchYouTube(q, { limit });
+    const { tracks, candidates, artistName } = await searchYouTube(q, { limit, filter });
     return NextResponse.json({
       tracks,
       candidates,
       mode,
+      filter,
+      artistName: artistName ?? null,
       total: tracks.length,
     });
   } catch (err: any) {

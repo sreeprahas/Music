@@ -3,18 +3,22 @@
  *
  * Serves track artwork by slug (human-readable title).
  * The actual track key comes from the `v` query param.
- * Also serves playlist covers via slug=cover&playlistId=...
  *
  * Query params:
  *   v          = trackKey (videoId or sourceTrackId)
  *   playlistId = playlist ID for scoped lookup (optional)
+ *   size       = 'hi' returns the 1280x1280 OS-artwork rendition. Default is 640x640.
  */
 
 import fs from 'fs';
+import path from 'path';
+import sharp from 'sharp';
 
 import {
   getTrackThumbnailPath,
-  getPlaylistCoverPath,
+  getTrackThumbnailHiPath,
+  getGlobalThumbnailPath,
+  getGlobalThumbnailHiPath,
 } from '@/lib/storage/thumbnails';
 
 import { findThumbnailInAnyPlaylist } from '@/lib/db';
@@ -31,6 +35,27 @@ const NO_CACHE_HEADERS = {
   Expires: '0',
 };
 
+const LONG_CACHE_HEADERS = {
+  'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+};
+
+/**
+ * Lazy-generate a 1280x1280 OS-artwork rendition from an existing 640x640
+ * source WebP. Used when ?size=hi is requested but the .hi.webp file does not
+ * yet exist (older installations, freshly-imported playlists, etc.).
+ */
+async function ensureHiFrom640(sourcePath: string, hiPath: string): Promise<Buffer | null> {
+  try {
+    const raw = fs.readFileSync(sourcePath);
+    const buffer = await sharp(raw).resize(1280, 1280, { fit: 'cover', position: 'center' }).webp({ lossless: true }).toBuffer();
+    fs.mkdirSync(path.dirname(hiPath), { recursive: true });
+    fs.writeFileSync(hiPath, buffer);
+    return buffer;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug?: string }> },
@@ -42,31 +67,7 @@ export async function GET(
 
   const playlistId = searchParams.get('playlistId');
   const trackKey = searchParams.get('v') || searchParams.get('videoId');
-
-  // ── Playlist cover ─────────────────────────────────────────────────────────
-  if (
-    slug === 'cover' &&
-    playlistId &&
-    /^[A-Za-z0-9_.:\-]{1,120}$/.test(playlistId)
-  ) {
-    const coverPath = getPlaylistCoverPath(playlistId);
-
-    if (fs.existsSync(coverPath)) {
-      return new Response(fs.readFileSync(coverPath), {
-        headers: {
-          'Content-Type': 'image/webp',
-          ...NO_CACHE_HEADERS,
-        },
-      });
-    }
-
-    return new Response(SVG_PLACEHOLDER, {
-      headers: {
-        'Content-Type': 'image/svg+xml',
-        ...NO_CACHE_HEADERS,
-      },
-    });
-  }
+  const wantHi = searchParams.get('size') === 'hi';
 
   // ── Track thumbnail ────────────────────────────────────────────────────────
   if (!trackKey) {
@@ -83,12 +84,27 @@ export async function GET(
     /^[A-Za-z0-9_.:\-]{1,120}$/.test(playlistId)
   ) {
     const scopedPath = getTrackThumbnailPath(playlistId, trackKey);
+    const scopedHi = getTrackThumbnailHiPath(playlistId, trackKey);
 
     if (fs.existsSync(scopedPath)) {
+      if (wantHi) {
+        if (!fs.existsSync(scopedHi)) {
+          const generated = await ensureHiFrom640(scopedPath, scopedHi);
+          if (generated) {
+            return new Response(generated, {
+              headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
+            });
+          }
+        } else {
+          return new Response(fs.readFileSync(scopedHi), {
+            headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
+          });
+        }
+      }
       return new Response(fs.readFileSync(scopedPath), {
         headers: {
           'Content-Type': 'image/webp',
-          ...NO_CACHE_HEADERS,
+          ...LONG_CACHE_HEADERS,
         },
       });
     }
@@ -98,40 +114,53 @@ export async function GET(
   const anyPath = findThumbnailInAnyPlaylist(trackKey);
 
   if (anyPath && fs.existsSync(anyPath)) {
+    if (wantHi) {
+      const hiPath = anyPath.replace(/\.webp$/, '.hi.webp');
+      if (fs.existsSync(hiPath)) {
+        return new Response(fs.readFileSync(hiPath), {
+          headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
+        });
+      }
+      const generated = await ensureHiFrom640(anyPath, hiPath);
+      if (generated) {
+        return new Response(generated, {
+          headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
+        });
+      }
+    }
     return new Response(fs.readFileSync(anyPath), {
       headers: {
         'Content-Type': 'image/webp',
-        ...NO_CACHE_HEADERS,
+        ...LONG_CACHE_HEADERS,
       },
     });
   }
 
-  // 3. YouTube CDN for 11-character video IDs
+  // 2b. Global thumbnail (YouTube override tracks without a playlist context)
   if (/^[A-Za-z0-9_-]{11}$/.test(trackKey)) {
-    for (const url of [
-      `https://i.ytimg.com/vi/${trackKey}/maxresdefault.jpg`,
-      `https://i.ytimg.com/vi/${trackKey}/hqdefault.jpg`,
-    ]) {
-      try {
-        const res = await fetch(url, {
-          signal: AbortSignal.timeout(10_000),
-        });
-
-        if (res.ok) {
-          return new Response(Buffer.from(await res.arrayBuffer()), {
-            headers: {
-              'Content-Type':
-                res.headers.get('content-type') || 'image/jpeg',
-              ...NO_CACHE_HEADERS,
-            },
+    const globalPath = getGlobalThumbnailPath(trackKey);
+    if (fs.existsSync(globalPath)) {
+      if (wantHi) {
+        const hiPath = getGlobalThumbnailHiPath(trackKey);
+        if (fs.existsSync(hiPath)) {
+          return new Response(fs.readFileSync(hiPath), {
+            headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
           });
         }
-      } catch {
-        // Try the next source.
+        const generated = await ensureHiFrom640(globalPath, hiPath);
+        if (generated) {
+          return new Response(generated, {
+            headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
+          });
+        }
       }
+      return new Response(fs.readFileSync(globalPath), {
+        headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
+      });
     }
   }
 
+  // 3. Placeholder SVG — no YouTube CDN fallback; local-only artwork.
   return new Response(SVG_PLACEHOLDER, {
     headers: {
       'Content-Type': 'image/svg+xml',

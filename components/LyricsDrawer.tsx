@@ -7,6 +7,7 @@ import { parseLRC, getActiveLyricIndex } from '@/lib/lyrics';
 import type { LyricLine } from '@/lib/lyrics';
 import { getThumbnailUrl, getTrackThumbnailUrl } from '@/lib/ytmusicFormat';
 import { Skeleton } from './Skeleton';
+import { useDelayedLoading } from './useDelayedLoading';
 
 interface LyricsData {
   syncedLyrics: string | null;
@@ -39,6 +40,7 @@ function cleanForLyrics(str: string): string {
 export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [loading, setLoading] = useState(false);
+  const showSkeleton = useDelayedLoading(loading);
   const [parsedLines, setParsedLines] = useState<LyricLine[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -193,7 +195,7 @@ export function LyricsDrawer({ track, currentTime, onClose, onSeek }: Props) {
 
       {/* Body */}
       <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-5 py-4 min-h-0 [scrollbar-color:transparent_transparent]">
-        {loading && (
+        {showSkeleton && (
           <div className="h-full w-full"><Skeleton className="h-full w-full rounded-none" /></div>
         )}
 

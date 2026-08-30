@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import type { Track, RepeatMode } from '@/types';
 import {
-  formatDuration,
+  formatPlayerTime,
   cleanArtistName,
   getTrackThumbnailUrl,
 } from '@/lib/ytmusicFormat';
@@ -62,6 +62,9 @@ export function ExpandedPlayerModal({
   onClose,
   isClosing = false,
 }: Props) {
+  // Use the same helper as PlaylistView — track.thumbnailUrl points at the
+  // local /api/thumbnail endpoint; the refresh key forces the browser to
+  // re-request the current file from the data dir.
   const [artworkRefreshKey] = useState(() => Date.now());
 
   if (!track) return null;
@@ -94,7 +97,10 @@ export function ExpandedPlayerModal({
         <div className="w-full lg:w-1/2 flex flex-col justify-between min-h-0 overflow-hidden pr-0 lg:pr-6">
           {/* Album art */}
           <div className="flex-1 min-h-0 flex items-center justify-center py-4">
-            <div className="rounded-[4px] overflow-hidden shadow-2xl bg-transparent aspect-square w-full max-w-[min(45vw,320px)] shrink-0">
+            <div
+              key={`artwork-${track.videoId}-${artworkRefreshKey}`}
+              className="rounded-[4px] overflow-hidden shadow-2xl bg-transparent aspect-square w-full max-w-[min(45vw,320px)] shrink-0"
+            >
               <img
                 src={getTrackThumbnailUrl(track, artworkRefreshKey)}
                 alt={track.title}
@@ -144,8 +150,8 @@ export function ExpandedPlayerModal({
               </div>
 
               <div className="flex justify-between text-[11px] font-semibold text-text-secondary">
-                <span>{formatDuration(Math.floor(currentTime))}</span>
-                <span>{formatDuration(Math.floor(duration))}</span>
+                <span>{formatPlayerTime(currentTime)}</span>
+                <span>{formatPlayerTime(duration)}</span>
               </div>
             </div>
 
