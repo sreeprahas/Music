@@ -1,5 +1,6 @@
 import { getCachedTracks } from '@/lib/db';
 import { isDownloaded, downloadTrack } from '@/lib/downloader';
+import { MusicService, MusicServiceError } from '@/lib/music/spotiflac';
 import type { DownloadProgressEvent } from '@/types';
 
 export const runtime = 'nodejs';
@@ -43,7 +44,7 @@ export async function GET(request: Request): Promise<Response> {
           const allTracks = getCachedTracks(playlistId) || [];
           console.log(`[download] Found ${allTracks.length} total tracks`);
 
-          let toDownload = allTracks.filter((t) => !isDownloaded(t.videoId));
+          let toDownload = allTracks.filter((t) => t.source === 'spotify' ? !t.downloaded : !isDownloaded(t.videoId));
           if (filterVideoIds) {
             toDownload = toDownload.filter((t) => filterVideoIds.has(t.videoId));
           }
@@ -72,7 +73,16 @@ export async function GET(request: Request): Promise<Response> {
             });
 
             try {
-              await downloadTrack(track.videoId, track.title, track.artist, abortSignal);
+              if (track.source === 'spotify') {
+                const spotifyId = track.sourceTrackId || track.videoId;
+                const existingAudio = await MusicService.resolveLocalAudio({ spotifyId, title: track.title });
+                const job = existingAudio ? null : await MusicService.queueDownload(spotifyId, track.title);
+                const completedJob = job ? await MusicService.waitForDownload(job.id) : null;
+                const outputAudio = await MusicService.resolveLocalAudio({ spotifyId, title: track.title });
+                if (!outputAudio || completedJob?.status.toLowerCase() === 'failed') throw new Error(completedJob?.error || 'Completed file was not found in the shared audio directory.');
+              } else {
+                await downloadTrack(track.videoId, track.title, track.artist, abortSignal);
+              }
               processed++;
               successful++;
               send({
@@ -87,7 +97,7 @@ export async function GET(request: Request): Promise<Response> {
               });
             } catch (err: unknown) {
               processed++;
-              const message = err instanceof Error ? err.message : 'Download error';
+              const message = err instanceof MusicServiceError ? err.code : err instanceof Error ? err.message : 'Download error';
               console.error(`[api/download] Track ${track.videoId} (${track.title}) failed:`, message);
               send({
                 type: 'progress',
@@ -115,9 +125,7 @@ export async function GET(request: Request): Promise<Response> {
           controller.close();
         }
       },
-      cancel() {
-        console.log('[download] Stream cancelled by client');
-      },
+      cancel() {},
     });
 
     return new Response(stream, {

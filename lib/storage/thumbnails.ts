@@ -577,6 +577,14 @@ export async function generatePlaylistComposite(
     return cached.buffer;
   }
 
+  const resizedTiles = await Promise.all(
+    tiles.map((tile) =>
+      sharp(tile)
+        .resize(640, 640, { fit: 'cover', position: 'center' })
+        .toBuffer(),
+    ),
+  );
+
   const composite = await sharp({
     create: {
       width: 1280,
@@ -586,10 +594,10 @@ export async function generatePlaylistComposite(
     },
   })
     .composite([
-      { input: tiles[0], top: 0, left: 0 },
-      { input: tiles[1], top: 0, left: 640 },
-      { input: tiles[2], top: 640, left: 0 },
-      { input: tiles[3], top: 640, left: 640 },
+      { input: resizedTiles[0], top: 0, left: 0 },
+      { input: resizedTiles[1], top: 0, left: 640 },
+      { input: resizedTiles[2], top: 640, left: 0 },
+      { input: resizedTiles[3], top: 640, left: 640 },
     ])
     .webp({ lossless: true })
     .toBuffer();

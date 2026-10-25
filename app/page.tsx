@@ -40,11 +40,11 @@ export default function Home() {
     };
   }, []);
 
-  const saveProfile = useCallback(async (name: string) => {
+  const saveProfile = useCallback(async (name: string, pictureUrl?: string) => {
     const response = await fetch('/api/user/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, ...(pictureUrl ? { pictureUrl } : {}) }),
     });
     if (!response.ok) throw new Error('Unable to save profile');
     setUser(await response.json());

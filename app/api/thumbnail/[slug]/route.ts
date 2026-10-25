@@ -91,17 +91,17 @@ export async function GET(
         if (!fs.existsSync(scopedHi)) {
           const generated = await ensureHiFrom640(scopedPath, scopedHi);
           if (generated) {
-            return new Response(generated, {
+            return new Response(new Uint8Array(generated), {
               headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
             });
           }
         } else {
-          return new Response(fs.readFileSync(scopedHi), {
+          return new Response(new Uint8Array(fs.readFileSync(scopedHi)), {
             headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
           });
         }
       }
-      return new Response(fs.readFileSync(scopedPath), {
+      return new Response(new Uint8Array(fs.readFileSync(scopedPath)), {
         headers: {
           'Content-Type': 'image/webp',
           ...LONG_CACHE_HEADERS,
@@ -117,18 +117,18 @@ export async function GET(
     if (wantHi) {
       const hiPath = anyPath.replace(/\.webp$/, '.hi.webp');
       if (fs.existsSync(hiPath)) {
-        return new Response(fs.readFileSync(hiPath), {
+        return new Response(new Uint8Array(fs.readFileSync(hiPath)), {
           headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
         });
       }
       const generated = await ensureHiFrom640(anyPath, hiPath);
       if (generated) {
-        return new Response(generated, {
+        return new Response(new Uint8Array(generated), {
           headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
         });
       }
     }
-    return new Response(fs.readFileSync(anyPath), {
+    return new Response(new Uint8Array(fs.readFileSync(anyPath)), {
       headers: {
         'Content-Type': 'image/webp',
         ...LONG_CACHE_HEADERS,
@@ -143,18 +143,18 @@ export async function GET(
       if (wantHi) {
         const hiPath = getGlobalThumbnailHiPath(trackKey);
         if (fs.existsSync(hiPath)) {
-          return new Response(fs.readFileSync(hiPath), {
+          return new Response(new Uint8Array(fs.readFileSync(hiPath)), {
             headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
           });
         }
         const generated = await ensureHiFrom640(globalPath, hiPath);
         if (generated) {
-          return new Response(generated, {
+          return new Response(new Uint8Array(generated), {
             headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
           });
         }
       }
-      return new Response(fs.readFileSync(globalPath), {
+      return new Response(new Uint8Array(fs.readFileSync(globalPath)), {
         headers: { 'Content-Type': 'image/webp', ...LONG_CACHE_HEADERS },
       });
     }

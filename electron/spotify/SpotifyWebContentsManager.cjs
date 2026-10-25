@@ -45,6 +45,13 @@ class SpotifyWebContentsManager {
       contents.setAudioMuted(true);
       contents.on('console-message', (event) => {
         const { level, message, line, sourceId } = event;
+        // Suppress expected internal Spotify Web Player noise (DRM, PlayReady, Autoplay, Telemetry/Analytics, font preloads, x-resolve timeouts)
+        if (
+          /playready|setservercertificate|generaterequest|robustness level|should auto-play but rc is not enabled|created authenticated browser transport|google analytics|hit payload length|uncaught \(in promise\) undefined|encore\.scdn\.co\/fonts|failed to resolve endpoints via x-resolve/i.test(message) ||
+          message === 'undefined'
+        ) {
+          return;
+        }
         console.log(`[renderer-console-${level}] ${message} (${sourceId}:${line})`);
       });
       contents.on('render-process-gone', (_event, details) => {

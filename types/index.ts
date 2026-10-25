@@ -1,4 +1,5 @@
 export interface Track {
+  /** Spotify track ID; retained as videoId for compatibility with existing UI state. */
   videoId: string;
   title: string;
   artist: string;
@@ -13,6 +14,11 @@ export interface Track {
   sourcePlaylistId?: string;
   /** Stable source identity used by linked playlist synchronization. */
   sourceTrackId?: string;
+  quality?: string;
+  format?: string;
+  provider?: string;
+  trackNumber?: number;
+  discNumber?: number;
   /** Source platform for this track when it belongs to a linked playlist. */
   source?: 'youtube' | 'local' | 'spotify';
 }

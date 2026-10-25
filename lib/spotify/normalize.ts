@@ -2,8 +2,8 @@
  * Normalize raw Spotify data (from embed or internal API) into the app's Track
  * and Playlist types.
  *
- * Spotify tracks imported here will have an empty videoId; the YouTube resolver
- * fills it in on first play via the existing matching infrastructure.
+ * Spotify identity is the stable app-level track identity; audio retrieval is
+ * delegated to the configured SpotiFLAC service.
  */
 
 import type { Playlist, Track } from '@/types';
@@ -17,7 +17,7 @@ export function toAppTrack(
   playlistId: string,
 ): Track {
   return {
-    videoId: '',
+    videoId: track.spotifyTrackId,
     title: track.name,
     artist: track.artists,
     thumbnailUrl: track.image,

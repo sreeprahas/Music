@@ -245,7 +245,7 @@ export function Sidebar({
         </button>
         <span
           className={`min-w-0 truncate text-base font-bold tracking-tight text-text ${
-            expanded ? 'flex-1 block' : 'hidden'
+            expanded ? 'flex-2 block' : 'hidden'
           }`}
         >
           Your Library

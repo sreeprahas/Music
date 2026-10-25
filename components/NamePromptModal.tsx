@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Trash2, Upload } from 'lucide-react';
 
 interface NamePromptModalProps {
-  onSubmit: (name: string) => Promise<void>;
+  onSubmit: (name: string, pictureUrl?: string) => Promise<void>;
 }
 
 export function NamePromptModal({
@@ -157,39 +157,6 @@ export function NamePromptModal({
     );
   };
 
-  /*
-   * EXACT SAME API ENDPOINT USED BY SETTINGS.
-   */
-  const saveProfilePhoto = async (
-    profileName: string,
-    file: File,
-  ) => {
-    const pictureUrl =
-      await processProfilePhoto(file);
-
-    const response = await fetch(
-      '/api/user/profile',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: profileName,
-          pictureUrl,
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        'Could not update your profile photo.',
-      );
-    }
-
-    return response.json();
-  };
-
   const handleSubmit = async (
     event: React.FormEvent,
   ) => {
@@ -208,26 +175,11 @@ export function NamePromptModal({
     setError('');
 
     try {
-      /*
-       * No photo:
-       * use the existing onboarding save.
-       */
       if (!profilePhoto) {
         await onSubmit(trimmedName);
       } else {
-        /*
-         * Photo selected:
-         *
-         * 1. Process image exactly like Settings.
-         * 2. POST name + pictureUrl to the same endpoint.
-         *
-         * This persists the photo in the same place
-         * Settings reads from.
-         */
-        await saveProfilePhoto(
-          trimmedName,
-          profilePhoto,
-        );
+        const pictureUrl = await processProfilePhoto(profilePhoto);
+        await onSubmit(trimmedName, pictureUrl);
       }
     } catch (error) {
       console.error(

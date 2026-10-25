@@ -1,8 +1,9 @@
 import { Innertube, UniversalCache } from 'youtubei.js';
+import { log, logWarn } from '../log';
 
 let youtubePromise: Promise<Innertube> | null = null;
 
-async function getYouTube(): Promise<Innertube> {
+export async function getYouTube(poToken?: string): Promise<Innertube> {
   if (!youtubePromise) {
     youtubePromise = Innertube.create({
       lang: 'en',
@@ -10,6 +11,7 @@ async function getYouTube(): Promise<Innertube> {
       generate_session_locally: true,
       enable_session_cache: true,
       cache: new UniversalCache(true),
+      ...(poToken ? { po_token: poToken } : {}),
     }).catch((error) => {
       youtubePromise = null;
       throw error;
@@ -270,6 +272,147 @@ export async function getYouTubeAudioStream(
     url,
     mimeType: selected?.mime_type,
     bitrate: Number(selected?.bitrate ?? 0) || undefined,
+    expiresAt,
+  };
+}
+
+/**
+ * Resolved audio stream info used by the live-streaming path.
+ * Keys are aligned with the existing /api/stream/live contract so the route
+ * can forward content-type / content-length / expiry to the client.
+ */
+export interface StreamInfo {
+  url: string;
+  mimeType: string;
+  bitrate: number;
+  contentLength?: number;
+  /** Unix ms. YouTube's `expire` query param is the actual TTL. */
+  expiresAt: number;
+}
+
+/**
+ * Resolves a direct audio stream URL via the WEB InnerTube client.
+ *
+ * Used by the live-streaming hot path (lib/downloader.ts → resolveStreamUrl).
+ * Replaces the previous yt-dlp subprocess: no external process spawn, no
+ * ffmpeg, no media conversion. The returned URL is a direct YouTube media
+ * CDN URL that the existing range-proxy can tee straight to the client and
+ * to the cache store.
+ */
+export async function getStreamInfo(
+  videoId: string,
+  signal?: AbortSignal,
+  poToken?: string,
+): Promise<StreamInfo> {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    throw new Error('Invalid YouTube video ID');
+  }
+  if (signal?.aborted) throw new Error('Request cancelled');
+
+  const youtube = await getYouTube(poToken);
+  if (signal?.aborted) throw new Error('Request cancelled');
+
+  /*
+   * YouTube no longer ships decipherable URLs in the WEB client's
+   * `streaming_data.adaptive_formats` — `url`, `signature_cipher`, and
+   * `cipher` are all empty strings. The audible formats still arrive, but
+   * `Player.decipher()` then throws "No valid URL to decipher".
+   *
+   * Workaround: try multiple InnerTube clients and pick the first one
+   * whose audio formats carry a directly usable URL or a decipherable
+   * `signature_cipher`. Order favours clients that work without
+   * sign-in / playback restrictions.
+   *
+   *   IOS    — returns plain `url` on audio formats, no decipher needed.
+   *   MWEB   — returns `signature_cipher` on all audio formats; works
+   *            through `Player.decipher()`.
+   *   ANDROID — sometimes returns `url` directly (region dependent).
+   *   WEB    — kept last as a baseline; currently no decipherable URL.
+   */
+  const CLIENTS_TO_TRY = ['IOS', 'MWEB', 'ANDROID', 'WEB'] as const;
+
+  let selected: any | null = null;
+  let player: any = null;
+  let lastClientError: unknown = null;
+
+  for (const clientName of CLIENTS_TO_TRY) {
+    if (signal?.aborted) throw new Error('Request cancelled');
+
+    try {
+      const info: any = await youtube.getBasicInfo(videoId, { client: clientName });
+      if (signal?.aborted) throw new Error('Request cancelled');
+
+      const status = info?.playability_status?.status;
+      if (status && status !== 'OK') {
+        logWarn('[getStreamInfo] client=' + clientName + ' playability=' + status + ', trying next');
+        continue;
+      }
+
+      const audioFormats = (info.streaming_data?.adaptive_formats ?? [])
+        .filter((f: any) => f?.has_audio === true || (typeof f?.mime_type === 'string' && f.mime_type.startsWith('audio/')))
+        .filter((f: any) => !f?.has_video);
+
+      if (!audioFormats.length) {
+        logWarn('[getStreamInfo] client=' + clientName + ' returned no audio-only formats, trying next');
+        continue;
+      }
+
+      // Prefer Opus 251 (transparent, smaller), then highest bitrate.
+      audioFormats.sort((a: any, b: any) => {
+        const aItag = Number(a?.itag ?? 0) === 251 ? 1 : 0;
+        const bItag = Number(b?.itag ?? 0) === 251 ? 1 : 0;
+        if (aItag !== bItag) return bItag - aItag;
+        return Number(b?.bitrate ?? 0) - Number(a?.bitrate ?? 0);
+      });
+
+      const candidate = audioFormats[0];
+      const hasUrl = typeof candidate?.url === 'string' && candidate.url.length > 0;
+      const hasSig = typeof candidate?.signature_cipher === 'string' && candidate.signature_cipher.length > 0;
+      const hasCipher = typeof candidate?.cipher === 'string' && candidate.cipher.length > 0;
+
+      if (!hasUrl && !hasSig && !hasCipher) {
+        logWarn('[getStreamInfo] client=' + clientName + ' itag=' + candidate?.itag + ' has no decipherable URL, trying next');
+        continue;
+      }
+
+      selected = candidate;
+      player = youtube.session.player;
+      log('[getStreamInfo] selected client=' + clientName + ' itag=' + selected?.itag + ' mime=' + selected?.mime_type + ' hasUrl=' + hasUrl + ' hasSig=' + hasSig + ' hasCipher=' + hasCipher);
+      break;
+    } catch (err) {
+      lastClientError = err;
+      logWarn('[getStreamInfo] client=' + clientName + ' failed: ' + (err instanceof Error ? err.message : err));
+    }
+  }
+
+  if (!selected || !player) {
+    throw new Error(
+      'No audio formats were returned by YouTube'
+        + (lastClientError ? ` (last error: ${lastClientError instanceof Error ? lastClientError.message : lastClientError})` : ''),
+    );
+  }
+
+  const url = await selected.decipher(player);
+
+  if (typeof url !== 'string' || !url) {
+    throw new Error('youtubei.js could not resolve the audio URL');
+  }
+
+  // YouTube URLs include `expire` (Unix seconds). Use it as the real TTL;
+  // fall back to a conservative 20-minute window if the param is missing.
+  let expiresAt = Date.now() + 20 * 60 * 1000;
+  try {
+    const expire = Number(new URL(url).searchParams.get('expire'));
+    if (Number.isFinite(expire) && expire > 0) {
+      expiresAt = expire * 1000;
+    }
+  } catch { /* keep fallback */ }
+
+  return {
+    url,
+    mimeType: selected?.mime_type ?? 'audio/webm',
+    bitrate: Number(selected?.bitrate ?? 0),
+    contentLength: selected?.content_length ? Number(selected.content_length) : undefined,
     expiresAt,
   };
 }

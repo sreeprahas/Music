@@ -46,7 +46,7 @@ interface Props {
   onRemoveFromPlaylist?: (track: Track, playlistId: string) => void;
   onToggleFullscreen: () => void;
   onTimeUpdate?: (currentTime: number) => void;
-  /** Reported when the player resolved a Spotify song to its YouTube video. */
+  /** Legacy callback retained for compatibility with parent state. */
   onVideoIdResolved?: (sourceTrackId: string, videoId: string) => void;
   resumeTime?: number;
   autoPlay?: boolean;
@@ -118,9 +118,6 @@ export function PlayerBar({
   // track.thumbnailUrl (a local /api/thumbnail URL set at import time) with a
   // refresh query param that forces the browser to re-fetch the current file.
   const coverSrc = track ? getTrackThumbnailUrl(track, playerBarArtworkKey) : '';
-  // Latest onVideoIdResolved callback without retriggering the load effect.
-  const onVideoIdResolvedRef = useRef(onVideoIdResolved);
-  onVideoIdResolvedRef.current = onVideoIdResolved;
   const [isPlaying, setIsPlayingState] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -322,123 +319,78 @@ export function PlayerBar({
 
     let cancelled = false;
 
-    // Start matching/stream warming immediately, before the player waits for
-    // anything. The server coalesces duplicate requests, so the actual load
-    // below can await the same in-flight work. Keep the window small to avoid
-    // unnecessary network traffic.
-    const currentIndex = queue.findIndex((item) =>
-      (track.videoId && item.videoId === track.videoId) ||
-      (track.sourceTrackId && item.sourceTrackId === track.sourceTrackId),
-    );
-    const prefetchWindow = [
-      ...(currentIndex < 0 ? [track] : []),
-      ...(currentIndex >= 0 ? queue.slice(currentIndex, currentIndex + 4) : queue.slice(0, 4)),
-    ]
-      .filter(Boolean)
-      .map((item) => ({
-        title: item.title,
-        artist: item.artist,
-        duration: item.duration,
-        spotifyId: item.sourceTrackId,
-        album: item.album,
-        thumbnailUrl: item.thumbnailUrl,
-        videoId: item.videoId,
-        downloaded: item.downloaded,
-      }));
+    const loadAudioSource = (source: string) => {
+      if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+      audio.src = source;
+      audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
+      audio.load();
 
-    // Warm Spotify tracks via the match+stream resolver (handles Spotify→YT mapping).
-    void fetch('/api/spotify/prefetch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tracks: prefetchWindow }),
-    }).catch(() => {});
-
-    // Also warm pure YouTube tracks (no Spotify ID) — these skip the Spotify
-    // resolver entirely, so without this call the yt-dlp extraction runs cold
-    // on first play. /api/stream/prefetch calls getStreamUrl directly, which
-    // coalesces duplicate requests and caches the URL in memory.
-    for (const item of prefetchWindow) {
-      if (item.videoId && !item.spotifyId) {
-        void fetch(`/api/stream/prefetch?videoId=${encodeURIComponent(item.videoId)}`).catch(() => {});
+      if (!hasRestoredInitialTime.current) {
+        hasRestoredInitialTime.current = true;
+        if (resumeTime > 0) {
+          audio.currentTime = resumeTime;
+          setCurrentTime(resumeTime);
+        }
       }
-    }
+
+      if (autoPlay) {
+        audio.play()
+          .then(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(true); })
+          .catch((error) => {
+            if (!cancelled && loadGeneration === loadGenerationRef.current) {
+              console.error('[Audio playback]:', error);
+              setIsPlaying(false);
+            }
+          });
+      }
+    };
 
     const loadTrack = async () => {
       try {
-        // ── Spotify track resolution ──────────────────────────────────────
-        // If the track came from Spotify and hasn't been resolved to a YouTube
-        // video yet, resolve it on-demand via /api/spotify/resolve. The
-        // resolver checks the Spotify→YouTube cache first, then searches
-          // YouTube Music through the in-process matcher. The player itself never knows how Spotify auth
-        // works — it just asks for a playable videoId.
-        let videoId = track.videoId;
-        if (!videoId && track.sourceTrackId) {
-          if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-          try {
-            const res = await fetch('/api/spotify/resolve', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                title: track.title,
-                artist: track.artist,
-                duration: track.duration,
-                spotifyId: track.sourceTrackId,
-                thumbnailUrl: track.thumbnailUrl,
-              }),
-            });
-            if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-            if (res.ok) {
-              const data = await res.json();
-              if (data.videoId) {
-                videoId = data.videoId;
-                // Keep the parent state in sync so the currently-playing song
-                // stays highlighted in the playlist view and the resolved id
-                // is reused for cache/download lookups.
-                onVideoIdResolvedRef.current?.(track.sourceTrackId, data.videoId);
-              }
-            }
-          } catch {
-            // Resolution failed — fall through; the mp3/stream load will fail
-            // gracefully below.
+        const isYouTubeTrack = track.source === 'youtube'
+          || (track.source !== 'spotify' && /^[A-Za-z0-9_-]{11}$/.test(track.videoId));
+        if (isYouTubeTrack) {
+          const videoId = track.videoId;
+          if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+            console.warn('[Track unavailable]: A valid YouTube video ID is required for playback.', track.title);
+            setIsPlaying(false);
+            return;
           }
+          const params = new URLSearchParams({
+            videoId,
+            title: track.title,
+            artist: track.artist,
+            thumbnailUrl: track.thumbnailUrl,
+          });
+          loadAudioSource(`/api/stream/live?${params.toString()}`);
+          return;
         }
 
-        if (cancelled || loadGeneration !== loadGenerationRef.current) return;
-        if (!videoId) {
-          console.warn('[Track unavailable]: No playable YouTube match is available for', track.title);
+        const spotifyId = track.sourceTrackId || track.videoId;
+        if (!spotifyId || !/^[A-Za-z0-9]{22}$/.test(spotifyId)) {
+          console.warn('[Track unavailable]: A valid Spotify track ID is required for SpotiFLAC playback.', track.title);
           setIsPlaying(false);
           return;
         }
 
-        // Set audio.src directly to the live streaming endpoint — one HTTP request
-        // instead of two (JSON round-trip to /api/stream + then to /api/stream/live).
-        // /api/stream/live checks the local store itself, resolves the upstream URL
-        // (coalesced via the same in-memory cache that prefetch warms), and
-        // tees the stream to disk for future plays.
-        const streamParams = new URLSearchParams({ videoId });
-        if (track.title) streamParams.set('title', track.title);
-        if (track.artist) streamParams.set('artist', track.artist);
-        if (track.thumbnailUrl) streamParams.set('thumbnailUrl', track.thumbnailUrl);
-
-        audio.src = `/api/stream/live?${streamParams.toString()}`;
-
-        // Restore user's volume — never reset to 1 (that wipes user preference).
-        audio.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume));
-        audio.load();
-
-        if (!hasRestoredInitialTime.current) {
-          hasRestoredInitialTime.current = true;
-          if (resumeTime > 0) { audio.currentTime = resumeTime; setCurrentTime(resumeTime); }
+        try {
+          const res = await fetch('/api/music/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ spotifyId, title: track.title }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ready) throw new Error(data.message || data.error || 'SpotiFLAC could not prepare this track.');
+        } catch (error) {
+          if (!cancelled && loadGeneration === loadGenerationRef.current) {
+            console.error('[SpotiFLAC playback]:', error);
+            setIsPlaying(false);
+          }
+          return;
         }
-        
-        // Guard play() with BOTH the cancelled flag AND the generation counter.
-        // A bare autoPlay check is not enough — the effect may have re-run for
-        // a newer track between the last await and this point.
-        if (autoPlay && !cancelled && loadGeneration === loadGenerationRef.current) {
-          audio.play()
-            .then(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(true); })
-            .catch(() => { if (!cancelled && loadGeneration === loadGenerationRef.current) setIsPlaying(false); });
-        }
+
+        if (cancelled || loadGeneration !== loadGenerationRef.current) return;
+        loadAudioSource(`/api/music/audio/${encodeURIComponent(spotifyId)}?title=${encodeURIComponent(track.title)}`);
       } catch (err) {
         if (!cancelled && loadGeneration === loadGenerationRef.current) {
           console.error('[Track Load Error]:', err);
@@ -480,7 +432,7 @@ export function PlayerBar({
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.artist,
-      album: 'YouTube Music',
+      album: track.album || 'Music',
       artwork,
     });
 

@@ -15,13 +15,11 @@
 
 import { NextResponse } from 'next/server';
 import { extractPlaylistId } from '@/lib/spotify/validation';
-import {
-  fetchPlaylistWithHiddenWebContents,
-  toNormalizedSpotifyTrack,
-} from '@/lib/spotify/webContentsProvider';
+import { fetchEmbedPreview } from '@/lib/spotify/embed';
 import { toAppTrack, toAppPlaylist } from '@/lib/spotify/normalize';
 import { toUiMessage } from '@/lib/spotify/errors';
 import { reconcilePlaylist } from '@/lib/storage/playlists';
+import { MusicService } from '@/lib/music/spotiflac';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -53,32 +51,37 @@ export async function POST(request: Request) {
         };
 
         try {
-          // Electron main owns the reusable hidden renderer and serializes imports.
-          const { playlist: meta, tracks: rawTracks } =
-            await fetchPlaylistWithHiddenWebContents(rawUrl, {
-              signal: abortController.signal,
-              onProgress: (fetched, total) => send({ type: 'progress', fetched, total }),
-            });
-          send({ type: 'start', playlistName: meta.name });
+          const [resolvedTracks, preview] = await Promise.all([
+            MusicService.resolve(rawUrl, abortController.signal),
+            fetchEmbedPreview(playlistId).catch(() => null),
+          ]);
+          const playlistName = preview?.playlistName || 'Spotify Playlist';
+          send({ type: 'start', playlistName });
+          send({ type: 'progress', fetched: resolvedTracks.length, total: resolvedTracks.length });
 
           // Build app models with unique local ID for every import
           const localId = `sp-${playlistId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-          const appTracks = rawTracks.map((track, i) =>
-            toAppTrack(toNormalizedSpotifyTrack(track), i, localId),
-          );
+          const appTracks = resolvedTracks.map((track, i) => toAppTrack({
+            name: track.title,
+            artists: track.artists.join(', '),
+            duration_ms: track.duration * 1000,
+            image: track.artwork || '',
+            added_at: new Date().toISOString(),
+            spotifyTrackId: track.spotifyId,
+            album: track.album,
+          }, i, localId));
           const playlist = {
-            ...toAppPlaylist(playlistId, meta.name, meta.image, rawUrl, appTracks),
+            ...toAppPlaylist(playlistId, playlistName, preview?.coverImage || appTracks[0]?.thumbnailUrl || '', rawUrl, appTracks),
             id: localId,
             syncOnOpen: false,
           };
 
           // Reconcile: transactional SQLite update + non-blocking artwork
-          // download. The playlist and track images here come from the hidden
-          // Spotify WebContents scraper.
+          // download. Track order and identifiers are provided by SpotiFLAC.
           const { playlist: stored, tracks } = await reconcilePlaylist(
             playlist,
             appTracks,
-            meta.image || undefined,
+            preview?.coverImage || appTracks[0]?.thumbnailUrl || undefined,
             true, // async background artwork
           );
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCachedTracks } from '@/lib/db';
-import { isDownloaded } from '@/lib/downloader';
+import { MusicService } from '@/lib/music/spotiflac';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -10,7 +10,7 @@ function page(tracks: import('@/types').Track[], offset: number, limit: number) 
   return {
     tracks: tracks
       .slice(offset, end)
-      .map((track) => ({ ...track, downloaded: isDownloaded(track.videoId) })),
+      .map(async (track) => ({ ...track, downloaded: track.source === 'spotify' ? Boolean(await MusicService.resolveLocalAudio({ spotifyId: track.sourceTrackId || track.videoId, title: track.title })) : track.downloaded })),
     hasMore: Boolean(limit && end && tracks.length > end),
   };
 }
@@ -25,7 +25,8 @@ export async function GET(request: Request) {
   const tracks = getCachedTracks(playlistId);
   const offset = Math.max(0, Number(searchParams.get('offset') || 0));
   const limit = Math.max(0, Number(searchParams.get('limit') || 0));
-  return NextResponse.json(page(tracks, offset, limit));
+  const result = page(tracks, offset, limit);
+  return NextResponse.json({ ...result, tracks: await Promise.all(result.tracks) });
 }
 
 export async function POST(request: Request) {

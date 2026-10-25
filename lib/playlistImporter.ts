@@ -1,13 +1,13 @@
 /**
  * lib/playlistImporter.ts
  *
- * Unified playlist preview and import coordinator for Spotify and YouTube URLs.
+ * Unified playlist preview and import coordinator for Spotify metadata and legacy YouTube playlists.
  */
 
 import type { Playlist, Track } from '@/types';
 import { fetchEmbedPreview } from './spotify/embed';
-import { fetchPlaylistWithHiddenWebContents } from './spotify/webContentsProvider';
 import { toAppTrack, toAppPlaylist } from './spotify/normalize';
+import { MusicService } from './music/spotiflac';
 import { extractPlaylistId, isSpotifyPlaylistUrl } from './spotify/validation';
 import { previewYouTubePlaylist, importYouTubePlaylist } from './youtube/playlist';
 import { isYouTubePlaylistUrl, isYouTubeUrl } from './youtube/validation';
@@ -69,7 +69,7 @@ export async function previewPlaylistUrl(rawUrl: string): Promise<PlaylistPrevie
     };
   }
 
-  throw new Error('Only public YouTube and Spotify playlist URLs are supported');
+  throw new Error('A Spotify playlist URL is required');
 }
 
 // ─── Import ───────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export async function importPlaylistUrl(
     return importYouTubePlaylist(rawUrl, customTitle);
   }
 
-  throw new Error('Only public YouTube and Spotify playlist URLs are supported');
+  throw new Error('A Spotify playlist URL is required');
 }
 
 // ─── Spotify import helper ────────────────────────────────────────────────────
@@ -102,22 +102,23 @@ async function importSpotify(
   const id = extractPlaylistId(rawUrl);
   if (!id) throw new Error('Could not extract a Spotify playlist id from that URL');
 
-  const { playlist: meta, tracks: scrapedTracks } = await fetchPlaylistWithHiddenWebContents(rawUrl);
-  const playlistName = customTitle?.trim() || meta.name?.trim() || 'Spotify Playlist';
+  const resolvedTracks = await MusicService.resolve(rawUrl);
+  const embed = await fetchEmbedPreview(id).catch(() => null);
+  const playlistName = customTitle?.trim() || embed?.playlistName?.trim() || 'Spotify Playlist';
 
   const localId = `sp-${id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const normalizedTracks = scrapedTracks.map((track) => ({
+  const normalizedTracks = resolvedTracks.map((track) => ({
     name: track.title,
-    artists: track.artist,
-    duration_ms: track.durationMs || 0,
-    image: track.image || '',
-    added_at: track.addedAt || new Date().toISOString(),
-    spotifyTrackId: track.id,
+    artists: track.artists.join(', '),
+    duration_ms: track.duration * 1000,
+    image: track.artwork || '',
+    added_at: new Date().toISOString(),
+    spotifyTrackId: track.spotifyId,
     album: track.album,
   }));
   const appTracks = normalizedTracks.map((t, i) => toAppTrack(t, i, localId));
   const playlist = {
-    ...toAppPlaylist(id, playlistName, meta.image, rawUrl, appTracks),
+    ...toAppPlaylist(id, playlistName, embed?.coverImage || appTracks[0]?.thumbnailUrl || '', rawUrl, appTracks),
     id: localId,
   };
 

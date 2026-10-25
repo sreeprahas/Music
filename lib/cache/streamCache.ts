@@ -171,12 +171,6 @@ export function writeCacheChunk(handle: CacheWriteHandle, chunk: Uint8Array): vo
   if (handle.aborted) return;
   handle.bytes += chunk.byteLength;
   handle.writer.write(Buffer.from(chunk));
-  // Log first chunk and every ~1MB to track progress without flooding
-  if (handle.bytes === chunk.byteLength) {
-    console.log(`[streamCache] writeCacheChunk ${handle.videoId}: first chunk ${chunk.byteLength}B`);
-  } else if (handle.bytes % (1024 * 1024) < chunk.byteLength) {
-    console.log(`[streamCache] writeCacheChunk ${handle.videoId}: ${(handle.bytes / 1024 / 1024).toFixed(1)}MB written`);
-  }
 }
 
 /**

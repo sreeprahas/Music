@@ -11,8 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { fetchEmbedPreview } from '@/lib/spotify/embed';
-import { formatPreviewResponse } from '@/lib/spotify/normalize';
+import { MusicService } from '@/lib/music/spotiflac';
 import { extractPlaylistId } from '@/lib/spotify/validation';
 import { toUiMessage } from '@/lib/spotify/errors';
 
@@ -35,8 +34,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const embed = await fetchEmbedPreview(playlistId);
-    return NextResponse.json(formatPreviewResponse(embed));
+    const tracks = await MusicService.resolve(body.url);
+    return NextResponse.json({ playlistName: 'Spotify Playlist', coverImage: tracks[0]?.artwork || '', totalTracks: tracks.length, tracks: tracks.slice(0, 10).map((track) => ({ name: track.title, artists: track.artists.join(', '), image: track.artwork || '', duration_ms: track.duration * 1000, spotifyTrackId: track.spotifyId, album: track.album })) });
   } catch (err) {
     const message = toUiMessage(err);
     const status =

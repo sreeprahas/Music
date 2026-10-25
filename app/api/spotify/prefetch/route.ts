@@ -24,6 +24,7 @@ interface PrefetchTrack {
 }
 
 export async function POST(request: Request) {
+  const t0 = Date.now();
   try {
     const body = (await request.json()) as { tracks?: unknown };
     const input = Array.isArray(body.tracks) ? body.tracks.slice(0, 4) as PrefetchTrack[] : [];
@@ -86,6 +87,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ results });
   } catch (error) {
+    console.log(`[${new Date().toLocaleTimeString('en-US', {hour12:false})}] [spotify/prefetch] duration=${Date.now() - t0}ms error=` + (error instanceof Error ? error.message : 'Prefetch failed'));
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Prefetch failed' },
       { status: 500 },

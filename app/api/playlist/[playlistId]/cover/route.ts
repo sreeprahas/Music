@@ -61,7 +61,7 @@ export async function GET(
     });
   }
 
-  return new Response(composite, {
+  return new Response(new Uint8Array(composite), {
     headers: {
       'Content-Type': 'image/webp',
       ...LONG_CACHE_HEADERS,

@@ -161,8 +161,11 @@ function extractionScript(mode, targetId = '') {
             : (typeof value.uri === 'string' && value.uri.startsWith('spotify:playlist:'));
           const targetObj = (value.data && (value.data.uri === targetUri || value._uri === targetUri)) ? value.data : value;
           if (isTarget && targetObj && targetObj.name) {
-            result.name = text(targetObj.name);
-            result.cover = imageFrom(targetObj);
+            const candidateName = text(targetObj.name);
+            if (candidateName && !/^your library$/i.test(candidateName)) {
+              result.name = candidateName;
+              result.cover = imageFrom(targetObj);
+            }
           }
           const candidates = [value.trackList, value.tracks?.items, value.items];
           for (const list of candidates) {
@@ -233,16 +236,25 @@ function extractionScript(mode, targetId = '') {
     }
     function metadata() {
       const state = findState();
-      const name = state.name ||
-        document.querySelector('h1')?.textContent?.trim() ||
-        document.querySelector('meta[property="og:title"]')?.content || '';
+      const h1El = document.querySelector('h1[data-testid="entityTitle"], h1[data-testid="playlist-title"], [data-testid="playlist-page"] h1, h1');
+      const h1Text = text(h1El?.textContent);
+      const metaOgTitle = text(document.querySelector('meta[property="og:title"]')?.content);
+      const docTitle = text(document.title);
+      const cleanString = (s) => (s || '')
+        .replace(/\\s+-\\s+playlist\\s+by\\s+.*$/i, '')
+        .replace(/\\s+[|·-]\\s+Spotify.*$/i, '')
+        .replace(/\\s+[|·]\\s+[^|·]+$/, '')
+        .trim();
+      const isGeneric = (t) => !t || /^(your library|spotify|spotify – web player|web player)$/i.test(t);
+      const candidates = [cleanString(state.name), cleanString(h1Text), cleanString(metaOgTitle), cleanString(docTitle)];
+      const name = candidates.find((t) => !isGeneric(t)) || 'Spotify Playlist';
       const cover = state.cover ||
         document.querySelector('meta[property="og:image"]')?.content ||
         document.querySelector('main img[srcset], main img[src]')?.currentSrc || '';
       const countText = document.querySelector('[data-testid="trackCount"]')?.textContent || document.body.innerText;
       const uiTotalMatch = /(\\d+)\\s+(?:songs|tracks|items)\\b/i.exec(countText.replace(/,/g, ''));
       return {
-        name: name.replace(/\\s+[|·]\\s+[^|·]+$/, '').trim() || 'Spotify Playlist',
+        name,
         cover,
         expectedTotal: state.total || (uiTotalMatch ? Number(uiTotalMatch[1]) : 0),
         stateTracks: state.tracks,

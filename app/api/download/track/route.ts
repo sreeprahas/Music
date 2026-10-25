@@ -1,27 +1,20 @@
 /**
  * POST /api/download/track
  *
- * Downloads EXACTLY ONE song — the one identified by the request payload.
+ * Queues exactly one Spotify track with SpotiFLAC.
  *
  * This endpoint deliberately never accepts playlist identifiers; playlist
  * downloads go through GET /api/download?playlistId=… which is a separate
- * pipeline. The payload carries the song's global identity:
+ * pipeline. The payload carries the Spotify track identity:
  *
  *   { videoId?, sourceTrackId?, title, artist, album?, duration?, thumbnailUrl?, action? }
  *
- * Spotify tracks that have not been matched to a YouTube video yet are
- * resolved here (same matching engine used by the player) so "Download song"
- * works on any song, regardless of source.
+ * SpotiFLAC resolves the Spotify track and runs the configured provider chain.
  */
-import { downloadTrack, deleteTrack } from '@/lib/downloader';
-import { matchSpotifyTrack } from '@/lib/matching/matcher';
-import { resolveAudioStore, type AudioStore } from '@/lib/cache/audio';
-import { deleteCachedAudio } from '@/lib/cache/streamCache';
+import { MusicService, MusicServiceError } from '@/lib/music/spotiflac';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 interface TrackPayload {
   videoId?: unknown;
@@ -43,68 +36,29 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = (await request.json()) as TrackPayload;
 
-    let videoId = asString(body.videoId);
-    const sourceTrackId = asString(body.sourceTrackId);
-    const title = asString(body.title);
-    const artist = asString(body.artist);
-    const album = asString(body.album);
-    const thumbnailUrl = asString(body.thumbnailUrl);
-    const duration = typeof body.duration === 'number' && Number.isFinite(body.duration) ? body.duration : undefined;
-
-    // Resolve the song's YouTube identity when the caller only knows the
-    // Spotify identity. Single-song by definition: the resolved videoId is
-    // used for this request only.
-    if (!VIDEO_ID.test(videoId) && sourceTrackId && title) {
-      try {
-        const match = await matchSpotifyTrack(
-          {
-            id: sourceTrackId,
-            title,
-            artist,
-            album: album || undefined,
-            duration,
-            thumbnailUrl: thumbnailUrl || undefined,
-          },
-          { signal: request.signal },
-        );
-        if (match.matched && match.candidate?.videoId && VIDEO_ID.test(match.candidate.videoId)) {
-          videoId = match.candidate.videoId;
-        }
-      } catch (err) {
-        console.warn('[api/download/track] Spotify resolution failed:', err instanceof Error ? err.message : err);
-      }
-    }
-
-    if (!videoId || !VIDEO_ID.test(videoId)) {
-      return new Response(JSON.stringify({ success: false, error: 'Missing videoId' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     if (asString(body.action) === 'delete') {
-      // store=cache removes an automatically cached song; the default removes
-      // an explicit user download. The two stores are never mixed.
-      const store: AudioStore = resolveAudioStore(body.store);
-      const ok = store === 'cache' ? deleteCachedAudio(videoId) : deleteTrack(videoId);
-      return new Response(JSON.stringify({ success: ok }), {
+      const spotifyId = asString(body.sourceTrackId) || asString(body.videoId);
+      if (!/^[A-Za-z0-9]{22}$/.test(spotifyId)) return Response.json({ success: false, error: 'Invalid Spotify track ID' }, { status: 400 });
+      return new Response(JSON.stringify({ success: false, error: 'Delete the track from the configured SpotiFLAC library to preserve its authoritative cache.' }), {
         headers: { 'Content-Type': 'application/json' },
+        status: 409,
       });
     }
 
-    // Default action: download THIS single track
-    await downloadTrack(videoId, title || undefined, artist || undefined, request.signal);
-    return new Response(JSON.stringify({ success: true, videoId }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const spotifyId = asString(body.sourceTrackId) || asString(body.videoId);
+    if (!/^[A-Za-z0-9]{22}$/.test(spotifyId)) return Response.json({ success: false, error: 'A Spotify track ID is required.' }, { status: 400 });
+    const title = asString(body.title) || spotifyId;
+    const existingAudio = await MusicService.resolveLocalAudio({ spotifyId, title });
+    if (existingAudio) return Response.json({ success: true, ready: true, videoId: spotifyId });
+    const queued = await MusicService.queueDownload(spotifyId, title, request.signal);
+    const job = await MusicService.waitForDownload(queued.id);
+    if (job.status.toLowerCase() === 'failed') return Response.json({ success: false, error: 'DOWNLOAD_FAILED', message: job.error || 'SpotiFLAC download failed.' }, { status: 502 });
+    const audio = await MusicService.resolveLocalAudio({ spotifyId, title });
+    if (!audio) return Response.json({ success: false, error: 'DOWNLOAD_FAILED', message: 'Completed file was not found in the shared audio directory.' }, { status: 502 });
+    return Response.json({ success: true, ready: true, videoId: spotifyId });
   } catch (err: unknown) {
-    let message = err instanceof Error ? err.message : 'Track processing failed';
-    if (message.includes('ENOTFOUND') || message.includes('fetch failed') || message.includes('Unable to download API page')) {
-      message = 'Download failed: No internet connection available.';
-    }
-    return new Response(JSON.stringify({ success: false, error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error('[api/download/track]', err);
+    const status = err instanceof MusicServiceError ? (err.status || (err.code === 'SPOTIFLAC_UNAVAILABLE' ? 503 : 502)) : 500;
+    return Response.json({ success: false, error: err instanceof MusicServiceError ? err.code : 'DOWNLOAD_FAILED', message: err instanceof Error ? err.message : 'Track processing failed' }, { status });
   }
 }

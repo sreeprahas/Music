@@ -1,8 +1,19 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage, session, utilityProcess } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, nativeImage, session, utilityProcess, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { spawn, execFile } = require('child_process');
 const sharp = require('sharp');
+
+// Electron loads the same server-side configuration used by Next before it
+// starts either backend process. Values already present in the environment win.
+try {
+  const dotenv = require('dotenv');
+  dotenv.config({ path: path.join(__dirname, '.env.local'), quiet: true });
+  dotenv.config({ path: path.join(__dirname, '.env'), quiet: true });
+} catch (error) {
+  console.warn('[config] dotenv could not be loaded:', error.message);
+}
 
 const isElectronDev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development';
 const musicIconPath = fs.existsSync(path.join(__dirname, 'public', 'music-icon.png'))
@@ -16,6 +27,9 @@ const ELECTRON_SERVER_TOKEN = crypto.randomBytes(32).toString('hex');
 let mainWindow = null;
 let nextProcess = null;
 let nextServerPort = null;
+let spotiflacProcess = null;
+let ownsSpotiFLACProcess = false;
+let spotiflacReady = false;
 let iconUpdateSerial = 0;
 let quitting = false;
 let spotifyScrapeTail = Promise.resolve();
@@ -61,6 +75,165 @@ process.on('SIGINT', requestProcessQuit);
 process.on('SIGTERM', requestProcessQuit);
 
 const appOrigin = () => `http://127.0.0.1:${nextServerPort}`;
+
+function configureSpotiFLACEnvironment() {
+  const serviceUrl = (process.env.SPOTIFLAC_URL || 'http://127.0.0.1:8000').trim().replace(/\/$/, '');
+  const parsed = new URL(serviceUrl);
+  if (parsed.protocol !== 'http:' || parsed.username || parsed.password || parsed.pathname !== '/') {
+    throw new Error('SPOTIFLAC_URL must be a local HTTP origin such as http://127.0.0.1:8000.');
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const localHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+  const isLocal = localHosts.has(hostname) || /^127\./.test(hostname);
+  const port = Number(parsed.port || 8000);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('SPOTIFLAC_URL must use a valid TCP port.');
+  }
+
+  process.env.SPOTIFLAC_URL = serviceUrl;
+  process.env.SPOTIFLAC_TIMEOUT = process.env.SPOTIFLAC_TIMEOUT || '15000';
+  process.env.SPOTIFLAC_CACHE_DIR = path.resolve(
+    process.env.SPOTIFLAC_CACHE_DIR || path.join(app.getPath('userData'), 'shared-audio'),
+  );
+  fs.mkdirSync(process.env.SPOTIFLAC_CACHE_DIR, { recursive: true });
+
+  return { serviceUrl, hostname, port, isLocal, token: process.env.SPOTIFLAC_API_KEY || '' };
+}
+
+async function isSpotiFLACHealthy(serviceUrl, token) {
+  try {
+    const healthUrl = new URL(`${serviceUrl}/api/v1/info`);
+    if (token) healthUrl.searchParams.set('token', token);
+    const response = await fetch(healthUrl, { signal: AbortSignal.timeout(2000), cache: 'no-store' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function runPythonCommand(python, args, { timeout = 600_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(python, args, { windowsHide: true, timeout, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        const details = [stderr?.trim(), stdout?.trim()].filter(Boolean).join('\n');
+        const failure = new Error(`${error.message}${details ? `\n${details}` : ''}`);
+        failure.code = error.code;
+        reject(failure);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function ensureSpotiFLACInstalled(python) {
+  const environmentDir = path.join(app.getPath('appData'), 'music', 'spotiflac-python');
+  const pythonExecutable = process.platform === 'win32'
+    ? path.join(environmentDir, 'Scripts', 'python.exe')
+    : path.join(environmentDir, 'bin', 'python');
+  if (!fs.existsSync(pythonExecutable)) {
+    console.log('[spotiflac] Creating the app Python environment');
+    await runPythonCommand(python, ['-m', 'venv', environmentDir]);
+  }
+
+  const moduleCheck = "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('SpotiFLAC.__main__') else 1)";
+  try {
+    await runPythonCommand(pythonExecutable, ['-c', moduleCheck], { timeout: 15_000 });
+    return pythonExecutable;
+  } catch (error) {
+    console.log('[spotiflac] Python module is missing; installing SpotiFLAC with pip');
+  }
+
+  await runPythonCommand(pythonExecutable, ['-m', 'pip', 'install', '--upgrade', 'SpotiFLAC']);
+  await runPythonCommand(pythonExecutable, ['-c', moduleCheck], { timeout: 15_000 });
+  console.log('[spotiflac] Python module installation is ready');
+  return pythonExecutable;
+}
+
+async function startSpotiFLAC() {
+  const config = configureSpotiFLACEnvironment();
+  if (await isSpotiFLACHealthy(config.serviceUrl, config.token)) {
+    console.log(`[spotiflac] Reusing service at ${config.serviceUrl}`);
+    spotiflacReady = true;
+    return;
+  }
+  if (!config.isLocal) {
+    throw new Error(`SpotiFLAC is unavailable at ${config.serviceUrl}; automatic startup is allowed only for loopback URLs.`);
+  }
+
+  const python = process.env.SPOTIFLAC_PYTHON || (process.platform === 'win32' ? 'py' : 'python3');
+  const spotiflacPython = await ensureSpotiFLACInstalled(python);
+  const serviceHost = config.hostname === 'localhost' ? '127.0.0.1' : config.hostname;
+  const serviceArgs = [
+    '-m', 'SpotiFLAC', '--web', '--host', serviceHost, '--port', String(config.port),
+  ];
+  if (config.token) serviceArgs.push('--web-token', config.token);
+  console.log(`[spotiflac] Starting Python module at ${config.serviceUrl}`);
+
+  const child = spawn(spotiflacPython, serviceArgs, {
+    cwd: __dirname,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  spotiflacProcess = child;
+  ownsSpotiFLACProcess = true;
+
+  let launchError = null;
+  let childExited = false;
+  let recentOutput = '';
+  const recordOutput = (prefix, target) => (chunk) => {
+    const value = chunk.toString();
+    recentOutput = `${recentOutput}${value}`.slice(-6000);
+    target.write(`${prefix}${value}`);
+  };
+  child.stdout?.on('data', recordOutput('[spotiflac] ', process.stdout));
+  child.stderr?.on('data', recordOutput('[spotiflac:error] ', process.stderr));
+  child.on('error', (error) => { launchError = error; });
+  child.on('exit', (code, signal) => {
+    childExited = true;
+    if (spotiflacProcess === child) spotiflacProcess = null;
+    console.error(`[spotiflac] Process exited (code=${code}, signal=${signal || 'none'})`);
+    if (spotiflacReady && !quitting) {
+      spotiflacReady = false;
+      dialog.showErrorBox('SpotiFLAC stopped', 'The required SpotiFLAC service stopped while Music was open. Music will close.');
+      app.quit();
+    }
+  });
+
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (launchError) throw new Error(`Could not start Python (${python}): ${launchError.message}`);
+    if (childExited || child.exitCode !== null) {
+      throw new Error(`SpotiFLAC exited before becoming ready (code ${child.exitCode ?? 'unknown'}).${recentOutput ? `\n\n${recentOutput.trim()}` : ''}`);
+    }
+    if (await isSpotiFLACHealthy(config.serviceUrl, config.token)) {
+      spotiflacReady = true;
+      console.log('[spotiflac] REST API is ready');
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+  throw new Error(`SpotiFLAC did not become ready at ${config.serviceUrl} within 60 seconds.`);
+}
+
+async function stopSpotiFLAC() {
+  const child = spotiflacProcess;
+  spotiflacReady = false;
+  spotiflacProcess = null;
+  if (!child || !ownsSpotiFLACProcess) return;
+  ownsSpotiFLACProcess = false;
+
+  if (process.platform === 'win32' && child.pid) {
+    await new Promise((resolve) => execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, resolve));
+  } else {
+    try { child.kill('SIGTERM'); } catch {}
+  }
+  await Promise.race([
+    new Promise((resolve) => child.once('exit', resolve)),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -146,6 +319,10 @@ function startNextServer({ dev = false } = {}) {
       PORT: String(ELECTRON_SERVER_PORT),
       MUSIC_ELECTRON_TOKEN: ELECTRON_SERVER_TOKEN,
       DATA_DIR: path.join(app.getPath('userData'), 'data'),
+      SPOTIFLAC_URL: process.env.SPOTIFLAC_URL,
+      SPOTIFLAC_API_KEY: process.env.SPOTIFLAC_API_KEY || '',
+      SPOTIFLAC_TIMEOUT: process.env.SPOTIFLAC_TIMEOUT,
+      SPOTIFLAC_CACHE_DIR: process.env.SPOTIFLAC_CACHE_DIR,
       MUSIC_NEXT_DEV: dev ? '1' : '0',
     };
     nextProcess = utilityProcess.fork(path.join(__dirname, 'electron-next-server.js'), [], {
@@ -264,10 +441,12 @@ else {
   });
   app.whenReady().then(async () => {
     try {
+      await startSpotiFLAC();
       await startNextServer({ dev: isElectronDev });
       createWindow();
     } catch (error) {
       console.error('[server] Failed to start Music server:', error);
+      dialog.showErrorBox('Music could not start', error instanceof Error ? error.message : String(error));
       app.quit();
     }
     app.on('activate', () => {
@@ -283,6 +462,7 @@ else {
     event.preventDefault();
     cancelHiddenSpotifyScrapes();
     await stopNextServer();
+    await stopSpotiFLAC();
     // This is intentional: after the child is stopped, force the Electron
     // process to leave so no hidden renderer or utility process is orphaned.
     app.exit(0);
